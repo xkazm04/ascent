@@ -1,0 +1,850 @@
+[
+ {
+  "context": "Security Posture & Audit Log",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "One audit-ledger write door: six hand-signed inserts become one, guard-pinned",
+  "size": "M",
+  "effort": 6,
+  "impact": 7,
+  "risk": 5,
+  "write_set": [
+   "src/lib/db/scans-audit.ts",
+   "src/lib/db/org-watch.ts",
+   "src/lib/db/scans-persist.ts",
+   "src/lib/db/scans-recommendations.ts",
+   "src/lib/db/retention.ts"
+  ],
+  "new_files": [
+   "src/lib/db/audit-append.ts",
+   "src/lib/db/audit-append.test.ts",
+   "src/lib/db/audit-writes.contract.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/data/data-model.md",
+   "src/lib/db/index.ts"
+  ],
+  "loc_check": [
+   "src/lib/db/scans-audit.ts: 428 -> ~395 (no .tsx cap; .ts spirit, shrinks)",
+   "src/lib/db/org-watch.ts: 880 -> ~870 (shrinks)",
+   "src/lib/db/scans-persist.ts: 937 -> ~925 (shrinks)",
+   "src/lib/db/scans-recommendations.ts: 493 -> ~470 (shrinks)",
+   "src/lib/db/retention.ts: 2817 -> ~2812 (the redaction update calls the door)",
+   "src/lib/db/audit-append.ts: new ~90",
+   "src/lib/db/audit-append.test.ts: new ~120",
+   "src/lib/db/audit-writes.contract.test.ts: new ~90"
+  ],
+  "acceptance": [
+   "auditRowData({action:'x', orgId:'o', actorId:null, meta:{a:1}}) with AUDIT_SIGNING_SECRET set -> returned `at` is a Date, JSON.parse(meta)._sig is present, and verifyAudit({action, orgId, actorId, createdAt: at.toISOString(), meta: parsed}) === 'ok'",
+   "auditRowData(...) with no AUDIT_SIGNING_SECRET/AUTH_SECRET -> meta carries no `_sig` and verifyAudit returns 'no-secret' (inert, unchanged behaviour)",
+   "auditRowsData([{...id:'a'}, {...id:'b'}], sharedAt) -> both rows carry the SAME `at`, and each one verifies 'ok' over that instant (the batch rule from scans-recommendations, now in one place)",
+   "appendAudit(client, fields) calls client.auditLog.create exactly once with the auditRowData output, so recordAudit, claimOrgAuditOnce (on `tx`) and releaseAuditClaim share one envelope",
+   "guard: no non-test .ts under src/ except src/lib/db/audit-append.ts contains a CALL to auditLog.create / createMany / update / updateMany / upsert after comments and strings are stripped -> RED today (scans-audit.ts x3, org-watch.ts, scans-persist.ts, scans-recommendations.ts x2, retention.ts update)",
+   "guard: auditLog.deleteMany may appear only in src/lib/db/retention.ts (the retention purge), so no other module can delete a ledger row",
+   "guard seeded violation: the text `await tx.auditLog.create({ data })` in code is flagged; the same text inside a // comment or a string literal is not",
+   "redactAuditRow via the door: a redacted row has actorId null, meta {_redacted, _sig}, and verifies 'ok' (pins today's retention behaviour)"
+  ],
+  "guards": [
+   "auditRowData with no secret -> 'no-secret' (green before by design: inert behaviour must not move)",
+   "redactAuditRow verifies 'ok' (green before by design: today's redaction re-signs correctly; the move must not change it)",
+   "guard: deleteMany only in retention.ts (green before by design: release already appends instead of deleting, commit 5a7469d8)"
+  ],
+  "premise": [
+   "src/lib/db/scans-audit.ts:27-39 - recordAudit stamps `at`, calls withAuditSignature, then prisma.auditLog.create inline",
+   "src/lib/db/scans-audit.ts:164-169 - claimOrgAuditOnce repeats the same stamp+sign+create on `tx`",
+   "src/lib/db/scans-audit.ts:210-231 - releaseAuditClaim repeats it a third time",
+   "src/lib/db/org-watch.ts:693-715 - recordConformance hand-builds the signed insert; its comment says the path 'used to JSON.stringify the meta directly, so conformance rows landed with no `_sig`'",
+   "src/lib/db/scans-persist.ts:793-822 - the scan.created insert repeats it; comment: 'This path used to JSON.stringify the meta directly, so the highest-volume action in the product landed with no `_sig`'",
+   "src/lib/db/scans-recommendations.ts:151-178 - recommendation.updated insert, same hand-rolled envelope, same 'used to ... unsigned' comment",
+   "src/lib/db/scans-recommendations.ts:289-315 - the batch createMany is a sixth copy; src/lib/db/scans-recommendations.test.ts:684 says 'The batch path was a third unsigned site the earlier audit missed'",
+   "src/lib/db/retention.ts:1519-1526 - the erasure redaction writes tx.auditLog.update directly",
+   "src/lib/alert-door.contract.test.ts:3-8 - the repo's own precedent for this move: 'ONE ALERT DELIVERY DOOR ... the copies diverged in the one way that mattered'",
+   ".ai/registry-map.json (Security Posture & Audit Log / audit-logging) - recorded deviation at src/lib/db/scans-audit.ts:34: meta persisted without sanitization or size limits; with six doors that fix is a six-site campaign, with one it is one edit"
+  ],
+  "rollback": "Each writer's switch is its own commit after the door + its unit tests land; reverting a commit restores that site's inline insert unchanged. The guard is a separate final commit and reverts by deleting one test file. No schema change, no data change, signed bytes identical before and after.",
+  "gate": "architecture",
+  "doc": "docs/features/data/data-model.md",
+  "runner_up": "One 'failing control' predicate for D9: the findings ledger mints a finding below 7 including the exposure check (src/lib/org/findings.ts:83) while the register's Gaps column counts posture checks below 4 (src/features/standing/security/securityRegisterShared.ts:71), so one repo shows 1 gap and 4 findings.",
+  "body": "## Summary\nThe audit ledger has six insert sites and one retention update, and each builds the signed row by hand: stamp `at`, call `withAuditSignature`, stringify, create. Four of them were found unsigned one at a time and fixed one at a time; the comments say so. Add one door, `src/lib/db/audit-append.ts`, route every writer through it, and pin it with a guard that strips comments first and seeds a violation.\n\n## Description\nThe registry's audit-logging `write-chokepoint` technique (law `one-validation-door`) says the ledger should expose exactly one insert operation, with every invariant inside it, so the writer list can be found by search. Today the invariant that matters most here, that the signed instant is the stored instant, is re-explained in a comment at every site (org-watch.ts:693, scans-persist.ts:793, scans-recommendations.ts:151 and :289), because getting it wrong makes a row verify as `tampered` forever. The door is `auditRowData(fields, at?)` (pure: one clock, sign, stringify), `auditRowsData(batch, sharedAt)` for the createMany case, `appendAudit(client, fields)` that accepts the prisma client or a transaction client so the in-transaction writers keep their atomicity, and `redactAuditRow` for the erasure update. `recordAudit` keeps its failure accounting (`noteAuditWriteFailure`) and its signature, so the 72 callers do not change. The guard follows the shape of `alert-door.contract.test.ts`.\n\n## Flow\n- Land audit-append.ts + audit-append.test.ts (cases 1-4, 8) red-first.\n- Switch scans-audit.ts (3 sites), then org-watch.ts, scans-persist.ts, scans-recommendations.ts (2 sites), retention.ts (the redaction update), one commit each. The existing signing tests in those files stay green, which proves the bytes did not move.\n- Land audit-writes.contract.test.ts (cases 5-7): red before the switch, green after.\n- Update data-model.md section 'Audit-trail tamper-evidence': it still says the writers are `recordAudit` / `claimOrgAuditOnce`; it should name the door and the guard.\n\n## Expected impact\nA seventh writer cannot ship unsigned or mis-stamped, and the guard fails CI if it tries. The recorded write-path-sanitization deviation (scans-audit.ts:34) becomes a one-edit follow-up inside the door instead of a six-file campaign. Nothing is recorded less, no check is weakened, and the signed bytes are identical.\n\n## Evaluation\nClaim: every audit-ledger write goes through one door, and a guard keeps it that way\nBefore: 0 of 8 cases pass (the door does not exist; the guard finds 8 direct writes in 5 files)\nAfter: 8 of 8\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: architecture",
+  "evidence": "grep -rn \"auditLog\\.\\(create\\|createMany\\|update\\|delete\\|upsert\\)\" src --include=*.ts (non-test):\nsrc/lib/db/org-watch.ts:700 prisma.auditLog.create\nsrc/lib/db/retention.ts:608 prisma.auditLog.deleteMany\nsrc/lib/db/retention.ts:1523 tx.auditLog.update\nsrc/lib/db/scans-audit.ts:31 getPrisma().auditLog.create\nsrc/lib/db/scans-audit.ts:166 tx.auditLog.create\nsrc/lib/db/scans-audit.ts:223 prisma.auditLog.create\nsrc/lib/db/scans-persist.ts:801 tx.auditLog.create\nsrc/lib/db/scans-recommendations.ts:158 tx.auditLog.create\nsrc/lib/db/scans-recommendations.ts:296 tx.auditLog.createMany\nwithAuditSignature call sites outside audit-integrity.ts: org-watch.ts:707, scans-audit.ts:30/165/216, scans-persist.ts:806, scans-recommendations.ts:163/301. git log shows these were fixed separately (scans-recommendations.test.ts:684: 'a third unsigned site the earlier audit missed')."
+ },
+ {
+  "context": "Security Posture & Audit Log",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "Verify the whole filtered trail in one click, not just the 25 rows on screen",
+  "size": "M",
+  "effort": 6,
+  "impact": 8,
+  "risk": 4,
+  "write_set": [
+   "src/app/api/audit/route.ts",
+   "src/features/admin/audit/AuditLogViewer.tsx",
+   "src/features/admin/audit/AuditLogTable.tsx"
+  ],
+  "new_files": [
+   "src/lib/db/audit-walk.ts",
+   "src/lib/db/audit-walk.test.ts",
+   "src/app/api/audit/integrity/route.ts",
+   "src/app/api/audit/integrity/route.test.ts",
+   "src/features/admin/audit/auditIntegrityModel.ts",
+   "src/features/admin/audit/auditIntegrityModel.test.ts",
+   "src/features/admin/audit/useAuditIntegritySweep.ts",
+   "src/features/admin/audit/AuditIntegrityStrip.tsx",
+   "src/features/admin/audit/AuditIntegrityStrip.dom.test.tsx"
+  ],
+  "shared_surfaces": [
+   "docs/features/data/data-model.md",
+   "src/features/admin/audit/auditActions.ts"
+  ],
+  "loc_check": [
+   "src/app/api/audit/route.ts: 137 -> ~120 (the cursor loop moves to audit-walk.ts)",
+   "src/features/admin/audit/AuditLogViewer.tsx: 45 -> ~65 (cap 200)",
+   "src/features/admin/audit/AuditLogTable.tsx: 131 -> ~145 (cap 200; the banner says 'on this page' and takes an optional row override)",
+   "src/lib/db/audit-walk.ts: new ~70",
+   "src/app/api/audit/integrity/route.ts: new ~60",
+   "src/features/admin/audit/auditIntegrityModel.ts: new ~80 (cap 200)",
+   "src/features/admin/audit/useAuditIntegritySweep.ts: new ~70 (cap 200, 'use client')",
+   "src/features/admin/audit/AuditIntegrityStrip.tsx: new ~90 (cap 200, 'use client')",
+   "tests: each new test file <= ~150 (cap 200)"
+  ],
+  "acceptance": [
+   "walkAuditLog(org, filters, {cap}) visits rows newest-first via getAuditLog pages of 100 and returns {scanned, truncated}; with 3 fake pages and cap 10000 -> scanned = sum of pages and truncated false; with cap reached and nextCursor still set -> truncated true (the CSV branch is rebuilt on it, so the existing route.test.ts CSV cases are its regression guard)",
+   "sweepAuditIntegrity over pages where one row on the LAST page is 'tampered' -> {scanned:N, ok, unsigned, tampered:1, noSecret:0, truncated:false, tamperedEntries:[that entry]}; tamperedEntries is capped at 50 while `tampered` stays the true count",
+   "GET /api/audit/integrity?org=x when requireOrgRead denies -> returns the denial response and the walk is never called; missing org -> 400; DB off -> 503",
+   "GET /api/audit/integrity?org=x&action=scan.created&since=2026-10-01 -> sweep receives exactly {action, since} (the same filter object the CSV branch uses), and the response sets cache-control no-store",
+   "integrityStripState(summary): all 'ok' -> 'verified' ('N of N verified'); any tampered -> 'tampered' with action 'show-tampered'; truncated -> 'partial' naming the 10000 cap and that the OLDEST rows were not checked; every row no-secret -> 'unverifiable'; unsigned > 0 with tampered 0 -> 'verified-with-unsigned' (neutral, never an alarm)",
+   "useAuditIntegritySweep: verify() fetches /api/audit/integrity with the APPLIED filter query string (not the live, unapplied inputs); a change of applied filters marks the last summary stale and drops it, so a result is never shown against rows it did not check",
+   "showTampered() switches the table to the sweep's tamperedEntries with a 'Showing N tampered entries - back to trail' header; back() restores the paged entries and cursor unchanged",
+   "AuditLogTable with 1 tampered row loaded and no sweep run -> banner reads '1 entry on this page does not match ...' plus a 'Verify all matching entries' action, instead of a page count that reads like a trail verdict"
+  ],
+  "guards": [
+   "walkAuditLog CSV regression: the existing src/app/api/audit/route.test.ts CSV cases (row count, -PARTIAL filename, x-ascent-truncated) stay green by design after the loop moves"
+  ],
+  "premise": [
+   "src/features/admin/audit/AuditTab.tsx:24 - the tab loads the trail with getAuditLog(slug, { limit: 25 })",
+   "src/features/admin/audit/AuditLogTable.tsx:30-31 - showIntegrity and tamperedCount are computed over `entries`, the rows loaded so far, not the trail",
+   "src/features/admin/audit/AuditLogTable.tsx:35-41 - the 'Integrity failure ... do not file them as evidence' banner only fires for a tampered row the reader has already paged to",
+   "src/features/admin/audit/AuditLogTable.tsx:118-127 - the only way to reach older rows is 'Load more', 25 at a time",
+   "src/app/api/audit/route.ts:29 and :39-62 - the server already walks the filtered trail up to 10000 rows for the CSV, and each entry already carries its verdict (route.ts:53 e.integrity)",
+   "src/lib/db/scans-audit.ts:416-422 - getAuditLog recomputes the HMAC verdict for every row it returns, so a sweep needs no new crypto",
+   "src/features/admin/audit/useAuditLogFilters.ts:130-134 and :196 - the APPLIED filter set already exists, and the CSV is built from it; the sweep reuses it",
+   "docs/features/data/data-model.md:111 - 'a fresh unsigned row is a genuine finding' since 2026-09-05, so an unsigned COUNT over the window is information the page cannot give today"
+  ],
+  "rollback": "Three commits: (1) extract walkAuditLog and rebuild the CSV on it (guarded by the existing route tests), (2) the read-only integrity route + its test, (3) the model, hook, strip and table wording. Reverting (3) leaves an unused GET route; reverting (2) and (1) restores the inline CSV loop. Nothing is written, so no data needs undoing.",
+  "gate": "contract",
+  "doc": "docs/features/data/data-model.md",
+  "runner_up": "Add the subject axis to the trail: a repo filter on /api/audit plus a 'History' link from each security-register row and finding, so 'who touched this repo' takes one click (needs a structured subject column; the repo lives only in meta JSON today, src/lib/db/scans-audit.ts:357-363).",
+  "body": "## Summary\nThe audit viewer verifies every row it shows, but it shows 25 at a time, and the tamper banner counts only rows already loaded. An examiner who sees no banner on page one has learned nothing about page forty. The server already walks the whole filtered trail for the CSV. Add one action, 'Verify all matching entries', that walks the same rows, returns counts by verdict and the tampered entries, and lets the reader switch the table to exactly those rows.\n\n## Description\nThe registry's audit-logging `audit-querying` technique (law `count-carries-predicate`) asks that a count over a trail state the population it covers, and that evidence for an outside reviewer be checkable without paging by hand. Today the only whole-trail verdict is the per-row `integrity` column inside a CSV, which the reader has to open in a spreadsheet and filter. The new read-only `GET /api/audit/integrity` uses `requireOrgRead`, the same gate as `/api/audit`. It walks with `walkAuditLog`, the loop pulled out of `exportCsv`, so the sweep and the CSV cover the same rows by construction, under the same 10000-row cap. It returns `{scanned, ok, unsigned, tampered, noSecret, truncated, tamperedEntries<=50}`. A pure `auditIntegrityModel.ts` maps that to a strip state. `unsigned` stays neutral, as AuditLogCells.tsx already requires. 'Partial' names the cap and says the oldest rows were not checked, the same honesty as the CSV's -PARTIAL filename. The page-level banner is reworded to say 'on this page' and links to the sweep.\n\n## Flow\n- Reader applies filters (or none) and clicks 'Verify all matching entries'.\n- The strip reads 'Checked 4,210 entries matching this filter: 4,020 verified, 187 unsigned, 3 tampered' with [Show the 3 tampered].\n- Show tampered: the table holds only those rows (full Details, scan links). Back returns to the paged trail with its position kept.\n- Changing the filters drops the stale summary.\n\n## Expected impact\nThe question an examiner actually asks, 'is anything in this window tampered?', goes from N page loads plus a spreadsheet to one click. The signal the integrity work was built to give stops depending on how far someone scrolled. Nothing is loosened: the route is read-only, uses the same tenant gate, and its result is never shown as clean when it is partial or unverifiable.\n\n## Evaluation\nClaim: one action produces a verdict over the whole filtered trail and opens the tampered rows\nBefore: 0 of 8 cases pass (no walk module, no route, no model; the banner counts the loaded page)\nAfter: 8 of 8\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: contract (new read-only GET route and response shape)",
+  "evidence": "AuditLogTable.tsx:30-31: `const showIntegrity = entries.some(...)`; `const tamperedCount = entries.filter((e) => e.integrity === \"tampered\").length;` where entries = the rows loaded so far (useAuditLogFilters.ts:124, seeded by AuditTab.tsx:24 limit 25, grown by loadMore :191-193). route.ts:39-62: `do { const page = await getAuditLog(org, { ...filters, cursor, limit: 100 }); ... } while (cursor && total < CSV_MAX_ROWS);` with e.integrity per row at :53. `ls src/app/api/audit/` -> route.ts, route.test.ts, verify/ (no integrity route; verify/ is the control-ledger day chain, a different mechanism, data-model.md:115-121)."
+ },
+ {
+  "context": "Roadmap & Recommendation Tracking",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "Status-transition consequences in one module: every close fires them, not PATCH",
+  "size": "M",
+  "effort": 6,
+  "impact": 7,
+  "risk": 5,
+  "write_set": [
+   "src/app/api/recommendations/[id]/route.ts",
+   "src/lib/db/scans-persist.ts",
+   "src/lib/db/lane-outcomes.ts",
+   "src/lib/db/scans-persist.test.ts"
+  ],
+  "new_files": [
+   "src/lib/report/rec-transitions.ts",
+   "src/lib/report/rec-transitions.test.ts",
+   "src/lib/db/rec-transition-effects.ts",
+   "src/lib/db/rec-transition-effects.test.ts",
+   "src/app/api/recommendations/[id]/route.consequences.test.ts",
+   "src/lib/db/lane-outcomes.close.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/reporting/report.md",
+   "docs/features/org-knowledge/memory.md",
+   "src/lib/db/index.ts"
+  ],
+  "loc_check": [
+   "src/app/api/recommendations/[id]/route.ts: 177 -> ~160 (no cap: .ts outside src/features)",
+   "src/lib/db/scans-persist.ts: 937 -> ~950 (no cap; one post-commit call beside appendScanObservations)",
+   "src/lib/db/lane-outcomes.ts: 491 -> ~495 (no cap)",
+   "src/lib/db/scans-persist.test.ts: existing -> +~40 (test, no cap)",
+   "src/lib/report/rec-transitions.ts: new ~80",
+   "src/lib/db/rec-transition-effects.ts: new ~90"
+  ],
+  "acceptance": [
+   "planRecTransition({from:'in_progress',to:'done',reason:null}) -> ['close-memory']",
+   "planRecTransition({from:'open',to:'dismissed',reason:'we build with Bazel'}) -> ['standing-dismissal']; same with reason null or '  ' -> [] (silence is not suppression)",
+   "planRecTransition({from:'dismissed',to:'open'}) -> ['reopen-decision']; {from:null (unknown),to:'in_progress'} -> ['reopen-decision'] (route compat: clear is a no-op without a decision); {from:'open',to:'in_progress'} -> []; {from:'done',to:'done'} -> []",
+   "persistScanReport with one prior in_progress gap row resolved by its Ascent-Resolves trailer -> applyRecTransitionEffects called ONCE after the transaction with {to:'done', title, dimension} scoped to the repo's orgId + fullName; a deduped persist -> not called; an effects rejection -> persist still returns its scanId",
+   "closeBuiltCraftRungs on a verified lane with 2 craft ids -> both rows closed by compare-and-set (updateMany where status != 'done'), 2 close-memory effects applied; a row that went done concurrently (count 0) -> no event and no effect",
+   "PATCH /api/recommendations/:id {status:'dismissed',note:'x'} -> effects receive {to:'dismissed',reason:'x'}; {status:'done'} -> effects receive {to:'done'}; the route source (comment-stripped) no longer references recordRecommendationClose / recordRecommendationDismissal / clearRecommendationDismissal",
+   "applyRecTransitionEffects never throws: a failing memory writer resolves to {applied:[],failed:['close-memory']} and logs",
+   "CRITIC REVISE: planRecTransition({from:\"dismissed\",to:\"done\"}) emits BOTH the close-memory effect and the reopen-decision (lift the standing dismissal), matching the PATCH route which clears the dismissal on any non-dismissed post-state"
+  ],
+  "guards": [
+   "the PATCH route's done and dismissed-with-reason behaviours (case 6) are green-before by design; the refactor must keep them",
+   "dismissal without a reason -> no standing decision (case 2, second half) is green-before"
+  ],
+  "premise": [
+   "src/app/api/recommendations/[id]/route.ts:137-139 - the Shared Org Memory 'recommendation-closed' write fires only from this PATCH handler",
+   "src/app/api/recommendations/[id]/route.ts:146-160 - the standing-decision write and its reopen are also inlined in the route",
+   "src/lib/memory/scan-feed.ts:252 - recordRecommendationClose; grep over src (excluding tests) finds its only caller at route.ts:138",
+   "src/lib/db/org-decisions.ts:311,349 - recordRecommendationDismissal / clearRecommendationDismissal; the only non-test callers are route.ts:148,154 (plus the db/index.ts:378-379 re-export)",
+   "src/lib/db/followup-claims.ts:25-26 - 'status: done is reachable only from scans-persist's decideInProgress', the rescan witness, yet that path never feeds memory",
+   "src/lib/db/scans-persist.ts:613-636 - resolved follow-ups are created as status 'done' rows with a system event; no memory write follows",
+   "src/lib/db/scans-persist.ts:887-889 - the existing post-transaction best-effort hook (appendScanObservations) is where the effects call belongs",
+   "src/lib/db/lane-outcomes.ts:360 - craft rungs close with an unguarded prisma.recommendation.update({where:{id}}) and no consequence; 361-375 write only an event",
+   "src/lib/memory/scan-feed.ts:4-8 - the feed's stated purpose: 'this gap was closed' must reach the store an agent reads instead of evaporating"
+  ],
+  "rollback": "Revert the series. The route gets its inlined calls back, scans-persist and lane-outcomes each lose one post-commit call, and the two new modules are deleted. There is no schema or wire change. The only thing left behind is extra 'recommendation-closed' memory rows, which are ordinary episodic rows.",
+  "gate": "architecture",
+  "doc": "docs/features/reporting/report.md",
+  "runner_up": "Collapse recommendationRowState.ts (pure targeted-rollback helpers imported only by their own test) into the tracker's inline mergeRecPatch/rollback, so the tested invariant is the one that runs.",
+  "body": "## Summary\nWhat a recommendation's status change MEANS is written inline in one HTTP route: a close feeds Shared Org Memory, a dismissal with a reason becomes a standing decision the next scan reads, and a reopen lifts that suppression. Every other path that moves a status skips all of it. That includes the rescan witness, which the claim module calls the only real close.\n\n## Description\n`PATCH /api/recommendations/:id` runs three consequence writers after `updateRecommendation` (route.ts:137-160), and grep shows they have no other caller. Meanwhile:\n- the rescan carry-forward closes verified in_progress rows as `done` (scans-persist.ts:613-636), and Org Memory never hears about them;\n- the loop's craft-rung close (lane-outcomes.ts:360) is an unguarded update with no consequences;\n- any future writer (bulk triage, an Athena action) has to rediscover the three calls and their rules: run after commit, never throw, and a note is not a reason.\nThe result: Org Memory's 'recommendation-closed' events record human clicks only, while the trustworthy closes (measured by a rescan) never reach an agent.\n\nThe move applies the one-validation-door law behind remediation-roadmaps/sandbox-to-tracker-commit, plus scan-feed's own never-throw and idempotency contracts:\n1. `src/lib/report/rec-transitions.ts`: a pure `planRecTransition({from, to, reason}) -> Effect[]`, the one place that says which transition earns which consequence.\n2. `src/lib/db/rec-transition-effects.ts`: `applyRecTransitionEffects(effects, scope)` runs the existing writers (recordRecommendationClosedMemory, recordRecommendationDismissal, clearRecommendationDismissal) after commit and never throws.\n3. Three callers: the PATCH route (same behaviour), the post-transaction block in scans-persist (resolved rows), and the craft close in lane-outcomes (now a CAS).\n\n## Flow\n- A writer commits a status change -> planRecTransition -> applyRecTransitionEffects (post-commit, best-effort)\n- A rescan resolves a follow-up -> 'done' row -> close-memory effect -> episodic memory 'Recommendation closed on <repo>'\n- PATCH dismiss with a reason -> standing-dismissal (unchanged); reopen -> reopen-decision (unchanged)\n\n## Expected impact\nEvery verified close reaches Shared Org Memory, not only the ones a human clicked. The consequence rules live in one tested place, so the next writer gets them by calling it.\n\n## Evaluation\nClaim: status consequences live in one module and fire on every writer.\nBefore: 0 of 7 cases pass (the modules are absent; the persist and lane paths write no memory)\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: architecture",
+  "evidence": "grep -rn 'recordRecommendationClose(' src --include=*.ts | grep -v test -> route.ts:138 and the definition at scan-feed.ts:252 only. grep recordRecommendationDismissal|clearRecommendationDismissal (non-test) -> route.ts:16,18,148,154; db/index.ts:378-379; org-decisions.ts:311,349. scans-persist.ts:614 `const done = await tx.recommendation.create({... status: \"done\" ...})` followed only by recommendationEvent.create at :634. lane-outcomes.ts:360 `await prisma.recommendation.update({ where: { id: row.id }, data: { status: \"done\" } })`. followup-claims.ts:25 'WHAT NO PATH HERE CAN DO IS CLOSE A ROW. `status: \"done\"` is reachable only from `scans-persist`'s `decideInProgress`'.",
+  "revise_applied": "dismissed->done emits close-memory + reopen-decision"
+ },
+ {
+  "context": "Roadmap & Recommendation Tracking",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "Sandbox commit previews its extent, lands as one claim with per-item outcomes",
+  "size": "M",
+  "effort": 6,
+  "impact": 7,
+  "risk": 5,
+  "write_set": [
+   "src/components/report/RoadmapSandboxCommit.tsx",
+   "src/app/api/org/followups/handoff/route.ts"
+  ],
+  "new_files": [
+   "src/components/report/sandboxCommitModel.ts",
+   "src/components/report/sandboxCommitModel.test.ts",
+   "src/components/report/SandboxCommitPreview.tsx",
+   "src/components/report/RoadmapSandboxCommit.dom.test.tsx",
+   "src/app/api/org/followups/handoff/route.sandbox.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/reporting/report.md",
+   "docs/features/org-followups/README.md"
+  ],
+  "loc_check": [
+   "src/components/report/RoadmapSandboxCommit.tsx: 192 -> ~185 (cap 300; committableRecs/sandboxCommitNote/sandboxCommitSummary move to the model and are re-exported, so RoadmapSandboxCommit.test.ts is unchanged)",
+   "src/app/api/org/followups/handoff/route.ts: 72 -> ~105 (no cap)",
+   "src/components/report/sandboxCommitModel.ts: new ~120 (no 'use client'; the route imports sandboxCommitNote from here, never from the client file)",
+   "src/components/report/SandboxCommitPreview.tsx: new ~90 (cap 300)",
+   "RoadmapSandbox.tsx (264) and RoadmapSandboxParts.tsx (298, at cap) are deliberately NOT touched"
+  ],
+  "acceptance": [
+   "planSandboxCommit(roadmap, recs, applied {0,1,2,3}) with item0 -> open recA, item1 -> in_progress recB (assignee 'ana'), item2 -> done recC, item3 matching no persisted rec -> {start:[A], skip:[{rec:B,status:'in_progress'},{rec:C,status:'done'}], unmatched:[item3]}",
+   "planSandboxCommit with two applied items joining the same open rec -> start contains it once",
+   "summarizeSandboxPlan(plan above) -> 'Start 1 · 2 already on the tracker (1 in progress, 1 done) · 1 not tracked for this scan'; an empty start -> commit disabled with that breakdown as its reason (replacing 'already tracked, or no persisted match')",
+   "commitOutcomeRows(plan, {marked:['A'], skipped:[{id:'B2',reason:'held'}]}) -> A 'tracked', B2 'held'; a start id in neither list -> 'failed'",
+   "POST /api/org/followups/handoff {ids:[A], origin:'sandbox', projectedDelta:-3.2} without org -> org resolved from the first id's row (getRecommendationOrgSlug), requireOrgAccess on that org, claimFollowups called once with executor 'human', leaseMs null, allOrNothingTenancy true, note 'Committed from sandbox simulation, projected -3 pts overall.'; a public-org row -> 403; an unknown first id -> 403 (the same answer as foreign)",
+   "POST handoff without origin -> behaviour and note unchanged ('Handed off: fix prompt generated from the Follow-ups ledger'); origin 'sandbox' with a non-finite projectedDelta, or origin 'other' -> 400",
+   "SandboxCommitBar commit with 3 startable recs -> exactly ONE fetch to /api/org/followups/handoff and zero PATCHes; onRecommendationCommitted fires only for marked ids; a 403 -> 'blocked' state and no per-item rows"
+  ],
+  "guards": [
+   "POST handoff without origin (case 6, first half) is green-before by design",
+   "the existing committableRecs / sandboxCommitNote / sandboxCommitSummary tests in RoadmapSandboxCommit.test.ts stay green through the re-export"
+  ],
+  "premise": [
+   "src/components/report/RoadmapSandboxCommit.tsx:122-130 - commit is a client loop of sequential PATCH /api/recommendations/:id calls, one per rec ('no batch API')",
+   "src/components/report/RoadmapSandboxCommit.tsx:41 - committableRecs silently drops every non-open match, so the bar cannot say what it skipped",
+   "src/components/report/RoadmapSandboxCommit.tsx:113-114 - the disabled reason conflates two different facts: 'already tracked, or have no persisted match'",
+   "src/components/report/RoadmapSandboxCommit.tsx:82-87,146-148 - outcome state is page-level (saved/total); a failed row is swallowed and never named",
+   "src/lib/db/scans-recommendations.ts:87-90 - the PATCH path writes status only, with no claimActor/claimExecutor, so a sandbox-committed row has no holder on the Follow-ups ledger",
+   "src/lib/db/followup-claims.ts:5-9,14-17 - claimFollowups is declared THE one claim path; the browser hand-off was moved onto it because the old path 'moved the status and wrote no claim column'",
+   "src/app/api/org/followups/handoff/route.ts:57-65 - the human claim door already exists (executor human, leaseMs null, allOrNothingTenancy), with a hard-coded note at :63",
+   "ai-registry remediation-roadmaps/techniques/sandbox-to-tracker-commit.md - 'Show what commit will do before it does it ... any item that will be skipped as already tracked'; 'a surface that reports success at the batch level while writing at the item level will eventually claim a commit that half happened'"
+  ],
+  "rollback": "Revert the series. RoadmapSandboxCommit goes back to its PATCH loop, the handoff route loses the optional origin branch (its default branch is never changed), and the new model and preview files are deleted. Claims already written are ordinary human claims the ledger can release.",
+  "gate": "contract",
+  "doc": "docs/features/reporting/report.md",
+  "runner_up": "Bulk triage on the tracker: select rows, then apply one status, owner, due date or shared dismiss reason to all of them, with per-row outcomes (needs the slot-A transition module first).",
+  "body": "## Summary\nToday 'Commit N to tracker' writes blind. It doesn't show which of the tried items are already in progress, done, dismissed or untracked; it fires N separate PATCHes and reports only a count; and the rows it marks in progress have no holder on the Follow-ups ledger. Make the commit one previewed, per-item transition through the claim door the rest of the product already uses.\n\n## Description\nThe sandbox is where a team decides its plan. The registry technique this surface was built from (remediation-roadmaps/sandbox-to-tracker-commit) asks for three things the bar lacks: show the extent before writing, keep per-item state so a partial failure names what failed, and make the commit one transition. The bar also routes around `claimFollowups`, the declared one claim path, so a sandbox-committed row reads 'in progress' with nobody holding it.\n\nBuild:\n1. `sandboxCommitModel.ts` (pure): planSandboxCommit (start / skip with status / unmatched), summarizeSandboxPlan, commitOutcomeRows, plus the moved committableRecs, sandboxCommitNote and sandboxCommitSummary.\n2. `SandboxCommitPreview.tsx`: before the commit, it lists the rows it will start and the rows it will skip, with the reason (in progress and the owner if any, done, dismissed, not tracked). After the commit, the same rows read tracked, held or failed.\n3. Handoff route: optional `origin:'sandbox'` and `projectedDelta`. The org is resolved from the row (resolve-then-gate, as the per-id PATCH does), and the signed sandbox note is written. The default branch is untouched.\n4. The commit bar makes one POST instead of the PATCH loop.\n\n## Flow\n- Try it on items -> the preview reads 'Start 2 · 1 already in progress (@ana) · 1 not tracked'\n- Commit -> one POST -> each row reads tracked, held or failed, and the summary is built from those rows\n- The Follow-ups ledger shows 'claimed by <you>' on the committed rows\n\n## Expected impact\nUsers see what a commit will do before they make it. A partial failure names its rows instead of giving a count. Sandbox commits join the one claim system that the ledger, MCP and the loop already go through.\n\n## Evaluation\nClaim: the commit previews its extent, writes once through claimFollowups, and reports per item.\nBefore: 0 of 7 cases pass (the model, the origin branch and the single-POST commit are absent)\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: contract (an additive optional field on POST /api/org/followups/handoff)",
+  "evidence": "RoadmapSandboxCommit.tsx:122 '// Sequential PATCHes through the existing per-row path (no batch API)'; :126 fetch(`/api/recommendations/${rec.id}`, {method:'PATCH', body:{status:'in_progress', note}}). :41 `if (rec && rec.status === \"open\" && !seen.has(rec.id))`. :114 \"The recommendations you tried are already tracked, or have no persisted match to commit.\" scans-recommendations.ts:87-90 set data.status only. followup-claims.ts:9 'So every claim now runs through `claimFollowups`'. handoff/route.ts:63 note: \"Handed off: fix prompt generated from the Follow-ups ledger\"."
+ },
+ {
+  "context": "Members & Access Control",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "One requireOrgAdmin door + a guard: no owner/admin route admits the public org",
+  "size": "M",
+  "effort": 6,
+  "impact": 8,
+  "risk": 6,
+  "write_set": [
+   "src/lib/authz.ts",
+   "src/lib/authz.test.ts",
+   "src/lib/api/orgPost.ts",
+   "src/app/api/practices/apply/route.ts",
+   "src/app/api/practices/apply/route.test.ts",
+   "src/app/api/practices/apply/route.degraded.test.ts",
+   "src/app/api/practices/apply-batch/route.ts",
+   "src/app/api/practices/apply-batch/route.test.ts",
+   "src/app/api/practices/apply-batch/route.degraded.test.ts",
+   "src/app/api/practices/rollout/route.ts",
+   "src/app/api/practices/rollout/route.test.ts",
+   "src/app/api/practices/rollout/route.degraded.test.ts",
+   "src/app/api/practices/rollout/route.get.test.ts",
+   "src/app/api/org/issue/route.ts",
+   "src/app/api/org/issue/route.test.ts",
+   "src/app/api/org/[slug]/registry/dispatch/route.ts",
+   "src/app/api/org/[slug]/registry/dispatch/route.test.ts",
+   "src/app/api/org/local/projects/route.ts"
+  ],
+  "new_files": [
+   "src/app/api/org/admin-routes-refuse-public.test.ts",
+   "src/lib/api/orgPost.public.test.ts",
+   "src/app/api/practices/apply/route.public.test.ts",
+   "src/app/api/org/issue/route.public.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/github/auth.md",
+   "docs/adr/2026-10-07-shared-public-org-has-no-owner.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/lib/authz.ts: 356 -> ~385 (.ts outside src/features: no hard cap)",
+   "src/lib/authz.test.ts: 508 -> ~545 (test outside src/features: no cap)",
+   "src/lib/api/orgPost.ts: 41 -> ~46",
+   "src/app/api/practices/apply/route.ts: 112 -> ~113",
+   "src/app/api/practices/apply-batch/route.ts: 154 -> ~155",
+   "src/app/api/practices/rollout/route.ts: 220 -> ~221",
+   "src/app/api/org/issue/route.ts: 130 -> ~131",
+   "src/app/api/org/[slug]/registry/dispatch/route.ts: 181 -> ~182",
+   "src/app/api/org/local/projects/route.ts: 230 -> ~231",
+   "8 route test files: one line each (add requireOrgAdmin to the vi.mock('@/lib/authz') factory)",
+   "new admin-routes-refuse-public.test.ts: ~170; orgPost.public.test.ts ~60; two route.public.test.ts ~70 each"
+  ],
+  "acceptance": [
+   "requireOrgAdmin('public', 'owner') and requireOrgAdmin(' Public ', 'admin') -> 403 with the refusePublicOrgAdmin body, on an auth-off deployment too; requireOrgAdmin('acme', 'owner') -> exactly what requireOrgRole('acme', 'owner') returns (null for an owner, 403 for a member)",
+   "requireOrgOwnerPost(POST {org:'public'}) -> 403 NextResponse (today it returns {org:'public', body}, src/lib/api/orgPost.ts:38); {org:'acme'} from an owner -> {org, body} unchanged",
+   "POST /api/practices/apply {org:'public', repo:'public/x', practiceId} as a signed-in non-member, driving the REAL authz module -> 403 before any PR-target or installation lookup (today it passes the role gate at route.ts:63)",
+   "POST /api/org/issue {repo:'public/x', title, body} -> 403 public refusal, getInstallationIdForOwner never called (today the gate at route.ts:74 admits it)",
+   "Guard: every src/app/api/**/route.ts whose COMMENT-STRIPPED source calls requireOrgRole(<x>, \"owner\"|\"admin\"), requireOrgRole with a non-literal min, or requireOrgOwnerPost must also call requireOrgAdmin( or refusePublicOrgAdmin( in code, or sit in a named ALLOWLIST map {path: reason}; today it fails naming the 8 open routes (practices apply/apply-batch/rollout, org/issue, registry dispatch, local/projects, briefing/share, briefing/share/revoke)",
+   "Guard self-test: a seeded fixture whose only mention of refusePublicOrgAdmin is in a // comment beside requireOrgRole(org, \"owner\") is reported as a violation (the matcher must strip comments but NOT string literals, since the min role is a string; id-routes-gated's stripCommentsAndStrings would erase it)",
+   "Guard self-test: every ALLOWLIST path exists in git ls-files and still calls an owner/admin gate (a stale allowlist entry fails, so the list cannot rot into a silent pass)",
+   "CRITIC REVISE: the guard accepts an explicit in-code PUBLIC_ORG comparison as a refusal (the ~16 owner/admin routes under local/*, loop/*, goals/[id], report/foundation/*, report/passport/* that already refuse public that way pass without an ALLOWLIST entry); a seeded route with neither the door nor the comparison fails the guard"
+  ],
+  "guards": [
+   "requireOrgAdmin('acme', min) parity with requireOrgRole is green-before by design once the export exists: it pins that the door adds only the public refusal",
+   "The 23 routes already calling refusePublicOrgAdmin pass the guard unchanged"
+  ],
+  "premise": [
+   "docs/adr/2026-10-07-shared-public-org-has-no-owner.md:98 - 'The refusal is per-route, not structurally enforced: a new admin route on `public` is open until it calls the helper. No source-scanning guard like `id-routes-gated.test.ts` covers it at head. That is a gap, not a decision.'",
+   "src/lib/authz.ts:308 - requireOrgRole returns null for PUBLIC_ORG at ANY min, owner included; src/lib/authz.ts:350 - refusePublicOrgAdmin is opt-in per call site",
+   "src/lib/api/orgPost.ts:38 - requireOrgOwnerPost gates with requireOrgRole(body.org, 'owner') alone; its callers src/app/api/org/briefing/share/route.ts:50 and src/app/api/org/briefing/share/revoke/route.ts:51 contain no refusePublicOrgAdmin (grep -c = 0)",
+   "src/app/api/practices/apply/route.ts:63, src/app/api/practices/apply-batch/route.ts:79, src/app/api/practices/rollout/route.ts:104 - requireOrgRole(org, 'admin') with no public refusal and no PUBLIC_ORG reference in the file",
+   "src/app/api/org/issue/route.ts:74 - requireOrgRole(parsed.owner, 'admin'), no public refusal",
+   "src/app/api/org/[slug]/registry/dispatch/route.ts:109 and src/app/api/org/local/projects/route.ts:77 - requireOrgRole(<slug>, 'owner'), no public refusal; the ADR (Consequences) makes the refusal unconditional, self-hosted included",
+   "src/app/api/org/id-routes-gated.test.ts:79 - the house precedent for a comment-stripping source guard with a seeded prose-only violation (AGENTS.md 'An [id] route authorizes against the row's org')"
+  ],
+  "rollback": "Revert the series: requireOrgAdmin is additive, orgPost's refusal is one line, each route edit swaps one gate call back, and the guard + public tests are new files; no schema, no data.",
+  "gate": "policy-tighten",
+  "doc": "docs/features/github/auth.md",
+  "runner_up": "Audit the identity-bound owner bootstrap: viewerOrgRole -> ensureOwnerMembership (src/lib/authz.ts:159) seeds the most privileged grant in the app and writes no org.member.* audit row.",
+  "body": "## Summary\nRaise the public-org refusal from 31 per-route opt-ins to one door, `requireOrgAdmin(org, \"admin\"|\"owner\")` = `refusePublicOrgAdmin(org) ?? requireOrgRole(org, min)`, fold it into `requireOrgOwnerPost`, route the eight still-open owner/admin routes through it, and pin the rule with a comment-stripping source guard so the next owner route cannot ship open.\n\n## Description\nThe ADR of 2026-10-07 decided nobody administers `public`, and chose a per-route helper over changing `requireOrgRole` (alternative 2 lost because hasOrgRole READ callers go through the same gate). It then recorded the price in its own Consequences: the rule is enforced only where someone remembered it, and no guard exists. That is the textbook 'rule re-broken at newly added call sites' (invariant-placement / placement-precedes-gate): the scan found 7 open routes, the follow-up found 14 more, and a grep today finds 8 more that neither pass reached, including both briefing-share routes behind the shared `requireOrgOwnerPost` preamble, the three practices writers, org/issue, registry dispatch and local/projects. This card keeps the ADR's decision intact (requireOrgRole and hasOrgRole stay open for reads) and fixes its stated gap: a named door for writes, plus a gate that sees the target (constraint-deletion-is-silent: the guard strips comments, keeps strings, and proves itself against a seeded prose-only violation, the failure mode AGENTS.md records for id-routes-gated).\n\n## Flow\n- authz.ts: export requireOrgAdmin(org, min: 'admin'|'owner'); doc comment says it is THE door for owner/admin writes; requireOrgRole's comment points at it.\n- orgPost.ts: requireOrgOwnerPost calls requireOrgAdmin (closes briefing/share + revoke with zero route edits).\n- Six routes swap requireOrgRole(x, 'admin'|'owner') for requireOrgAdmin; their test mocks gain the export.\n- New admin-routes-refuse-public.test.ts walks git ls-files src/app/api/**/route.ts, strips comments only, flags owner/admin/non-literal-min gates without the door or a refusal, honours a reasoned ALLOWLIST (loop/* routes that answer 400/404 on PUBLIC_ORG explicitly), and self-tests a seeded violation and stale allowlist entries.\n- Two route.public.test.ts files drive the REAL authz module (the scan's method) for practices/apply and org/issue.\n\n## Expected impact\nThe set of owner/admin API routes that admit `public` goes from 8 to 0, and a new one fails CI at the guard instead of waiting for the next security scan. The ADR's 'gap, not a decision' line can be deleted.\n\n## Evaluation\nClaim: no owner/admin route admits the public org, and a new one cannot\nBefore: 0 of 7 cases pass\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: policy-tighten (refuses an action on `public` that was never legitimately available; widens nothing)",
+  "evidence": "for f in routes gating owner/admin: grep -c refusePublicOrgAdmin = 0 AND grep -c PUBLIC_ORG = 0 -> src/app/api/org/[slug]/registry/dispatch/route.ts, src/app/api/org/briefing/share/revoke/route.ts, src/app/api/org/briefing/share/route.ts, src/app/api/org/issue/route.ts, src/app/api/org/local/projects/route.ts, src/app/api/practices/apply-batch/route.ts, src/app/api/practices/apply/route.ts, src/app/api/practices/rollout/route.ts. requireOrgOwnerPost callers: admission x3, ai-stance, branding, gate-policy, llm-provider/test, retention each carry their own refusePublicOrgAdmin; briefing/share and revoke carry 0. ADR line 98-99 quoted above. orgPost.ts:38 `const denied = await requireOrgRole(body.org, \"owner\");`.",
+  "revise_applied": "guard accepts explicit PUBLIC_ORG comparison as refusal"
+ },
+ {
+  "context": "Members & Access Control",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "Invite a whole team in one paste: preflight vs roster and pending, then commit",
+  "size": "L",
+  "effort": 7,
+  "impact": 7,
+  "risk": 5,
+  "write_set": [
+   "src/app/api/org/invites/route.ts",
+   "src/features/admin/members/MemberInvites.tsx",
+   "src/features/admin/members/MembersPanel.tsx",
+   "src/features/admin/members/MembersTypes.ts"
+  ],
+  "new_files": [
+   "src/lib/org/invite-batch.ts",
+   "src/lib/org/invite-batch.test.ts",
+   "src/app/api/org/invites/route.batch.test.ts",
+   "src/features/admin/members/useMemberInvites.ts",
+   "src/features/admin/members/InviteBatchPreview.tsx",
+   "src/features/admin/members/MemberInvites.batch.test.tsx"
+  ],
+  "shared_surfaces": [
+   "docs/features/org-dashboard/org-intelligence.md",
+   "context-map.json"
+  ],
+  "loc_check": [
+   "src/features/admin/members/MemberInvites.tsx: 199 -> ~145 (cap 200; state + handlers move to useMemberInvites.ts, the preview to InviteBatchPreview.tsx)",
+   "src/features/admin/members/useMemberInvites.ts: new ~160 (cap 200, 'use client')",
+   "src/features/admin/members/InviteBatchPreview.tsx: new ~110 (cap 200, 'use client': onClick handlers)",
+   "src/features/admin/members/MemberInvites.batch.test.tsx: new ~140 (cap 200)",
+   "src/features/admin/members/MembersPanel.tsx: 94 -> ~96 (cap 200; passes members to MemberInvites)",
+   "src/features/admin/members/MembersTypes.ts: 27 -> ~50 (cap 200; batch outcome wire types)",
+   "src/app/api/org/invites/route.ts: 195 -> ~255 (.ts outside src/features: no hard cap)",
+   "src/lib/org/invite-batch.ts: new ~120 (pure, no server-only, importable by route and client)",
+   "src/lib/org/invite-batch.test.ts: new ~160; src/app/api/org/invites/route.batch.test.ts: new ~190"
+  ],
+  "acceptance": [
+   "parseInviteTargets('alice, Bob@x.io\\n@carol  alice;dave') -> targets ['alice','bob@x.io','carol','dave'] (leading @ dropped, email lower-cased, comma/semicolon/space/newline separators) and duplicates ['alice']",
+   "classifyInviteTargets(['alice','bob','carol','x y!','eve@x.io'], members=[{login:'bob',role:'admin'}], pending=[{id:'i1',githubLogin:'carol'},{id:'i2',email:'EVE@x.io'}]) -> alice: invite, bob: already_member (role admin), carol: already_pending (id i1), 'x y!': invalid, eve@x.io: already_pending (id i2, case-insensitive email)",
+   "POST /api/org/invites {org:'acme', action:'batch', role:'member', targets:['alice','bob','carol','x y!']} as owner -> 200; createInvite called ONCE (alice); results in input order [{target:'alice',outcome:'created',invite:{token}}, {target:'bob',outcome:'already_member',role:'admin'}, {target:'carol',outcome:'already_pending',inviteId}, {target:'x y!',outcome:'invalid'}]; exactly one org.member.invited audit row",
+   "POST batch with role 'owner' -> 400; with 26 targets -> 400 (cap 25); org 'public' -> 403 refusePublicOrgAdmin; a member (not owner) -> 403; cross-origin -> 403 - and in every refusal createInvite is never called",
+   "POST batch with two email targets and notify omitted -> dispatchInviteEmail called once per CREATED email target, never for already_pending/already_member rows; each created row carries its own emailed: sent|skipped|failed",
+   "UI model: typing/pasting text that parses to >1 target puts useMemberInvites into state 'preview' with counts {invite:2, already_member:1, already_pending:1, invalid:0} computed from the roster and pending list already on the page, and makes NO fetch; confirm makes exactly ONE fetch with action 'batch'",
+   "After the batch response: created rows are prepended to the invite list carrying their tokens (copy link available), the preview clears, and an already_pending row in the result offers 'resend' wired to the existing resendInvite(id)"
+  ],
+  "guards": [
+   "A single target still posts the exact body it posts today ({org, role, githubLogin|email}) with no preview step: green before by design, it pins that the one-person path is untouched (MemberInvites.test.tsx keeps passing)"
+  ],
+  "premise": [
+   "src/features/admin/members/MemberInvites.tsx:58-82 - sendInvite takes ONE target per submit (target.includes('@') picks email vs login); a team of N is N type-select-submit cycles",
+   "src/lib/db/invites.ts:28-49 - createInvite inserts unconditionally: no check against an existing membership or an already-pending invite for the same login/email",
+   "prisma/schema.prisma:264-280 - model Invite has only @@index([orgId]) and @@index([status]); no uniqueness on (orgId, githubLogin|email, status), so duplicate pending invites are storable",
+   "src/app/api/org/invites/route.ts:133-158 - the create path validates shape and role, then calls createInvite; it never consults listOrgMembers or listPendingInvites, so inviting an existing admin mints a live link for a lower role that acceptInvite then silently no-ops (src/lib/db/invites.ts:218-226)",
+   "src/features/admin/members/MembersTab.tsx:39-42 - the owner page already loads BOTH the roster (listOrgMembers) and the pending invites; the preflight needs no new read",
+   "src/features/admin/members/MemberInvites.tsx is 199 lines: the batch mode cannot land without extracting state (cap 200 under src/features)"
+  ],
+  "rollback": "Revert the series: the batch is a new action branch on an existing POST (single-target body unchanged), the classifier is a new pure module, and the UI extraction is relocation plus a new preview component; no schema, no new audit action (reuses org.member.invited).",
+  "gate": "contract",
+  "doc": "docs/features/org-dashboard/org-intelligence.md",
+  "runner_up": "Role-change preview: show what a member gains/loses before the select commits - blocked on a derived capability table (ROLE_HINT is hand-written and already says admin grants credits, while /api/org/credits/grant is owner-only).",
+  "body": "## Summary\nLet an owner paste a list of GitHub logins and emails, see before anything is created which are new, which are already members (and at what role), which already have a pending invite, and which are malformed, then create all the new ones in one confirm with per-row delivery outcomes.\n\n## Description\nToday onboarding a team is a loop: type one target, pick a role, submit, wait, repeat (MemberInvites.tsx:58-82). Worse, the owner makes each submit blind to data the page already holds: the tab loads the full roster and the pending list (MembersTab.tsx:39-42), yet createInvite inserts unconditionally (invites.ts:28-49) and the schema allows duplicates, so re-inviting a pending teammate mints a second live link and inviting an existing admin mints a lower-role link that acceptInvite quietly no-ops. The leap is a preflight mode: the same pure classifier (src/lib/org/invite-batch.ts) runs in the browser for an instant preview and again on the server as the authority, so the client's plan and the server's outcome cannot drift. The server branch reuses every existing control: owner gate, public refusal, role cap at admin, shape regexes, per-invite mail and the org.member.invited audit action, and caps a batch at 25 so the mail path is not a bulk-send lever.\n\n## Flow\n- Paste/type 'alice, bob, carol@x.io' -> preview strip: '2 new, 1 already a member (@bob, admin), 0 pending, 0 invalid' with each row listed.\n- Confirm -> one POST {action:'batch', role, targets} -> per-target results in input order.\n- Created rows join the pending list with copyable links; already-pending rows offer resend; already-member rows link to the roster row's role select.\n- One target -> today's flow, unchanged.\n\n## Expected impact\nInviting N teammates goes from N submits to 1 paste + 1 confirm, and duplicate or redundant invites stop being creatable from the UI or the batch API. Registry status-vocabulary (recorded deviation at MembersTable.tsx:68) is not worsened: the preview labels outcomes through one table, as MemberInvites' DELIVERY table already does.\n\n## Evaluation\nClaim: a team can be invited in one step, with no redundant invite created\nBefore: 0 of 7 cases pass\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: contract (new action shape on POST /api/org/invites; existing shapes byte-identical)",
+  "evidence": "MemberInvites.tsx:64 `const payload = target.includes(\"@\") ? { email: target } : { githubLogin: target };` (one target per call). invites.ts:37 `const row = await prisma.invite.create({ data: { orgId, role, email, githubLogin, token, invitedBy, expiresAt } })` with no prior lookup. schema.prisma Invite: token @unique, @@index([orgId]), @@index([status]) only. grep -rni 'bulk invite|batch invite|already a member|already pending' over docs/BACKLOG.md, scan-history and the members code: no hits. wc -l MemberInvites.tsx = 199."
+ },
+ {
+  "context": "GitHub Repo Data Access",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "Bind a scan token to its forge: a GitHub credential never reaches GitLab",
+  "size": "M",
+  "effort": 6,
+  "impact": 8,
+  "risk": 5,
+  "write_set": [
+   "src/lib/scan.ts",
+   "src/lib/scan-queue-worker.ts",
+   "src/app/api/org/import/route.ts",
+   "src/app/api/scan/route.ts",
+   "src/app/api/scan/stream/route.ts"
+  ],
+  "new_files": [
+   "src/lib/forge/scan-credential.ts",
+   "src/lib/forge/scan-credential.test.ts",
+   "src/lib/scan.forge-credential.test.ts",
+   "src/lib/scan-queue-worker.forge.test.ts"
+  ],
+  "shared_surfaces": [
+   "docs/features/github/forges.md",
+   "docs/features/scanning/scan.md"
+  ],
+  "loc_check": [
+   "src/lib/scan.ts: 445 -> ~452 (.ts outside features, no hard cap; net +7, the inline ambient fallback at :227 is replaced by one call)",
+   "src/lib/scan-queue-worker.ts: 407 -> ~414 (.ts, no hard cap)",
+   "src/app/api/org/import/route.ts: 706 -> ~708 (.ts route, no hard cap)",
+   "src/app/api/scan/route.ts: 419 -> ~419 (one expression swapped)",
+   "src/app/api/scan/stream/route.ts: 386 -> ~386 (one expression swapped)",
+   "src/lib/forge/scan-credential.ts: new ~70",
+   "src/lib/forge/scan-credential.test.ts: new ~110",
+   "src/lib/scan.forge-credential.test.ts: new ~110",
+   "src/lib/scan-queue-worker.forge.test.ts: new ~90"
+  ],
+  "acceptance": [
+   "bindScanToken({ forge: 'gitlab', token: 'ghs_install', tokenForge: 'github', ambient: 'ghp_env' }) -> { token: undefined, dropped: 'forge-mismatch' }",
+   "bindScanToken({ forge: 'gitlab', token: undefined, noAmbientToken: false, ambient: 'ghp_env' }) -> { token: undefined } (the ambient GITHUB_TOKEN is GitHub-only, whatever noAmbientToken says)",
+   "bindScanToken({ forge: 'gitlab', token: 'glpat_x', tokenForge: 'gitlab' }) -> { token: 'glpat_x' } (a caller's own credential for the coordinate it named still flows)",
+   "scanRepository('gitlab:group/proj', { token: 'ghs_install', mock: true, source: spy }) -> spy.fetchSnapshot receives opts.token === undefined (today 'ghs_install', sent as `Authorization: Bearer` to gitlab.com)",
+   "with process.env.GITHUB_TOKEN='ghp_env', scanRepository('gitlab:group/proj', { mock: true, source: spy }) -> fetchSnapshot opts.token === undefined and report.hasToken-derived sensorSkips list the token-gated sensors (today 'ghp_env')",
+   "queue worker runRescoreJob on job.repoFullName 'gitlab:group/proj' with no import policy -> getInstallationIdForOwner / getInstallationToken are NOT called and scanRepository is called with noAmbientToken: true and no token (today ctx.token(slug) mints the org's GitHub installation token for it)",
+   "POST /api/org/import with appTokenMinted and repos ['gitlab:group/proj', 'acme/api'] -> scanRepository receives no token for the gitlab entry and the minted token for 'acme/api'",
+   "scanRepository('acme/api', { token: 'ghs_install', source: spy }) -> fetchSnapshot opts.token === 'ghs_install' (guard)"
+  ],
+  "guards": [
+   "scanRepository('acme/api', { token: 'ghs_install', source: spy }) -> token unchanged: green before by design, GitHub behaviour must stay byte-identical"
+  ],
+  "premise": [
+   "src/lib/scan.ts:227 - `const token = opts.token ?? (opts.noAmbientToken ? undefined : process.env.GITHUB_TOKEN);` is applied for every forge; `forge` was resolved at :203 and is not consulted",
+   "src/lib/scan.ts:226 - `const source = opts.source ?? forge.source();` - a gitlab coordinate gets GitLabSource, which receives that token via scan-ingest.ts:166-167 (`source.fetchSnapshot(parsed, { token, ... })`)",
+   "src/lib/forge/gitlab/http.ts:44 - `if (token) h.Authorization = `Bearer ${token}`;` - the token is sent to the GitLab API host",
+   "src/lib/scan-ingest.ts:151-152,180-181 - the same token is handed to the GitLab enrichments (pullRequests, branchGovernance) from forge/gitlab/source.ts:305-311",
+   "src/app/api/scan/route.ts:80-82 and src/app/api/scan/stream/route.ts:93-98 - the rule ('A non-GitHub coordinate must NEVER reach the ambient GITHUB_TOKEN: it would be a GitHub credential sent to another forge's host') is enforced inline in the two scan routes only",
+   "src/lib/scan-queue-worker.ts:232 - `if (!policy || policy.token === \"install\") return { token: await ctx.token(slug) };` - a watched `gitlab:` row (forge rows are created by persist / import) is rescanned with the org's GitHub installation token; :233 `ambient` returns {} so scan.ts:227 falls back to GITHUB_TOKEN",
+   "src/lib/scan-queue-worker.ts:350 - `scanRepository(repo, { ...(await scanCredential(importPolicy, slug, ctx)), ... })` with repo = job.repoFullName",
+   "src/app/api/org/import/route.ts:237-238 - `appTokenMinted || authOff ? { token, mock, orgSlug: org }` is ONE options object for the whole batch; :319-326 the same batch may hold gitlab entries; :578 `scanRepository(r.fullName, scanOpts)`",
+   "src/lib/db/forge-installations.ts:130 - getForgeCredential (the org's stored GitLab credential) has zero callers (`grep -rn getForgeCredential src scripts` -> only its definition), so no legitimate GitLab token flows through these paths today: the bind breaks no working flow except the caller-supplied body token, which acceptance #3 keeps"
+  ],
+  "rollback": "Revert the series: the new module and its three test files delete cleanly, and the five edited call sites return to their inline expressions. No schema, no persisted state, no wire type changes.",
+  "gate": "policy-tighten",
+  "doc": "docs/features/github/forges.md",
+  "runner_up": "Retire the duplicated GitHub REST error classifier: ghJson in github/source.ts:297-344 vs ghFetch/list/graphql each re-deriving rate-limit vs UPSTREAM from 403/429 + Retry-After.",
+  "body": "## Summary\nA GitHub-provenance token (the org's App installation mint or the operator's ambient GITHUB_TOKEN) is sent as a Bearer credential to gitlab.com whenever a `gitlab:` coordinate is scanned through the queue worker, the org import, or any caller that does not repeat the two scan routes' inline guard. Move the rule into one door, `src/lib/forge/scan-credential.ts`, that `scanRepository` itself calls, so a credential is bound to the forge it was issued for and no call site can forget it.\n\n## Description\nThe rule exists and is correct, but it lives in two places it was fixed (`/api/scan`, `/api/scan/stream`) and is missing in three others: `scanRepository`'s own ambient fallback (scan.ts:227), the queue worker's `scanCredential` (scan-queue-worker.ts:232), and the import batch's single `scanOpts` (import/route.ts:237). Watched GitLab rows are rescanned by the worker on cadence, so the leak runs unattended, carrying a credential that can read the org's private GitHub repos to a third-party host. This is credential-vault / brokered-egress, *destination binding*: a credential is bound at admission to its home service, and the door refuses to apply it anywhere else. `ScanOptions` gains `tokenForge?: ForgeId`, default `github`: every token in the codebase today is a GitHub one, so an unlabelled token fails closed. The two scan routes label a caller-supplied body token with the coordinate's forge, which keeps a user's own GitLab PAT working. Wiring the org's stored GitLab credential (`getForgeCredential`, zero callers) is deliberately OUT of scope: this card only narrows.\n\n## Flow\n- add `bindScanToken({ forge, token, tokenForge, noAmbientToken, ambient })` -> `{ token, dropped? }` (pure)\n- scan.ts:227 calls it with the routed `forge.id`; the ambient env token is offered only when `forge.id === 'github'`\n- the two scan routes' `|| forgeId !== \"github\"` become the module's `ambientAllowedFor(forgeId)`, one rule\n- scanCredential takes the job's forge from `splitForgeFullName(repo)`: non-GitHub -> `{ noAmbientToken: true }` without minting\n- the import builds scanOpts per entry from `r.forge`\n- a dropped token is logged once on the server (no value) so an operator can see the bind fire\n\n## Expected impact\nNo GitHub credential can leave toward a non-GitHub host from any scan entry point, present or future, because the bind sits in `scanRepository` itself instead of at each caller. The rule goes from two inline copies plus three gaps to one tested module.\n\n## Evaluation\nClaim: a GitHub-provenance token never reaches a non-GitHub forge's fetch or enrichment.\nBefore: 0 of 7 non-guard cases pass (5 of them reproduce the leak through real call paths)\nAfter: 8 of 8\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: policy-tighten (narrows where a credential may be used; widens nothing)",
+  "evidence": "scan.ts:227 `const token = opts.token ?? (opts.noAmbientToken ? undefined : process.env.GITHUB_TOKEN);` | scan-queue-worker.ts:232 `if (!policy || policy.token === \"install\") return { token: await ctx.token(slug) };` | import/route.ts:237-238 `const scanOpts = appTokenMinted || authOff ? { token, mock, orgSlug: org } : { noAmbientToken: true, mock, orgSlug: org };` | gitlab/http.ts:44 `if (token) h.Authorization = `Bearer ${token}`;` | scan/route.ts:82 `noAmbientToken = (resolved.noAmbientToken ?? false) || forgeId !== \"github\";` | grep getForgeCredential -> only forge-installations.ts:130",
+  "notes_from_critic": "scan-queue-worker.ts and org/import/route.ts were rewritten by run-1 org-import A; re-anchor lines before building"
+ },
+ {
+  "context": "GitHub Repo Data Access",
+  "slot": "B-architecture (no UI surface)",
+  "lens": "architecture-challenger",
+  "title": "A self-managed GitLab row is read from its own host, never gitlab.com",
+  "size": "M",
+  "effort": 7,
+  "impact": 7,
+  "risk": 6,
+  "write_set": [
+   "src/lib/scan-ingest.ts",
+   "src/lib/forge/gitlab/source.ts",
+   "src/lib/forge/registry.ts",
+   "src/lib/db/scans-persist.ts",
+   "src/lib/db/org-watch.ts",
+   "src/lib/forge/local.ts"
+  ],
+  "new_files": [
+   "src/lib/forge/org-forge-host.ts",
+   "src/lib/forge/org-forge-host.test.ts",
+   "src/lib/forge/persisted-forge.test.ts"
+  ],
+  "shared_surfaces": [
+   "src/lib/scan.ts",
+   "docs/features/github/forges.md",
+   "docs/features/data/data-model.md"
+  ],
+  "loc_check": [
+   "src/lib/scan-ingest.ts: 325 -> ~330 (.ts, no hard cap)",
+   "src/lib/forge/gitlab/source.ts: 318 -> ~319 (.ts, no hard cap)",
+   "src/lib/forge/registry.ts: 142 -> ~165",
+   "src/lib/db/scans-persist.ts: 937 -> ~937 (one call swapped)",
+   "src/lib/db/org-watch.ts: 880 -> ~884",
+   "src/lib/forge/local.ts: 84 -> ~86 (comment corrected)",
+   "src/lib/forge/org-forge-host.ts: new ~70",
+   "src/lib/forge/org-forge-host.test.ts: new ~120",
+   "src/lib/forge/persisted-forge.test.ts: new ~80",
+   "src/lib/scan.ts (shared, ~8 lines at :195/:226 after card A lands): 452 -> ~460"
+  ],
+  "acceptance": [
+   "resolveOrgForgeHost('acme', 'gitlab') with an Installation host 'https://git.acme.io' -> { host: { apiBase: 'https://git.acme.io/api/v4', webBase: 'https://git.acme.io' } }",
+   "resolveOrgForgeHost('acme', 'gitlab') with host 'https://10.0.0.5' -> { refused: 'host-not-public' }, and scanRepository('gitlab:group/proj', { orgSlug: 'acme', mock: true }) rejects with GitHubError('UPSTREAM') whose message names neither the host nor gitlab.com; zero fetches are made",
+   "scanRepository('gitlab:group/proj', { orgSlug: 'acme', mock: true }) with installed host 'https://git.acme.io' -> the first fetch URL starts 'https://git.acme.io/api/v4/projects/' (today 'https://gitlab.com/api/v4/projects/': the same path on a different instance, possibly another tenant's project)",
+   "the GitLab enrichments get the same host: ingestRepository({ forge: gitlabForge, host }) calls fetchGitlabPrStats with opts.host === host (today forge.enrich() is called with no host at scan-ingest.ts:133)",
+   "persistedForgeOf({ forge: 'gitlab', url: 'https://git.acme.io/group/proj' }) -> 'gitlab'; persistScanReport of that report writes fullName 'gitlab:group/proj' and forge 'gitlab' (today forgeFromWebUrl -> 'github', fullName 'group/proj', which can land on an unrelated GitHub repo's row in the same org)",
+   "setRepoWatch('acme', { owner: 'group', name: 'proj', fullName: 'gitlab:group/proj', url: 'https://git.acme.io/group/proj', forge: 'gitlab' }, true) creates the row with forge 'gitlab' (today 'github')",
+   "no Installation row -> scanRepository('gitlab:group/proj') reads gitlab.com exactly as today (guard)",
+   "persistedForgeOf({ forge: 'local', url: 'https://github.com/o/r' }) -> 'github' (guard: local working-copy rows keep their GitHub identity)"
+  ],
+  "guards": [
+   "no Installation row -> gitlab.com read unchanged: green before by design",
+   "persistedForgeOf local -> 'github': green before by design (forgeFromWebUrl already returns 'github'), pins that local rows do not move to 'local:' fullNames",
+   "a github coordinate never consults the resolver for a host: github-parity.test.ts stays green unchanged"
+  ],
+  "premise": [
+   "src/lib/scan.ts:195 - `const routed = parseForgeUrl(input);` with no host, and :226 `forge.source()` with no host: every scan of a `gitlab:` coordinate builds `new GitLabSource(undefined)` (gitlab/source.ts:297), whose base is gitlab.com (gitlab/http.ts:19-21 `host?.apiBase ... ?? GITLAB_PUBLIC_API`)",
+   "src/lib/scan-ingest.ts:133 - `(input.forge ?? resolveForge()).enrich?.()` with no host, so the enrichments also read gitlab.com",
+   "src/app/api/org/import/route.ts:303-305,319-325 - the import DOES resolve the org's self-managed host (getForgeInstallation -> hostFromBase) but uses it only for parsing and the permalink; :578 then calls scanRepository(r.fullName, scanOpts), which drops it",
+   "src/lib/db/forge-installations.ts:98,155 - getForgeInstallation / hostFromBase exist; the host is admin-set and https-only (src/app/api/org/forge/installation/route.ts:96-97) but never checked against private/internal ranges; src/lib/net/ssrf.ts:47 isSafePublicHttpsUrl exists",
+   "src/lib/forge/registry.ts:126-130 - forgeFromWebUrl calls `forge.parseUrl(url)` with NO host, and parseGitlabUrl (gitlab/parse.ts:31-39) accepts only gitlab.com or the passed host, so a self-managed web url infers 'github'",
+   "src/lib/db/scans-persist.ts:134,139 - `const forge = forgeFromWebUrl(report.repo.url)` decides both the forge column and the fullName prefix",
+   "src/lib/db/org-watch.ts:182 and :281 - setRepoWatch / seed create rows with `forge: forgeFromWebUrl(repo.url)`; RepoRef (:159-167) has no forge field although the import's entries carry one (import/route.ts:312,326)",
+   "src/lib/types.ts:141-142 - RepoMeta.forge exists ('Which forge this repo was read from'); src/lib/forge/gitlab/source.ts:152-167 builds meta without it; src/lib/local/source.ts:141 is the only source that sets it",
+   "src/lib/forge/local.ts:3 - claims 'a repo scanned locally persists `forge: \"local\"`'; persist ignores meta.forge (scans-persist.ts:134), and src/lib/db/private-scan-scrub.ts:20-22 documents the opposite ('Repository.forge is inferred from the url, which is a github.com url for a local scan')"
+  ],
+  "rollback": "Revert the series: org-forge-host.ts and the two test files delete; scan.ts/scan-ingest.ts go back to host-less source()/enrich(); persist and org-watch go back to forgeFromWebUrl. Rows written in between carry forge 'gitlab' plus a 'gitlab:' fullName, which is the identity the import path already writes (import/route.ts:324), so no data migration is needed either way.",
+  "gate": "architecture",
+  "doc": "docs/features/github/forges.md",
+  "runner_up": "Group listing for GitLab import (the forges.md Known gap): enumerate a group's projects through the adapter, the listOrgRepos twin. Bigger, but the host seam above has to exist first.",
+  "body": "## Summary\nAn org that connects a self-managed GitLab gets its host honoured for permalinks only. Every read (the snapshot, the MR/governance/CI enrichments, the cadence rescans) goes to gitlab.com at the same path: a 404 at best, and at worst a different public project's code scored into this org's row. The persist and watch layers then infer the forge from the url without the host and record the row as GitHub. Make the forge context a value that travels from the coordinate: one resolver, `resolveOrgForgeHost(orgSlug, forgeId)`, feeds `source(host)` and `enrich(host)`, and the adapter stamps `meta.forge`, which persist and watch read instead of re-guessing it from the url.\n\n## Description\nThe ForgeHost seam was built (types.ts:67-72, `source(host)`, `enrich(host)`) and is wired at exactly one end: the import route's permalink. The scan path, which actually reads, never receives it, because `scanRepository` takes a string and re-parses it host-less. In connector-catalog / adapter-normalization terms, the adapter must own the facts it alone knows (which instance, which forge) and hand them to consumers in the model, rather than each consumer re-deriving them from a url. `forgeFromWebUrl` (registry.ts:115-133) calls itself a stopgap whose durable fix is `RepoMeta.forge`, and that field now exists unused. The resolver fails closed: a configured host that is not a public https host (isSafePublicHttpsUrl) refuses the scan with a fixed message and is never silently swapped for gitlab.com. Allowing an internal-network GitLab on a self-hosted deployment is a recorded residue, not part of this card, because the platform's server would otherwise fetch an admin-supplied internal URL. Local working copies keep persisting under their GitHub identity: `persistedForgeOf` maps `local` to `github` explicitly, the private-scan-scrub already relies on that, and local.ts:3's false comment is corrected. Sequencing: land card A first. Both cards edit scan.ts on adjacent lines (:226 source/host here, :227 token there).\n\n## Flow\n- org-forge-host.ts: resolveOrgForgeHost(orgSlug, forgeId) -> { host? } | { refused }; GitHub always returns {} (the GHES env vars stay the single source and github-parity stays reference-equal)\n- scan.ts: when opts.orgSlug is set and the forge is gitlab, resolve the host, then parseForgeUrl(input, host) and forge.source(host); a refusal throws a fixed GitHubError\n- scan-ingest.ts: IngestPhaseInput gains `host?`, and :133 calls enrich?.(input.host)\n- gitlab/source.ts: meta gains `forge: 'gitlab'`\n- registry.ts: persistedForgeOf(meta) = meta.forge === 'gitlab' ? 'gitlab' : forgeFromWebUrl(meta.url); local -> github is explicit\n- scans-persist.ts:134 uses persistedForgeOf; org-watch RepoRef gains `forge?`, :182/:281 prefer it\n\n## Expected impact\nA self-managed GitLab org's import and cadence rescans read its own instance and land on one correctly-labelled row, where today they fail or score the wrong project. The identity is decided once, by the adapter, instead of being guessed from a url in three places.\n\n## Evaluation\nClaim: a GitLab coordinate in an org with a self-managed host is read from that host, refused when the host is unsafe, and persisted as forge 'gitlab'.\nBefore: 0 of 6 non-guard cases pass\nAfter: 8 of 8\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: architecture",
+  "evidence": "scan.ts:195 `const routed = parseForgeUrl(input);` + :226 `forge.source()` | scan-ingest.ts:133 `.enrich?.()` | gitlab/http.ts:20 `return host?.apiBase?.replace(/\\/+$/, \"\") ?? GITLAB_PUBLIC_API;` | registry.ts:130 `if (forge.parseUrl(url)) return forge.id;` (no host) | scans-persist.ts:134 `const forge = forgeFromWebUrl(report.repo.url);` | org-watch.ts:182,281 `forge: forgeFromWebUrl(...)` | local.ts:3 vs private-scan-scrub.ts:21 contradiction | import/route.ts:303-305 resolves gitlabHost, :578 drops it"
+ },
+ {
+  "context": "Checkout & Plans (Polar)",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "Tier revocation scoped to its granting subscription: one decision for all three",
+  "size": "M",
+  "effort": 6,
+  "impact": 8,
+  "risk": 6,
+  "write_set": [
+   "src/app/api/billing/webhook/route.ts",
+   "docs/features/billing/billing.md"
+  ],
+  "new_files": [
+   "src/lib/billing/tierRevocationModel.ts",
+   "src/lib/billing/tierRevocationModel.test.ts",
+   "src/lib/billing/subscriptionRecord.ts",
+   "src/app/api/billing/webhook/route.revocation.test.ts"
+  ],
+  "shared_surfaces": [
+   "scripts/docs/feature-doc-map.json",
+   "context-map.json",
+   ".ai/registry-map.json"
+  ],
+  "loc_check": [
+   "src/app/api/billing/webhook/route.ts: 364 -> ~250 (no hard cap on a non-features .ts, but this takes it under the 300 spirit; planRank / ENTITLING_SUB_STATUSES / subscriptionEntitlesTier / retainedHigherPlan / upsertOrgSubscription move out)",
+   "src/lib/billing/tierRevocationModel.ts: new -> ~110 (pure, no I/O)",
+   "src/lib/billing/subscriptionRecord.ts: new -> ~60 (getOrgSubscription + upsertOrgSubscription, Prisma)",
+   "src/lib/billing/tierRevocationModel.test.ts: new -> ~150",
+   "src/app/api/billing/webhook/route.revocation.test.ts: new -> ~180 (sibling, so the 466-line route.test.ts is not grown)",
+   "docs/features/billing/billing.md: 634 -> ~650 (also deletes the stale 'Stale out-of-order tier resurrection' known gap at :553, closed by e68cbe40's currentSubscription fence)"
+  ],
+  "acceptance": [
+   "Same-tier replacement: org on pro, Subscription.stripeId = 'sub_B'; subscription.revoked for 'sub_A' (product = pro) -> setOrgPlan NOT called, Subscription row unchanged, log names 'granting subscription sub_B'",
+   "Lower-tier replacement: org moved Team -> Starter by buying a new subscription (plan pro, stripeId 'sub_B'); subscription.revoked for old 'sub_A' (product = team) -> no downgrade (today it floors to free because pro ranks below team)",
+   "Full refund of a renewal order whose subscriptionId is 'sub_A' while stripeId = 'sub_B' -> setOrgPlan NOT called; credit clawback for a pack product on the same order still runs",
+   "Full refund of a plan order of the GRANTING subscription -> setOrgPlan(org,'free') AND upsertOrgSubscription(status 'inactive', stripeId = that subscription), the same two writes the revoke path makes (today the refund path skips the Subscription row)",
+   "decideTierRevocation({ dyingSubId:'sub_A', dyingPlan:'pro', current:{ plan:'pro', grantingSubId:'sub_A' } }) -> { action:'downgrade' } (guard: today's behaviour when the dying subscription IS the grantor)",
+   "decideTierRevocation with current.grantingSubId null (org whose Subscription row predates the upsert, or a one-time plan order) -> falls back to the existing rank guard: downgrade when current rank <= dying rank, retain when higher",
+   "Manual override: org on enterprise via /api/org/plan, no Subscription row, pro subscription revoked -> retain (guard: existing behaviour)"
+  ],
+  "guards": [
+   "decideTierRevocation(... grantingSubId === dyingSubId) -> downgrade",
+   "grantingSubId null -> rank fallback",
+   "Manual enterprise override retained"
+  ],
+  "premise": [
+   ".ai/registry-map.json:8660 - recorded plan-entitlements DEVIATION: 'Revocation checks tier rank but not the currently granting subscription's identity, so a stale revoke can remove a replacement subscription at the same tier' (this card adopts and closes it)",
+   "src/app/api/billing/webhook/route.ts:81-84 - retainedHigherPlan compares ONLY planRank(state.plan) > planRank(subPlan); no subscription identity",
+   "src/app/api/billing/webhook/route.ts:172-180 - downgradeSubscription calls that rank-only guard then setOrgPlan(org, FREE_PLAN) for whatever subscription id arrived",
+   "src/app/api/billing/webhook/route.ts:240-243 - the grant already records its source: upsertOrgSubscription(org, { status:'active', stripeId: order.subscriptionId }) on every applied tier",
+   "prisma/schema.prisma:931-938 - Subscription is one row per org (orgId @unique) carrying stripeId, i.e. the currently granting Polar subscription is already stored; no migration needed",
+   "src/app/api/billing/webhook/route.ts:321-336 - the full-refund downgrade is a SECOND hand-copy of the guard + setOrgPlan(free) and, unlike route.ts:185, never writes the Subscription row inactive: two implementations of one rule, only one completed",
+   "src/app/api/billing/webhook/route.ts:59-95 - ENTITLING_SUB_STATUSES / planRank / subscriptionEntitlesTier are the status vocabulary, private to the route; the technique requires one closed set consumed by every reader",
+   "docs/features/billing/billing.md:553 - Known gap 'Stale out-of-order tier resurrection' still claims the fence reads the event's own payload; route.ts:107-121 (currentSubscription, commit e68cbe40) fetches the CURRENT subscription, so the gap text is stale"
+  ],
+  "rollback": "Single series touching one route plus new files under src/lib/billing/; git revert restores the inline guards. No schema, env, or data change: the Subscription.stripeId column is already written by today's code.",
+  "gate": "architecture",
+  "doc": "docs/features/billing/billing.md",
+  "runner_up": "Missed-webhook reconcile sweep: a cron that lists recent paid Polar orders (orders.list externalCustomerId) and fulfils any with no 'polar:<orderId>' ledger row through the same planner, so a delivery that exhausted Polar's retries is not a silently lost purchase.",
+  "body": "## Summary\nA tier is revoked by rank alone, so the revoke for a subscription that has already been REPLACED strips the tier its replacement is paying for. The grant already records its source (Subscription.stripeId); the revoke never reads it. Move the revocation decision into one pure module that scopes every downgrade to the granting subscription, and route all three downgrade sites through it.\n\n## Description\nRegistry: software-engineering / plan-entitlements, technique `entitlement-lifecycle-revocation` ('The downgrade guard: remove only what this conferred': grants record their source; revocation is scoped to that source; one closed status set consumed by every reader). This repo's map already records the deviation (.ai/registry-map.json:8660). Concrete failures today: (1) an owner cancels Starter at period end, re-subscribes to Starter before it lapses; the old subscription's `subscription.revoked` floors the org to free while the new one is billing. (2) An owner moves Team -> Starter by buying a new subscription; the Team subscription's revoke floors them to free because pro ranks below team. (3) A full refund of an old renewal order does the same through a second copy of the guard, which also forgets to mark the Subscription row inactive. Nothing about what a plan grants changes: the same products grant the same tiers; the change only stops a revoke from removing a grant it did not make.\n\n## Flow\n- New `src/lib/billing/tierRevocationModel.ts` (pure): ENTITLING_SUB_STATUSES, planRank, subscriptionEntitlesTier (moved verbatim), and `decideTierRevocation({ cause, dyingSubId, dyingPlan, current: { plan, grantingSubId } }) -> { action: 'downgrade' | 'retain', reason }`. Order: grantingSubId set and != dyingSubId -> retain('replaced'); else rank guard (current outranks dying -> retain('override')); else downgrade.\n- New `src/lib/billing/subscriptionRecord.ts`: getOrgSubscription(org) -> { stripeId, status } | null, and upsertOrgSubscription moved from the route.\n- webhook route: downgradeSubscription and the full-refund branch both call one `applyTierRevocation(org, dyingSubId, plan, cause)` that reads plan + Subscription, asks the model, and on downgrade does setOrgPlan(free) + Subscription inactive. Refund passes order.subscriptionId (null for a one-time plan order -> rank fallback).\n- billing.md: document source-scoped revocation, delete the stale :553 known gap.\n\n## Expected impact\nCloses a recorded registry deviation; removes a silent paid-customer outage on re-subscribe and on plan change; one status vocabulary instead of a route-private copy; the refund path stops leaving Subscription 'active' after a downgrade (which also skews freeToPaidConversion, src/lib/db/kpi-metrics.ts:208).\n\n## Evaluation\nClaim: every tier downgrade is scoped to the subscription that granted the tier, through one decision.\nBefore: 1 of 4 non-guard cases pass (none of the replaced-subscription cases; refund writes no Subscription row)\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first (pure model tests + a route.revocation.test.ts sibling with the existing @/lib/db and @/lib/polar mock pattern)\nResult: better\nGate: architecture (no change to what is paid for, prices, or which product grants which tier; only revocation scoping)",
+  "evidence": "route.ts:81-84 `async function retainedHigherPlan(org, subPlan) { const state = await getCreditState(org); return planRank(state.plan) > planRank(subPlan) ? state.plan : null; }` | route.ts:240-243 `await upsertOrgSubscription(org, { status: \"active\", stripeId: order.subscriptionId ?? null })` | route.ts:331-336 refund branch: `const ok = await setOrgPlan(org, FREE_PLAN); if (ok) { console.info(...) } else {...}` with no upsertOrgSubscription, vs route.ts:185 `await upsertOrgSubscription(org, { status: \"inactive\", stripeId: sub.id })` | grep '\\.subscription\\.' src: only route.ts:137 (upsert) and src/lib/db/kpi-metrics.ts:208 (count) - nothing reads stripeId back today.",
+  "notes_from_critic": "the revocation decision should also consider Subscription.status, not only stripeId"
+ },
+ {
+  "context": "Checkout & Plans (Polar)",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "The checkout return banner follows the purchase until it lands, not a claim",
+  "size": "M",
+  "effort": 6,
+  "impact": 8,
+  "risk": 5,
+  "write_set": [
+   "src/app/api/billing/checkout/route.ts",
+   "src/components/org/shared/BillingReturnNotice.tsx",
+   "src/components/org/shared/BillingReturnNotice.test.tsx",
+   "src/features/standing/overview/overviewBilling.ts",
+   "src/features/standing/overview/overviewBilling.test.ts",
+   "src/features/standing/overview/OverviewTab.tsx",
+   "src/app/api/billing/checkout/route.test.ts"
+  ],
+  "new_files": [
+   "src/lib/billing/checkoutReturnModel.ts",
+   "src/lib/billing/checkoutReturnModel.test.ts",
+   "src/app/api/billing/checkout/status/route.ts",
+   "src/app/api/billing/checkout/status/route.test.ts",
+   "src/components/org/shared/useCheckoutReturn.ts"
+  ],
+  "shared_surfaces": [
+   "scripts/docs/feature-doc-map.json",
+   "context-map.json",
+   "docs/features/billing/billing.md",
+   "src/app/api/billing/billing.public.test.ts"
+  ],
+  "loc_check": [
+   "src/app/api/billing/checkout/route.ts: 117 -> ~120 (successUrl gains checkout_id={CHECKOUT_ID})",
+   "src/components/org/shared/BillingReturnNotice.tsx: 74 -> ~165 (cap 300)",
+   "src/components/org/shared/useCheckoutReturn.ts: new -> ~80 (\"use client\" polling hook)",
+   "src/components/org/shared/BillingReturnNotice.test.tsx: 40 -> ~130 (cap 300)",
+   "src/features/standing/overview/overviewBilling.ts: 29 -> ~45 (cap 200)",
+   "src/features/standing/overview/overviewBilling.test.ts: 32 -> ~60 (cap 200)",
+   "src/features/standing/overview/OverviewTab.tsx: 55 -> ~57 (cap 200)",
+   "src/lib/billing/checkoutReturnModel.ts: new -> ~110 (pure)",
+   "src/app/api/billing/checkout/status/route.ts: new -> ~120",
+   "src/app/api/billing/checkout/route.test.ts: 182 -> ~195"
+  ],
+  "acceptance": [
+   "checkout route: polar.checkouts.create is called with successUrl ending '?credits=pending&checkout_id={CHECKOUT_ID}' (placeholder literal, not percent-encoded)",
+   "resolveBillingReturn('acme', { credits:'pending', checkout_id:'co_1', tab:'x' }) -> { status:'pending', checkoutId:'co_1', dismissHref:'/org/acme?tab=x' } (both params stripped)",
+   "deriveCheckoutReturn({ checkoutStatus:'confirmed' }) -> 'confirming' (payment processing, no 'received' claim); { checkoutStatus:'succeeded', landed:false, elapsedMs: 60_000 } -> 'paid'; same with elapsedMs 11*60_000 -> 'stalled' carrying the orderId",
+   "deriveCheckoutReturn({ checkoutStatus:'succeeded', landed:{ credits:500, balance:620 } }) -> 'landed' with '+500 credits, balance 620'; { checkoutStatus:'expired' } -> 'expired'; { checkoutStatus:'failed' } -> 'failed'",
+   "GET /api/billing/checkout/status?org=acme&checkout_id=co_1 where the Polar checkout's externalCustomerId/metadata.org is 'other' -> 404 uniform 'Unknown checkout.' (gate-then-constrain); org 'public' -> refused like checkout/portal",
+   "status route, checkout succeeded + orders.list({ checkoutId }) returns ord_9 + CreditLedger row externalId 'polar:ord_9' exists -> { state:'landed', credits, balance }; ledger row absent -> { state:'paid', orderId:'ord_9' }",
+   "useCheckoutReturn: polls with backoff (2s,4s,8s, cap 15s), stops at a terminal state, calls router.refresh() exactly once on 'landed'",
+   "No checkout_id in the URL (bookmarked/legacy link) -> notice renders the unverified copy ('We could not confirm this payment yet'), never 'Payment received'"
+  ],
+  "guards": [
+   "?credits=error still renders the 'not charged' alert unchanged",
+   "dismiss still strips only the billing params and preserves every other param"
+  ],
+  "premise": [
+   "src/app/api/billing/checkout/route.ts:104-108 - successUrl is `${base}/org/<slug>?credits=pending`; no checkout id travels back, so the dashboard cannot ask what happened to THIS purchase",
+   "node_modules/@polar-sh/sdk/dist/esm/models/components/checkoutcreate.d.ts:126 (SDK 0.48.1, not git-tracked) - 'You can add the checkout_id={CHECKOUT_ID} query parameter to retrieve the checkout session id'",
+   "node_modules/@polar-sh/sdk/dist/esm/models/components/checkoutstatus.d.ts - CheckoutStatus open|expired|confirmed|succeeded|failed; models/components/checkout.d.ts:210 externalCustomerId on the Checkout object (the org binding to constrain against)",
+   "node_modules/@polar-sh/sdk/dist/esm/models/operations/orderslist.d.ts:68 - orders.list accepts checkoutId, so checkout -> order id is one call",
+   "prisma/schema.prisma:195-199 + src/app/api/billing/webhook/route.ts:251 - a fulfilled pack is a CreditLedger row with unique externalId 'polar:<orderId>': the 'landed' fact already exists, nothing reads it for the buyer",
+   "src/components/org/shared/BillingReturnNotice.tsx:50-51 - renders 'Payment received. Your credits or plan upgrade will appear here within a minute' unconditionally on ?credits=pending, then nothing ever changes: no confirmation, no stalled state, no order id if it never lands",
+   "src/features/standing/overview/overviewBilling.ts:18-19 - only the `credits` param is read; any URL with ?credits=pending (bookmark, shared link) shows the payment claim",
+   "src/app/api/billing/webhook/route.ts:213-214,237-238,253-254 - fulfilment deliberately throws for Polar to retry (org race, DB blip), so 'paid but not yet landed' is a real, multi-minute state the banner cannot express"
+  ],
+  "rollback": "Revert the series: the checkout successUrl drops the extra param, the notice returns to static copy; the new status route and model are additive and have no other callers. No schema or env change.",
+  "gate": "contract",
+  "doc": "docs/features/billing/billing.md",
+  "runner_up": "Plan-change preview in PlanControl/pricing: before Subscribe, show what changes for THIS org (allowance used vs new allowance, capabilities gained, retention window) from data the app already has.",
+  "body": "## Summary\nThe most anxious moment in the product - money left the account, nothing visible yet - is answered by a static sentence that says 'Payment received' whether or not anything was received, and never updates. Carry the Polar checkout id back, and let the banner follow that purchase through confirming -> paid -> landed (or stalled / failed / expired), painting the credits or tier when they arrive.\n\n## Description\nPolar substitutes {CHECKOUT_ID} into successUrl; orders.list filters by checkoutId; the webhook already writes an idempotent CreditLedger row keyed 'polar:<orderId>' and sets Organization.plan. Every fact the buyer needs exists; none reaches them. A new owner-gated, same-origin GET /api/billing/checkout/status reads the checkout (constrained to the org it was minted for), its order, and the local fulfilment, and returns one state from a pure model. The banner polls with backoff and stops at a terminal state. 'Stalled' (paid, not landed after ~10 min) shows the order id and says plainly that Polar is retrying delivery and what to quote if it does not land: today that buyer sees a banner promising 'within a minute' forever, and the usual reaction is to buy again. Registry: plan-entitlements `entitlement-lifecycle-revocation` law failure-not-empty-success, and feedback-and-style/async-ui-states (a pending state that names what it waits on and has an end). No change to what is sold, its price, what it grants, or who is charged: the route only reads.\n\n## Flow\n- checkout route: successUrl `...?credits=pending&checkout_id={CHECKOUT_ID}`.\n- overviewBilling.resolveBillingReturn returns checkoutId and strips it from dismissHref; OverviewTab passes it to the notice.\n- status route: polarEnabled / prefetch 204 / requireSameOrigin / refusePublicOrgAdmin / requireOrgRole(owner) -> polar.checkouts.get -> bound org must equal org else 404 -> if succeeded, orders.list({ checkoutId }) -> ledger lookup + planForProduct vs current plan -> deriveCheckoutReturn.\n- checkoutReturnModel (pure): confirming | paid | landed | stalled | failed | expired | unverified, with the copy each state renders.\n- useCheckoutReturn polls; on landed calls router.refresh() once so the credits chip and plan chip repaint.\n\n## Expected impact\nNo false 'Payment received' on a bookmarked or failed checkout; buyers see their purchase land (and the amount) instead of re-buying; a stuck fulfilment produces an order id the operator can act on instead of a silent support ticket.\n\n## Evaluation\nClaim: the return banner reports the purchase's actual state and ends.\nBefore: 0 of 8 cases pass (the notice has two static states; no status route; no checkout id)\nAfter: 8 of 8\nMethod: gate - acceptance tests written red-first (model unit tests, status route test with mocked Polar + db, hook/notice DOM test)\nResult: better\nGate: contract (new read-only API route; checkout success URL shape changes)",
+  "evidence": "checkout/route.ts:104 `const orgUrl = (status: string) => `${base}/org/${encodeURIComponent(org)}?credits=${status}`;` :108 `successUrl: orgUrl(\"pending\")` | BillingReturnNotice.tsx:50 `<strong>Payment received.</strong> Your credits or plan upgrade will appear here within a minute.` | overviewBilling.ts:19 `const status = raw === \"pending\" ? \"pending\" : raw === \"error\" ? \"error\" : null;` | grep 'credits=pending|checkout_id' src (non-test): only checkout/route.ts and the two notice/billing comment headers - no reader of any fulfilment state for the buyer | SDK orderslist.d.ts:68 `checkoutId?: string | Array<string> | null | undefined;`",
+  "notes_from_critic": "add the new read-only status route to billing.public.test.ts"
+ },
+ {
+  "context": "App Shell, SEO & Error Pages",
+  "slot": "A",
+  "lens": "architecture-challenger",
+  "title": "One cron-job table: health readiness, vercel.json and every precondition derive",
+  "size": "L",
+  "effort": 7,
+  "impact": 8,
+  "risk": 6,
+  "write_set": [
+   "src/lib/cron-jobs.ts",
+   "src/lib/cron-jobs.test.ts",
+   "src/app/api/health/route.ts",
+   "src/app/api/health/route.test.ts",
+   "src/app/api/health/route.crons.test.ts",
+   "src/app/api/cron/rescan/route.ts",
+   "src/app/api/cron/probe/route.ts",
+   "src/app/api/cron/digest/route.ts",
+   "src/app/api/cron/digest/route.test.ts",
+   "src/app/api/cron/purge/route.ts",
+   "src/app/api/cron/preconditions.test.ts"
+  ],
+  "new_files": [
+   "src/lib/cron-jobs.ts",
+   "src/lib/cron-jobs.test.ts",
+   "src/app/api/health/route.crons.test.ts",
+   "src/app/api/cron/preconditions.test.ts"
+  ],
+  "shared_surfaces": [
+   "src/app/api/cron/athena/route.ts",
+   "scripts/docs/feature-doc-map.json",
+   "docs/features/fleet/rescan.md",
+   "docs/features/fleet/alerts.md",
+   "docs/features/data/retention.md",
+   "docs/DEPLOY.md",
+   ".env.example",
+   "vercel.json"
+  ],
+  "loc_check": [
+   "src/lib/cron-jobs.ts: 0 -> ~140 (no .tsx cap; .ts module)",
+   "src/lib/cron-jobs.test.ts: 0 -> ~170",
+   "src/app/api/health/route.ts: 96 -> ~90 (autoscanReadiness + hand-rolled timingSafeEqual removed, crons field added)",
+   "src/app/api/health/route.test.ts: 300 -> ~302 (only the two sorted-key assertions gain 'crons'; new cases go in route.crons.test.ts)",
+   "src/app/api/health/route.crons.test.ts: 0 -> ~120",
+   "src/app/api/cron/rescan/route.ts: 141 -> ~138",
+   "src/app/api/cron/probe/route.ts: 77 -> ~76",
+   "src/app/api/cron/digest/route.ts: 394 -> ~394 (one line swapped)",
+   "src/app/api/cron/digest/route.test.ts: 1050 -> ~1052 (the 200-skip case at :266-274 flips to 503 / opt-in skip)",
+   "src/app/api/cron/purge/route.ts: 86 -> ~72 (inline 503 + RETENTION_ALLOW_NO_DB branch moves into the table)",
+   "src/app/api/cron/preconditions.test.ts: 0 -> ~140"
+  ],
+  "acceptance": [
+   "cron-jobs parity: the set of {path, schedule} in CRON_JOBS equals vercel.json `crons` exactly, AND every directory under src/app/api/cron/*/route.ts has a CRON_JOBS entry; a seeded mismatch (table minus one job) passed to the comparator reports that job by name (fails today: no table exists)",
+   "cronReadiness({db:false, githubApp:true, cronSecret:true}) -> rescan, probe, digest, purge, athena each { state:'blocked', missing:['db'], remedy:<non-empty instruction naming DATABASE_URL> }; with all true -> every job state:'ready'",
+   "cronReadiness when CRON_SECRET is unset -> every job state:'blocked', missing includes 'cronSecret' (no job can be reached by Vercel Cron), never 'ready'",
+   "rescan with db:true, githubApp:false -> state:'degraded', runs:['ledgerSeal'], skips:['reap','seed','drain'], remedy names the GitHub App env (the App is optional, so not blocked)",
+   "GET /api/cron/digest (authorized, isDbConfigured=false, no opt-in env) -> 503 {error} (today 200 {skipped} at digest/route.ts:87); same for /api/cron/rescan (rescan/route.ts:53-55) and /api/cron/probe (probe/route.ts:37-39); with CRON_ALLOW_NO_DB=1 -> 200 {skipped} as before",
+   "GET /api/cron/purge (authorized, no DB) -> still 503, and RETENTION_ALLOW_NO_DB=1 still yields 200 {skipped} (behaviour preserved through the table)",
+   "GET /api/health as internal caller -> body.crons is an object keyed by job name with per-job {state, missing, remedy}; body.autoscan stays {ready, cronSecret, githubApp, db} and equals the rescan projection (docs/DEPLOY.md:75 contract kept); anonymous caller sees neither key",
+   "health internal-caller check uses cronSecretMatches from src/lib/cron-auth.ts: a same-length wrong bearer and a prefix-matching shorter bearer are both anonymous (existing health cases stay green)"
+  ],
+  "guards": [
+   "GET /api/cron/purge no-DB 503 and RETENTION_ALLOW_NO_DB=1 skip are green before by design (behaviour preserved)",
+   "health: autoscan shape and topology gating for anonymous callers are green before by design",
+   "health internal-caller constant-time compare cases are green before by design"
+  ],
+  "premise": [
+   "vercel.json:4-25 - five scheduled crons (rescan, probe, purge, digest, athena) hand-listed with no code-side table",
+   "src/app/api/health/route.ts:22-27 - autoscanReadiness() reports ONLY the rescan job's prerequisites (cronSecret && githubApp && db); probe/purge/digest/athena readiness is not reported at all",
+   "src/app/api/health/route.ts:40-46 - isInternalCaller hand-rolls Buffer + timingSafeEqual, a second copy of src/lib/cron-auth.ts:22-26 cronSecretMatches",
+   "src/app/api/cron/purge/route.ts:33-48 - missing DB answers 503 because 'degraded is never green ... cron monitors only watch the HTTP status', with RETENTION_ALLOW_NO_DB=1 as the explicit quiet-skip opt-in",
+   "src/app/api/cron/athena/route.ts:63-70 - the same rule re-implemented a second time (503, cites purge/route.ts:34-47)",
+   "src/app/api/cron/digest/route.ts:87 - missing DB answers green 200 {skipped} - the rule purge and athena state, not applied",
+   "src/app/api/cron/rescan/route.ts:53-55 and src/app/api/cron/probe/route.ts:37-39 - missing DB answers green 200 {skipped: 'GitHub App + database required.'}, conflating a required DB with an optional App in one message",
+   "src/app/api/cron/rescan/route.ts:84-85 - App missing is a legitimate partial run (ledger sealed, rest skipped) - a degraded state with no name in health",
+   "docs/DEPLOY.md:75 - operators are told to verify readiness at GET /api/health -> autoscan.ready, which cannot reveal that purge or digest is dead",
+   "docs/archive/2026-audits/PRODUCTION_READINESS.md:60 - the original finding asked for cron-readiness in /api/health; only rescan's slice landed"
+  ],
+  "rollback": "Series of 3 commits (table+parity test; health consumes table; routes call cronPrecondition). Revert in reverse order; each commit is independently green. The 503 flip is isolated in the third commit and can be reverted alone to restore 200-skip.",
+  "gate": "direction",
+  "doc": "docs/features/fleet/rescan.md",
+  "runner_up": "Derive sitemap.ts and robots.ts from one public-route table (indexable/disallowed declared per route) instead of two hand-lists kept disjoint by seo.test.ts.",
+  "body": "## Summary\nDeclare the five scheduled jobs once (src/lib/cron-jobs.ts: path, schedule, required vs optional prerequisites, remedy per prerequisite, quiet-skip opt-in env) and derive from it: the vercel.json parity check, /api/health per-job readiness, and every cron route's precondition answer.\n\n## Description\nToday the cron surface is five hand-copies of one rule. purge and athena answer 503 on a missing DB because cron monitors only watch the status code; digest, rescan and probe answer a green 200 skip for the same misconfiguration, so a deploy that loses DATABASE_URL keeps three schedules silently green. /api/health reports readiness for rescan only, so the operator check docs/DEPLOY.md prescribes cannot see a dead purge or digest. The health route also carries its own copy of the constant-time secret compare. Health-checks three-state-outcomes and remediation-affordances apply: each job reports ready / degraded (optional prerequisite missing, partial run) / blocked (required prerequisite missing), each with the instruction that fixes it.\n\n## Flow\n- cron-jobs.ts: CRON_JOBS table + cronReadiness(probe) + cronPrecondition(name) -> NextResponse|null (503 on missing required prerequisite unless that job's opt-in env is set; purge keeps RETENTION_ALLOW_NO_DB, the rest use CRON_ALLOW_NO_DB).\n- Parity test: table == vercel.json crons == src/app/api/cron/* directories, with a seeded mismatch proving the comparator bites.\n- /api/health: internal callers get `crons` (per-job state/missing/remedy); `autoscan` kept as the rescan projection; the secret compare goes through cronSecretMatches.\n- rescan/probe/digest/purge replace their inline checks with cronPrecondition(); athena is declared in the table and reported by health, but its call site is left untouched to avoid colliding with the in-flight athena card A (follow-up: one-line swap).\n\n## Expected impact\nA deploy missing a required prerequisite turns its cron monitors red on every affected job instead of 2 of 5. One GET to /api/health names every dead schedule and its fix. Adding a sixth cron without a table row fails the parity test.\n\n## Evaluation\nClaim: cron preconditions and readiness derive from one declared table.\nBefore: 0 of 8 cases pass (no table; digest/rescan/probe answer 200; health has no `crons`)\nAfter: 8 of 8\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: direction - the 200 -> 503 flip for a DB-less digest/rescan/probe is a behaviour change on misconfigured deploys (opt-in env preserves the quiet skip).",
+  "evidence": "digest/route.ts:87 `if (!isDbConfigured()) return NextResponse.json({ skipped: \"Database required.\" });` vs purge/route.ts:41-47 `if (process.env.RETENTION_ALLOW_NO_DB === \"1\") { return ...skipped } return NextResponse.json({ error: \"Database is not configured...\" }, { status: 503 });` vs athena/route.ts:63-70 503 'the same invariant the purge states (purge/route.ts:34-47)'. rescan/route.ts:53-54 and probe/route.ts:37-38 `{ skipped: \"GitHub App + database required.\" }` with status 200. health/route.ts:22-26 `function autoscanReadiness() { ... return { ready: cronSecret && githubApp && db, ... } }` is the only readiness reported. health/route.ts:43-45 `Buffer.from(...)... timingSafeEqual(presented, expected)` duplicates cron-auth.ts:22-26. Existing tests that pin the 200 skip and must flip: src/app/api/cron/digest/route.test.ts:266-274. rescan/route.test.ts:121-126 (App missing -> 200 skip) stays green by design (App is optional)."
+ },
+ {
+  "context": "App Shell, SEO & Error Pages",
+  "slot": "B",
+  "lens": "ux-elevation",
+  "title": "An error screen you can act on: retries that count, a prefilled report, Sentry",
+  "size": "M",
+  "effort": 6,
+  "impact": 7,
+  "risk": 4,
+  "write_set": [
+   "src/components/ui/routeErrorModel.ts",
+   "src/components/ui/routeErrorModel.test.ts",
+   "src/components/ui/RouteError.tsx",
+   "src/components/ui/RouteError.dom.test.tsx",
+   "src/app/report/[owner]/[repo]/error.tsx",
+   "src/app/report/[owner]/[repo]/error.dom.test.tsx"
+  ],
+  "new_files": [
+   "src/components/ui/routeErrorModel.ts",
+   "src/components/ui/routeErrorModel.test.ts",
+   "src/app/report/[owner]/[repo]/error.dom.test.tsx"
+  ],
+  "shared_surfaces": [
+   "src/lib/site.ts",
+   "docs/features/design-system/README.md",
+   "docs/features/reporting/report.md"
+  ],
+  "loc_check": [
+   "src/components/ui/routeErrorModel.ts: 0 -> ~110 (pure .ts, distinct name from RouteError.tsx)",
+   "src/components/ui/routeErrorModel.test.ts: 0 -> ~150",
+   "src/components/ui/RouteError.tsx: 94 -> ~150 (cap 300)",
+   "src/components/ui/RouteError.dom.test.tsx: 79 -> ~150 (cap 300)",
+   "src/app/report/[owner]/[repo]/error.tsx: 67 -> ~30 (cap 300; becomes a RouteError caller)",
+   "src/app/report/[owner]/[repo]/error.dom.test.tsx: 0 -> ~70"
+  ],
+  "acceptance": [
+   "routeErrorModel.recordRetry(store, key) called twice for the same key -> attempts 2 and escalated:true; actionsFor({attempts:2}) puts 'report' as the primary action and keeps 'retry' as a secondary labelled with the count (attempts 0 -> primary 'retry', no report CTA)",
+   "errorKey({digest:'abc'}, '/org/x') -> 'abc'; errorKey({digest:undefined, message:'boom'}, '/org/x') -> a path-scoped key, so a digest-less client error still counts retries; a different digest starts at attempts 0",
+   "reportHref({digest:'abc', path:'/live/shared/tok_123?x=1', label:'[ascent] app-route-error'}) -> starts with FEEDBACK_URL + '/new?', its decoded body contains 'abc' and '/live/shared/[token]' and contains neither 'tok_123' nor '?x=1' (same for /share/briefing/<token>)",
+   "reportHref never includes error.message or error.stack (the boundary's no-raw-leak contract, src/app/error.test.ts:155-178, extends to the outbound link)",
+   "a store whose getItem/setItem throw (blocked sessionStorage) -> recordRetry returns attempts 0 and does not throw; RouteError still renders Try again",
+   "RouteError mounted twice with the same digest -> Sentry.captureException called once, tagged with logLabel and digest (today never called: only global-error.tsx:25 forwards)",
+   "report/[owner]/[repo]/error.tsx: clicking Try again calls router.refresh() BEFORE reset() (today error.tsx:49 calls reset() only - the dead-button bug RouteError fixed), and the secondary action is 'Scan another repo' to '/'"
+  ],
+  "guards": [
+   "RouteError existing cases (refresh-then-reset, Back to home, fullScreen logo, no header when compact) are green before by design",
+   "src/app/error.test.ts no-raw-leak cases are green before by design"
+  ],
+  "premise": [
+   "src/components/ui/RouteError.tsx:62 - the screen shows 'Reference: <digest>' as text; the user can read the handle but there is no action that carries it anywhere",
+   "src/components/ui/RouteError.tsx:44-46 - the boundary's only telemetry is console.error; no Sentry capture",
+   "src/app/global-error.tsx:25 - Sentry.captureException is called only in the last-resort boundary (grep captureException over src/**/*.tsx: global-error.tsx is the sole .tsx hit)",
+   "src/instrumentation.ts:88-92 - onRequestError forwards SERVER request errors only; a client render throw caught by error.tsx never escapes, so it is invisible to Sentry",
+   "src/components/ui/RouteError.tsx:52-55 - Try again = router.refresh + reset; on a deterministic failure it re-throws and the remounted card looks identical, so the user cannot tell the retry happened",
+   "src/app/report/[owner]/[repo]/error.tsx:49 - `onClick={() => reset()}`: the report permalink boundary is a hand-rolled fork that never got RouteError's refresh fix (comment at RouteError.tsx:47-51) and duplicates its header/CTA markup at :24-63",
+   "src/lib/site.ts:138 - FEEDBACK_URL (the deployment's own issue tracker) already exists and is fork-correct, but only the footer/privacy/terms link it",
+   "src/components/TokenNotice.tsx:1-3 - /live/shared/[token] and /share/briefing/[token] are capability-link pages with no own error.tsx, so a throw there lands in the root RouteError with the token in the path"
+  ],
+  "rollback": "Two commits: (1) model + RouteError wiring, (2) report error.tsx migration. Reverting either restores the previous screen; no schema, route or storage contract outlives the revert (sessionStorage keys are per-viewer and ignored once the code is gone).",
+  "gate": "contract",
+  "doc": "docs/features/design-system/README.md",
+  "runner_up": "A 404 that recognizes a pasted GitHub URL or /owner/repo path and offers the one-click scan instead of a generic 'Scan a repo'.",
+  "body": "## Summary\nTurn the error card from a report of state into a place to act: count retries so a failure that will not clear escalates instead of looping, give the user a one-click prefilled issue on the deployment's own tracker carrying the digest and a redacted route, forward caught boundary errors to Sentry once, and move the report permalink boundary onto the shared card so it gets the refresh fix it is missing.\n\n## Description\nThe error screen shows a Reference digest but nothing can be done with it; a user who hits a deterministic failure clicks Try again, the card re-renders identically, and they cannot tell whether anything happened. Meanwhile the boundary only console.errors, so every client-side throw a segment boundary catches is invisible to Sentry - the crash-capture technique's inverted gradient: the careful code path (the one with a boundary) is the one that leaves telemetry. The report permalink boundary is a hand-rolled fork whose Try again is reset() alone, the exact dead button RouteError and global-error were fixed for. Error-handling user-facing-mapping: a suggestion that ignores the category (retry on a failure that is not transient) is worse than none, so after two failed retries the primary action changes to reporting.\n\n## Flow\n- routeErrorModel.ts (pure): errorKey, recordRetry(store) over an injected sessionStorage-like store (try/catch, degrades to 0), actionsFor(attempts), reportHref({digest, path, label}) with token-segment and query redaction, never the message or stack.\n- RouteError.tsx: records retries, renders the escalated state ('Still failing after 2 tries - this is not transient' + Report this primary), captures to Sentry once per key.\n- report/[owner]/[repo]/error.tsx: becomes a RouteError caller (fullScreen, homeLabel 'Scan another repo').\n\n## Expected impact\nEvery boundary-caught client error reaches Sentry with its digest; a stuck user leaves with a filed, correlatable report instead of a loop; the report permalink retry actually refetches.\n\n## Evaluation\nClaim: the error screen escalates, reports and captures.\nBefore: 0 of 7 cases pass\nAfter: 7 of 7\nMethod: gate - acceptance tests written red-first\nResult: better\nGate: contract - adds an outbound link carrying the digest and a redacted path; no auth, billing or tenancy change.",
+  "evidence": "RouteError.tsx:44-46 `useEffect(() => { console.error(logLabel, { digest: error.digest, message: error.message, stack: error.stack }); }, [error, logLabel]);` (no Sentry). global-error.tsx:25 `Sentry.captureException(error);` is the only capture in a boundary. instrumentation.ts:88 `export const onRequestError` = server-side only. report/[owner]/[repo]/error.tsx:48-50 `<button onClick={() => reset()} ...>Try again</button>` vs RouteError.tsx:52-55 `const retry = () => { router.refresh(); reset(); };`. site.ts:138 `export const FEEDBACK_URL: string = SOURCE_REPO_URL ? `${SOURCE_REPO_URL}/issues` : UPSTREAM_ISSUES_URL;` consumed only by SiteFooterCore.tsx:30, privacy/page.tsx:171, terms/page.tsx:139."
+ }
+]
