@@ -3417,7 +3417,12 @@
             "src/components/report/ProvenanceTrack.dom.test.tsx",
             "src/components/report/PostureQuadrant.dom.test.tsx",
             "src/components/report/ScoreRing.dom.test.tsx",
-            "src/lib/scoring/provenance.test.ts"
+            "src/lib/scoring/provenance.test.ts",
+            "src/components/report/scoreBridgeModel.ts",
+            "src/components/report/scoreBridgeModel.test.ts",
+            "src/components/report/ScoreBridge.tsx",
+            "src/components/report/ScoreBridge.dom.test.tsx",
+            "src/components/report/reportSeries.test.ts"
           ],
           "target": null,
           "apiRoutes": []

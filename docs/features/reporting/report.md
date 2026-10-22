@@ -329,6 +329,19 @@ than no chart. Each of these is a load-bearing behavior, not a style choice:
   (`scoreWaterfallSegments.ts`), and the headroom-to-100 tail is the honest remainder.
   The itemized ▲/▼ lift column says its direction in words to assistive tech ("lifts the
   overall by 4.2 points"); the glyph is hidden from it and the hover title stays for the pointer.
+- **The waterfall explains the move, too.** When the baseline scan (the same one
+  `computeReportSeries` diffs for the "since last scan" `DeltaPill`, exposed as `baseline`)
+  carries per-dimension scores, `ScoreWaterfall` shows a `Now | Since last scan` toggle
+  (aria-pressed; `Now` is the default and its markup is unchanged). `Since last scan` renders
+  `ScoreBridge`: a "58 → 62 (+4)" header, then one signed row per dimension that moved, priced as
+  its CURRENT `dimensionShares` share × its score delta, biggest first. A dimension new since the
+  baseline is an `entered` step (share × score); one the baseline had and this scan lacks is a
+  `left` step with no number (the baseline does not persist weights, so none is fabricated). One
+  explicit "rounding & reweighting" residual closes the gap, so the steps sum EXACTLY (integer
+  tenths in `scoreBridgeModel.ts`) to the pill's delta. Mixed engines (`MIXED_ENGINE_PAIR_NOTE`),
+  provably different rubrics (the What Changed wording) and a baseline with no rubric stamp
+  (`sameRuler` null) are stated above the steps, which still draw. No toggle when there is no
+  baseline or its dimensions join was skipped.
 - **Signal vs LLM on radar hover.** The polygon stays the blended headline so the shape
   does not fork, but hover (and the SR table) names both witnesses when either disagrees
   with that number (`signal 70 · LLM 90` beside a vertex at 78, with ticks on the spoke
@@ -1570,6 +1583,8 @@ App configured, same-origin, signed-in, org-owned (never `PUBLIC_ORG`), installa
 | `src/components/report/ScanComparePicker.tsx` | URL-driven two-scan picker; labels mixed-engine pairs. |
 | `src/components/report/RadarFallback.tsx` | Labeled-bar form for 1-2 dimensions. |
 | `src/components/report/scoreWaterfallSegments.ts` | Floor-free waterfall segment layout + headroom. |
+| `src/components/report/scoreBridgeModel.ts` | Pure since-last-scan bridge: share × score-delta steps, entered/left steps, the exact residual, the engine/rubric caveats. |
+| `src/components/report/ScoreBridge.tsx` | The waterfall's "Since last scan" body: header, caveats above, one signed row per step. |
 | `src/components/report/chartEngine.ts` | Mock-vs-model point provenance predicates + chart/pair caveat copy. |
 | `src/components/report/deltas.tsx` | `DeltaPill` / `DeltaTag` chips. |
 | `src/components/report/RoadmapSandbox.tsx` | The what-if orchestrator: sliders → live hero recompute. |
