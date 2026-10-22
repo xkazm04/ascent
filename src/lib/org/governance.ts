@@ -7,6 +7,7 @@
 import { getOrgGatePolicy, getOrgRollup } from "@/lib/db";
 import { defaultGatePolicy, describeGatePolicy, evaluateGateLite, type GateFailure, type GatePolicy } from "@/lib/scoring/gate";
 import { GATE_API_PATH, GATE_FAIL_STATUS, GATE_PASS_STATUS } from "@/lib/scoring/gate-api";
+import { ciWith, readFleetGatePolicies } from "@/lib/scoring/gate-resolve";
 
 export interface GovernanceFailure {
   name: string;
@@ -76,6 +77,9 @@ export interface GovernanceOverview {
    * "unset, inheriting the default" from "explicitly set to the default's values".
    */
   savedPolicy: GatePolicy | null;
+  /** True when the per-repo admission layers could not be read: the counts then reflect the org bar
+   *  alone, which is looser than the Check Run for every admitted repo, and must not be read as it. */
+  admissionUnread?: boolean;
 }
 
 const ORG_POLICY_ARCHETYPE = "org" as const;
@@ -92,18 +96,6 @@ function gateQuery(p: GatePolicy): string {
   const q = new URLSearchParams();
   for (const c of describeGatePolicy(p)) if (c.query) q.set(c.query[0], c.query[1]);
   return q.toString();
-}
-
-/** Bars the token-less /api/gate cannot measure: it answers 503 when a request names them, so a snippet
- *  that passed them would error on every run. The Ascent GitHub App check run (which holds a token)
- *  enforces them instead; the action keeps the inputs for callers who run their own gate endpoint. */
-const APP_CHECK_ONLY_CI = ["require-protection", "min-ai-governed"];
-const APP_CHECK_COMMENT = "# require-protection / min-ai-governed are enforced by the Ascent GitHub App check run, not here";
-
-function ciWith(p: GatePolicy): string[] {
-  const lines = describeGatePolicy(p).flatMap((c) => (c.ci ? [c.ci] : []));
-  const keep = lines.filter((l) => !APP_CHECK_ONLY_CI.includes(l.split(":")[0] ?? ""));
-  return keep.length === lines.length ? keep : [...keep, APP_CHECK_COMMENT];
 }
 
 /**
@@ -126,6 +118,12 @@ export async function buildGovernanceOverview(
   if (!rollup || rollup.scannedCount === 0) return null;
 
   const policy = savedPolicy ?? defaultGatePolicy(ORG_POLICY_ARCHETYPE);
+  // Each repo is judged against ITS effective bar: the org bar folded with that repo's admission
+  // layer, by the same resolver the Check Run uses. One fleet read, no N+1. An unreadable list is
+  // flagged (admissionUnread), never silently presented as the CI bar.
+  const fleet = await readFleetGatePolicies(orgSlug, savedPolicy, ORG_POLICY_ARCHETYPE);
+  let barGovernance = Boolean(policy.requireProtectedBranch);
+  let barProvenance = typeof policy.minAiGovernedRate === "number";
   const scannedRepos = rollup.repos.filter((r) => r.latest);
 
   // `incomplete` used to be carried "for shape completeness" and left at 0: the fleet path scores
@@ -175,6 +173,9 @@ export async function buildGovernanceOverview(
     // exactly the ambiguity this count exists to resolve.
     if (s.govReadable) measuredOn.governance! += 1;
     if (s.aiGovernedRate != null) measuredOn.provenance! += 1;
+    const repoPolicy = fleet.policyFor(r.fullName);
+    if (repoPolicy.requireProtectedBranch) barGovernance = true;
+    if (typeof repoPolicy.minAiGovernedRate === "number") barProvenance = true;
     const result = evaluateGateLite(
       {
         level: s.level,
@@ -186,7 +187,7 @@ export async function buildGovernanceOverview(
         aiGovernedRate: s.aiGovernedRate,
         aiPrSample: s.aiPrSample,
       },
-      policy,
+      repoPolicy,
     );
     if (result.pass) {
       passing += 1;
@@ -224,14 +225,12 @@ export async function buildGovernanceOverview(
     passRate: assessed ? Math.round((passing / assessed) * 100) : 0,
     byReason,
     measuredOn,
-    barSet: {
-      governance: Boolean(policy.requireProtectedBranch),
-      provenance: typeof policy.minAiGovernedRate === "number",
-    },
+    barSet: { governance: barGovernance, provenance: barProvenance },
     failures: failures.slice(0, 12),
     gateQuery: gateQuery(policy),
     ciWith: ciWith(policy),
     savedPolicy,
+    admissionUnread: fleet.unread,
   };
 }
 

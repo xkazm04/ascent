@@ -16,8 +16,9 @@ import { getOrgGatePolicy, reportPermalink } from "@/lib/db";
 import { orgSlugForRepo } from "@/lib/db/org-tenancy";
 import { scanRepository } from "@/lib/scan";
 import { publicBaseUrl } from "@/lib/site";
-import { defaultGatePolicy, evaluateGate, tightenGatePolicy } from "@/lib/scoring/gate";
-import { loadCheckStates, resolveAdmissionLayer } from "@/lib/scoring/gate-admission";
+import { evaluateGate } from "@/lib/scoring/gate";
+import { loadCheckStates } from "@/lib/scoring/gate-admission";
+import { resolveRepoGatePolicy } from "@/lib/scoring/gate-resolve";
 import { buildGateComment, GATE_COMMENT_MARKER } from "@/lib/scoring/gate-comment";
 import { logGateVerdict } from "@/lib/scoring/gate-telemetry";
 import { createCheckRun, upsertStickyComment } from "@/lib/github/checks";
@@ -131,10 +132,10 @@ export async function runPrGate(ref: PrGateRef, hooks: PrGateHooks = {}): Promis
     // returns an empty overlay without throwing for every legitimate absence, so a throw reaches the
     // outer catch, posts the failing "could not run" check and releases the delivery for a retry —
     // never a green check scored against a bar we could not read.
-    const admissionLayer = await resolveAdmissionLayer(orgSlug, fullName);
-    const base = orgPolicy ?? defaultGatePolicy(headReport.archetype);
-    // Folded, never assigned: tighten-only, so the admission row can only raise this bar.
-    const policy = tightenGatePolicy(base, admissionLayer.overlay);
+    // The fold itself is the shared resolver (gate-resolve.ts) - the same one the public endpoint, the
+    // governance fleet view and the MCP verdict use. Folded, never assigned: tighten-only.
+    const resolved = await resolveRepoGatePolicy({ orgSlug, repoFullName: fullName, orgPolicy, archetype: headReport.archetype });
+    const policy = resolved.policy;
     // #16 — judged against the repo's own latest conformance report; null skips (see loadCheckStates).
     const checkStates = policy.requireChecks?.length ? await loadCheckStates(orgSlug, fullName) : null;
     // The scan's own honesty flags, threaded at this seam too (gate-liveness): the Check Run is the
@@ -153,7 +154,8 @@ export async function runPrGate(ref: PrGateRef, hooks: PrGateHooks = {}): Promis
       repo: fullName,
       ref: headSha,
       policySource: orgPolicy ? "org" : "archetype",
-      admission: admissionLayer.admission,
+      admission: resolved.admission,
+      layers: resolved.layers,
       scoredHead,
     });
 

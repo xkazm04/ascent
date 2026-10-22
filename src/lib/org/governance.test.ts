@@ -12,6 +12,8 @@ vi.mock("@/lib/db", () => ({
   getOrgRollup: mockGetOrgRollup,
   getOrgGatePolicy: mockGetOrgGatePolicy,
 }));
+// The fleet fold reads per-repo admission layers; none here, so every repo keeps the org bar.
+vi.mock("@/lib/db/org-admission", () => ({ listOrgAdmissions: vi.fn(async () => []) }));
 
 import { buildGovernanceOverview, ciActionYaml, governanceMarkdown, type GovernanceOverview } from "./governance";
 import { defaultGatePolicy, evaluateGateLite } from "@/lib/scoring/gate";

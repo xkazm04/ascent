@@ -51,6 +51,13 @@ export interface GateVerdictEvent {
    * Absent = no admission row (or none applied), which is the byte-identical no-op case.
    */
   admission?: { mode: string; tier: string | null; source: string } | null;
+  /**
+   * Every layer of the fold that contributed, in fold order (gate-as-code decision 9), e.g.
+   * `["org", "admission"]`. ADDITIVE beside `policySource`, which keeps its single-enum meaning so
+   * existing log readers are unchanged. Absent = the caller predates the resolver; logged as
+   * `[policySource]`.
+   */
+  layers?: string[];
 }
 
 /** Skips folded to `{ code: count }` — a shape a log drain can sum without parsing a list. */
@@ -91,6 +98,7 @@ export function logGateVerdict(report: ScanReport, gate: GateResult, e: GateVerd
         // expected to dominate here; that number is the finding, not a bug in the log.
         skipped: countByCode(gate.skipped),
         policySource: e.policySource,
+        layers: e.layers ?? [e.policySource],
         admission: e.admission ?? null,
         level: report.level?.id ?? null,
         overall: report.overallScore ?? null,

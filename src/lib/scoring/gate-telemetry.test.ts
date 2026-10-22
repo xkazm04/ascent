@@ -114,4 +114,17 @@ describe("logGateVerdict — the skip channel", () => {
     logGateVerdict(report(), pass, { surface: "check-run", repo: "acme/api", policySource: "org" });
     expect(emitted(info).skipped).toEqual({});
   });
+
+  it("logs the fold's layers additively, leaving policySource exactly as it was", () => {
+    logGateVerdict(report(), pass, {
+      surface: "check-run",
+      repo: "acme/api",
+      policySource: "org",
+      layers: ["org", "admission"],
+      admission: { mode: "assisted-only", tier: "T2", source: "granted" },
+    });
+    const e = emitted(info);
+    expect(e.layers).toEqual(["org", "admission"]);
+    expect(e.policySource).toBe("org");
+  });
 });

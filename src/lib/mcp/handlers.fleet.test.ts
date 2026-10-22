@@ -65,7 +65,7 @@ vi.mock("@/lib/db/org-stance", () => ({
   getActiveOrgStance: vi.fn(async () => stance),
   getStanceRepoFacts: vi.fn(async () => []),
 }));
-vi.mock("@/lib/db/org-admission", () => ({ getRepoAdmission: vi.fn(async () => null) }));
+vi.mock("@/lib/db/org-admission", () => ({ getRepoAdmission: vi.fn(async () => null), listOrgAdmissions: vi.fn(async () => []) }));
 
 const { runTool } = await import("@/lib/mcp/handlers");
 const { recallMemories } = await import("@/lib/memory/recall");

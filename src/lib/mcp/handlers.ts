@@ -25,7 +25,8 @@ import { getActiveOrgStance } from "@/lib/db/org-stance";
 import { getRepoAdmission } from "@/lib/db/org-admission";
 import { compileStance } from "@/lib/org/admission";
 import { deliveredMemoryIds, recallMemories } from "@/lib/memory/recall";
-import { defaultGatePolicy, describeGatePolicy, evaluateGateLite } from "@/lib/scoring/gate";
+import { describeGatePolicy, evaluateGateLite } from "@/lib/scoring/gate";
+import { resolveFleetGatePolicies } from "@/lib/scoring/gate-resolve";
 import { PRACTICES } from "@/lib/practices";
 import { findSkills, getGoverningSubject, getSkill, getSkillLessons } from "@/lib/mcp/registry-reads";
 import { fail, str, type Args, type ToolResult } from "./tool-result";
@@ -97,8 +98,15 @@ async function gateVerdict(org: string, args: Args): Promise<ToolResult> {
   if (!row.latest) return fail(`"${repo}" has never been scanned, so no gate verdict exists yet.`);
 
   // The SAME evaluator and the SAME persisted policy the CI gate and the dashboard use — an agent
-  // must never be told it would pass a bar that CI then blocks.
-  const policy = (await getOrgGatePolicy(org)) ?? defaultGatePolicy("org");
+  // must never be told it would pass a bar that CI then blocks. So the repo's admission layer is folded
+  // by the shared resolver, and an unreadable one is a refusal, never the org bar alone.
+  const orgPolicy = await getOrgGatePolicy(org);
+  let policy;
+  try {
+    policy = (await resolveFleetGatePolicies(org, orgPolicy, "org")).policyFor(row.fullName);
+  } catch {
+    return fail(`The admission decision for "${row.fullName}" could not be read, so no verdict was produced against a bar CI may be stricter than. Retry.`);
+  }
   const verdict = evaluateGateLite(
     {
       level: row.latest.level,
@@ -118,6 +126,9 @@ async function gateVerdict(org: string, args: Args): Promise<ToolResult> {
       pass: verdict.pass,
       failures: verdict.failures.map((f) => ({ code: f.code, message: f.message })),
       policy: describeGatePolicy(policy).map((c) => c.text),
+      // Bars this rollup-based verdict could not measure (e.g. AI authorship for a blocked repo):
+      // reported, so an agent never reads an untested bar as a pass.
+      skipped: verdict.skipped.map((k) => ({ code: k.code, why: k.why })),
       // Said plainly: the verdict reflects the repo's LAST SCAN, not the working tree the agent is
       // about to change. A model that assumes otherwise would report a stale pass as a guarantee.
       basis: `Evaluated against ${row.fullName}'s latest scan (${row.latest.scannedAt}), not your working tree.`,

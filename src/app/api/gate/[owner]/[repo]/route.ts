@@ -13,12 +13,13 @@ import { GitHubError } from "@/lib/github/source";
 import { forgeFullName, resolveForge } from "@/lib/forge/registry";
 import { lookupPersistedScanByCommit, resolveHeadWithHint } from "@/lib/scan-cache";
 import { cacheGet, cacheSet, makeCacheKey, normalizeRepoName } from "@/lib/cache";
-import { defaultGatePolicy, evaluateGate, explicitPolicyFromParams, policyFromParams, tightenGatePolicy, type GatePolicy, type GateSkip } from "@/lib/scoring/gate";
+import { evaluateGate, explicitPolicyFromParams, policyFromParams, type GatePolicy, type GateSkip } from "@/lib/scoring/gate";
 import { GATE_FAIL_STATUS, GATE_PASS_STATUS } from "@/lib/scoring/gate-api";
 import { logGateVerdict } from "@/lib/scoring/gate-telemetry";
 import { getOrgGatePolicy } from "@/lib/db/org-gate";
 import { orgSlugForRepo } from "@/lib/db/org-tenancy";
-import { loadCheckStates, resolveAdmissionLayer } from "@/lib/scoring/gate-admission";
+import { loadCheckStates } from "@/lib/scoring/gate-admission";
+import { resolveRepoGatePolicy, type RepoGatePolicy } from "@/lib/scoring/gate-resolve";
 import { rateLimitRequest, rateLimitRequestShared, tooManyRequests, SCAN_RATE_LIMIT, GATE_RATE_LIMIT } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -264,9 +265,20 @@ export async function GET(
     // FAIL CLOSED on a read error, identically to the org-policy read above and for the same reason:
     // `getRepoAdmission` returns null without throwing for every legitimate absence, so a throw means
     // only that the bar could not be determined. Say that; never enforce a weaker one.
-    let admissionLayer;
+    // With NO persisted org policy the params keep their historical archetype-padding behaviour
+    // (policyFromParams), so a repo with no admission row and no org bar produces a BYTE-IDENTICAL
+    // response to today's - the done-criterion this whole layer is held to. The fold is the shared
+    // resolver (gate-resolve.ts), so this surface and the Check Run cannot sequence it differently.
+    const explicit = explicitPolicyFromParams(searchParams);
+    let resolved: RepoGatePolicy;
     try {
-      admissionLayer = await resolveAdmissionLayer(orgSlug, coordinate);
+      resolved = await resolveRepoGatePolicy({
+        orgSlug,
+        repoFullName: coordinate,
+        orgPolicy,
+        archetype: report.archetype,
+        params: { explicit, padded: () => policyFromParams(searchParams, report.archetype) },
+      });
     } catch (err) {
       console.error("[gate] admission read failed — refusing to gate on a bar we could not read", err);
       return NextResponse.json(
@@ -279,15 +291,7 @@ export async function GET(
         { status: 503 },
       );
     }
-    const base = orgPolicy ?? defaultGatePolicy(report.archetype);
-    const withAdmission = tightenGatePolicy(base, admissionLayer.overlay);
-    // With NO persisted org policy the params keep their historical archetype-padding behaviour
-    // (policyFromParams), so a repo with no admission row and no org bar produces a BYTE-IDENTICAL
-    // response to today's — the done-criterion this whole layer is held to.
-    const explicit = explicitPolicyFromParams(searchParams);
-    const policy = orgPolicy
-      ? tightenGatePolicy(withAdmission, explicit)
-      : tightenGatePolicy(policyFromParams(searchParams, report.archetype), admissionLayer.overlay);
+    const policy = resolved.policy;
     // #16 — `requireChecks` is judged against the repo's OWN latest conformance report. Read only
     // when the effective policy actually names a check, so the common gate call pays no extra query;
     // null (no ledger, no report, a summary-only report) SKIPS every named check rather than failing
@@ -314,7 +318,8 @@ export async function GET(
       // is the same function the fold uses, so the log cannot disagree with the bar.
       policySource: orgPolicy ? "org" : Object.keys(explicit).length > 0 ? "params" : "archetype",
       degraded: degradedToMock(report),
-      admission: admissionLayer.admission,
+      admission: resolved.admission,
+      layers: resolved.layers,
     });
 
     // HONESTY GUARD (ci-gate-status-checks #2): the machine-readable verdict must never present a
@@ -378,7 +383,7 @@ export async function GET(
         // policy cannot explain why two repos under one org got different verdicts; the triple can.
         // Omitted entirely (not nulled) when no admission row applied, so a repo without one produces
         // a byte-identical body to the one this endpoint returned before this layer existed.
-        ...(admissionLayer.admission ? { admission: admissionLayer.admission } : {}),
+        ...(resolved.admission ? { admission: resolved.admission } : {}),
         // Degradation signals a CI consumer needs to trust — or distrust — the verdict:
         //   engine      — which grader actually produced it ("mock" = deterministic floor, not the AI grade);
         //   confidence  — 0..1 repo coverage (how much of the tree we could inspect);
