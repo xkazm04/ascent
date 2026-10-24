@@ -1759,7 +1759,11 @@
           "revision": 14,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "scripts/docs/feature-doc-map.json:82 One wide glob couples every file here to github-app.md, whose key-files table names only governance.ts of this context. The prose that actually describes these modules (scan.md for source.ts, auth.md for discover.ts, org-intelligence.md for codeowners.ts, forges.md for host.ts) is coupled to none of them, so the map reports membership while pointing at the wrong document.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:fd96220db75846a1",
+          "evaluatedRevision": 14
         },
         {
           "subject": "prompt-assembly",
@@ -5169,7 +5173,11 @@
           "revision": 14,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "scripts/docs/feature-doc-map.json:300 The plan.md entry maps the briefing API routes but not the public share page src/app/share/briefing/[token]/page.tsx, which no entry matches. That page has since switched to briefingShareLinkState, yet org-intelligence.md's dated correction still says it calls isBriefingShareRevoked: the unmapped page drifted with no doc obligation firing.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:fd96220db75846a1",
+          "evaluatedRevision": 14
         },
         {
           "subject": "test-harness",
@@ -7836,7 +7844,11 @@
           "revision": 14,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "docs/features/reporting/README.md:27 The reporting area index still lists Trends & Comparison under 'Known gaps' as undocumented, but report.md now documents it at length ('## Comparison — two axes', '## Trends / history', the TrendChart/DimensionTrends chart table). This is a resolved gap left standing as a live warning, the exact stale 'Known gap' failure the standard and AGENTS.md name.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:fd96220db75846a1",
+          "evaluatedRevision": 14
         },
         {
           "subject": "quality-gates",

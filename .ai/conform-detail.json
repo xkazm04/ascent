@@ -6965,6 +6965,90 @@
       "evaluatedTs": "2026-10-24T04:30:29.752Z",
       "worker": "96345c6c-c93e-4533-87a2-415af67d4619",
       "techniques": []
+    },
+    "Reporting & Visualization/Trends & Comparison/docs-sync": {
+      "context": "Trends & Comparison",
+      "subject": "docs-sync",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T04:50:27.170Z",
+      "worker": "adcac562-a44b-4ea7-9e66-2ad87e54bb19",
+      "techniques": [
+        {
+          "technique": "dated-corrections",
+          "verdict": "deviation",
+          "evidence": "docs/features/reporting/README.md:27 Resolved-marker discipline broken: the gap closed but was neither deleted nor rewritten as a dated resolution, so a reader is told the area is undocumented."
+        },
+        {
+          "technique": "source-doc-mapping",
+          "verdict": "conformant",
+          "evidence": "scripts/docs/feature-doc-map.json:393 Every context file (trends pages, compare page, lib/report/compare and validate, trend/compare components) maps to report.md."
+        },
+        {
+          "technique": "coupled-surface-inventory",
+          "verdict": "conformant",
+          "evidence": "docs/features/reporting/report.md:555 The mapped target describes these surfaces (/trends, /report/compare, /api/history share one read ladder), so the declared coupling points at prose that is actually about this code."
+        },
+        {
+          "technique": "rendered-surface-coupling",
+          "verdict": "not-applicable",
+          "evidence": "docs/features/reporting/report.md:334 The charts are described in prose and rendered by code at runtime. The doc holds no rendered figure artifacts."
+        }
+      ]
+    },
+    "Org Planning & Execution/Executive Briefing/docs-sync": {
+      "context": "Executive Briefing",
+      "subject": "docs-sync",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T04:50:27.170Z",
+      "worker": "adcac562-a44b-4ea7-9e66-2ad87e54bb19",
+      "techniques": [
+        {
+          "technique": "source-doc-mapping",
+          "verdict": "deviation",
+          "evidence": "scripts/docs/feature-doc-map.json:300 Replaying the checker's globs, src/app/share/briefing/[token]/page.tsx is UNMAPPED. The other 8 context source files map (to plan.md and/or org-intelligence.md)."
+        },
+        {
+          "technique": "dated-corrections",
+          "verdict": "deviation",
+          "evidence": "docs/features/org-dashboard/org-intelligence.md:1563 The 2026-09-05 correction (line 1562, correctly struck through and dated) has rotted itself. The page now imports briefingShareLinkState (page.tsx:25), and the correction carries no verification date and no correction-of-correction."
+        },
+        {
+          "technique": "coupled-surface-inventory",
+          "verdict": "conformant",
+          "evidence": "scripts/docs/feature-doc-map.json:289 briefing.ts is declared against both surfaces that describe it: plan.md explicitly, and org-intelligence.md via src/lib/org/**."
+        }
+      ]
+    },
+    "Identity & GitHub Connectivity/GitHub Repo Data Access/docs-sync": {
+      "context": "GitHub Repo Data Access",
+      "subject": "docs-sync",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T04:50:27.170Z",
+      "worker": "adcac562-a44b-4ea7-9e66-2ad87e54bb19",
+      "techniques": [
+        {
+          "technique": "source-doc-mapping",
+          "verdict": "deviation",
+          "evidence": "scripts/docs/feature-doc-map.json:82 Coverage by membership, not by meaning: all 7 source files resolve to github-app.md, which does not describe source/list/graphql/discover/codeowners."
+        },
+        {
+          "technique": "coupled-surface-inventory",
+          "verdict": "deviation",
+          "evidence": "docs/features/scanning/scan.md:280 source.ts's real coupled surface (scan.md ingest section plus its key-files row) is not enumerated for it. The same holds for auth.md:185 (discover.ts) and org-intelligence.md:3060 (codeowners.ts)."
+        },
+        {
+          "technique": "prose-as-an-execution-surface",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/github/source.ts:333 The program-printed setup hints (also graphql.ts:111) name an env var, show no credential as a positional argument, and name no install package: neither dangerous population is present."
+        }
+      ],
+      "registryProposal": "source-doc-mapping could name a 'target describes the matched file' check: a broad directory glob mapped to a doc that never names the matched path passes every membership and coverage test, yet couples the code to the wrong prose. A cheap probe is whether the target doc mentions the file path or its exported symbols."
     }
   }
 }
