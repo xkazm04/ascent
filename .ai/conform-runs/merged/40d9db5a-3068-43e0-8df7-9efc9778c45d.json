@@ -1,0 +1,175 @@
+{
+  "schema": "conform-run/1",
+  "worker": "40d9db5a-3068-43e0-8df7-9efc9778c45d",
+  "subject": "table",
+  "evaluatedAt": "2026-10-24T02:49:49.561271+00:00",
+  "provider": "claude",
+  "model": "claude-opus-5-5",
+  "pairs": [
+    {
+      "context": "Repositories & Segments",
+      "subject": "table",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/features/standing/repositories/useRepoLeaderboard.ts:55 The activity column comparator returns equal for distinct repos with the same value and appends no immutable identity (fullName) tiebreaker, so tied repos fall back to the incoming order, which is itself sorted by overall score alone with no tiebreaker (RepositoriesLeaderboardPanel.tsx:77); the order is incomplete.",
+      "techniques": [
+        {
+          "technique": "sorting",
+          "verdict": "deviation",
+          "evidence": "src/features/standing/repositories/useRepoLeaderboard.ts:55 No identity tiebreaker. Missing activity does have a declared home (last in both directions, line 54)."
+        },
+        {
+          "technique": "filtering",
+          "verdict": "conformant",
+          "evidence": "src/features/standing/repositories/useRepoLeaderboard.ts:71 The raw record-keyed selection is intersected with the applied filter's rows at read time, not pruned by an effect, so widening back restores the ticks and a hidden repo can never reach 'Add to segment'."
+        },
+        {
+          "technique": "export-escapes-for-its-consumer",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/repositories/route.ts:66 The repositories CSV uses the shared guarded encoder."
+        }
+      ]
+    },
+    {
+      "context": "Follow-ups Ledger",
+      "subject": "table",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/components/shared/followups/followupsModel.ts:110 The ledger's value order ends on the display title instead of the row identity. Two follow-ups with the same title, points, impact and effort in different repos compare equal and land in arbitrary order, and the comparator also uses an unparameterized locale.",
+      "techniques": [
+        {
+          "technique": "sorting",
+          "verdict": "deviation",
+          "evidence": "src/components/shared/followups/followupsModel.ts:110 The tiebreaker is the display label, which collides across repos. The standard requires the immutable row id."
+        },
+        {
+          "technique": "filtering",
+          "verdict": "deviation",
+          "evidence": "src/features/inflight/proposals/ProposalFilters.tsx:93 The ledger's applied predicate is split into two values: FollowUpFilters and a separate Source set. 'Clear filters' resets the first and leaves Source narrowing the rows, and filtersActive (followupsModel.ts:152) ignores Source, so the clear affordance can be hidden while a filter still applies. The keystroke search (ProposalFilters.tsx:64) also changes the rows with no announced count."
+        },
+        {
+          "technique": "loading-and-empty-states",
+          "verdict": "conformant",
+          "evidence": "src/components/shared/followups/FollowupHistory.tsx:35 The row timeline keeps loading, error (role=alert with Retry) and settled-empty as three distinct states. The loading text has no anti-flash delay, a minor gap on a list rather than a table body."
+        }
+      ]
+    },
+    {
+      "context": "Security Posture & Audit Log",
+      "subject": "table",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/features/admin/audit/AuditLogTable.tsx:106 When a filter fetch fails and no rows are held, the table shows the error banner and also the empty state claiming 'No entries match this filter'. The same copy shows for an unfiltered org that has no entries yet, so error and nothing-exists both wear the no-match empty state's clothes.",
+      "techniques": [
+        {
+          "technique": "loading-and-empty-states",
+          "verdict": "deviation",
+          "evidence": "src/features/admin/audit/AuditLogTable.tsx:106 Error is not kept apart from empty, and the empty copy isn't typed by cause. The header chrome also unmounts when there are zero rows (line 101). On a filter change, the rows produced under the abandoned predicate stay on screen dimmed (line 88) instead of clearing."
+        },
+        {
+          "technique": "filtering",
+          "verdict": "deviation",
+          "evidence": "src/features/admin/audit/AuditLogFilterBar.tsx:46 Entered vs applied, per-control commit points, a latest-wins token (useAuditLogFilters.ts:58) and a CSV built from the applied set are all realized. But the Action select and Apply button are disabled during every fetch, which is the race-avoidance the technique prohibits. There is also no single clear action."
+        },
+        {
+          "technique": "pagination",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/scans-audit.ts:339 Keyset pagination on (at, id), both descending, with the matching orderBy, limit+1 to compute hasMore, a capped page size and a load-more surface. The count reads 'N shown', not 'results'."
+        },
+        {
+          "technique": "sorting",
+          "verdict": "deviation",
+          "evidence": "src/features/standing/security/securityRegisterShared.ts:112 The security register comparator has no identity tiebreaker. Unmeasured D9 repos sort by their fail-closed 0 substitute, so absent values have no declared home and sort as the minimum."
+        },
+        {
+          "technique": "client-server-split",
+          "verdict": "conformant",
+          "evidence": "src/features/standing/security/useSecurityRegister.ts:19 The register sorts the complete row set before applying its show-more window, so the order is never computed below a truncating window. The audit trail runs filter, sort and window all on the server."
+        },
+        {
+          "technique": "export-escapes-for-its-consumer",
+          "verdict": "conformant",
+          "evidence": "src/app/api/audit/route.ts:53 The audit CSV uses the shared guarded csvField. Timestamps are ISO strings. The meta cell is deliberately JSON.stringify'd because it carries the signed canonical payload."
+        }
+      ],
+      "registryProposal": "export-escapes-for-its-consumer says objects must be flattened into columns or refused. An evidentiary export whose cell must reproduce a signed canonical payload (an HMAC over serialized meta) is a legitimate case for a single explicitly serialized JSON cell, and the technique doesn't name that exemption."
+    }
+  ],
+  "declined": [
+    {
+      "subject": "table",
+      "context": "People & Delivery Analytics",
+      "reason": "evidence leans on export/route.ts, which is not a tracked file"
+    },
+    {
+      "subject": "table",
+      "context": "Developer home (UC3 individual care)",
+      "reason": "withdrawn after review: reviewer (sonnet): The not-applicable rests on a negative search, but CareShareUpload.dom.test.tsx:106 says the shared MatrixGrid kit 'captions its accessible table itself', so the privacy ledger is tabular data and the absence claim is contradicted."
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-10-24T02:49:49.561271+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "table"
+      ],
+      "techniques": [
+        "export-escapes-for-its-consumer",
+        "filtering",
+        "sorting"
+      ],
+      "deviations": 1,
+      "context": "Repositories & Segments",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-10-24T02:49:49.561271+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "table"
+      ],
+      "techniques": [
+        "filtering",
+        "loading-and-empty-states",
+        "sorting"
+      ],
+      "deviations": 1,
+      "context": "Follow-ups Ledger",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-10-24T02:49:49.561271+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "table"
+      ],
+      "techniques": [
+        "client-server-split",
+        "export-escapes-for-its-consumer",
+        "filtering",
+        "loading-and-empty-states",
+        "pagination",
+        "sorting"
+      ],
+      "deviations": 1,
+      "context": "Security Posture & Audit Log",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-10-24T02:49:49.561271+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "table"
+      ],
+      "techniques": [],
+      "deviations": 0,
+      "context": "Developer home (UC3 individual care)",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    }
+  ]
+}

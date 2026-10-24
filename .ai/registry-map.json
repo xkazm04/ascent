@@ -3813,7 +3813,11 @@
           "revision": 14,
           "changedAt": "2026-10-14",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/features/admin/audit/AuditLogTable.tsx:106 When a filter fetch fails and no rows are held, the table shows the error banner and also the empty state claiming 'No entries match this filter'. The same copy shows for an unfiltered org that has no entries yet, so error and nothing-exists both wear the no-match empty state's clothes.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:c587a204413d5373",
+          "evaluatedRevision": 14
         },
         {
           "subject": "mcp-tools",
@@ -4147,15 +4151,14 @@
           "source": "conform",
           "confidence": "strong",
           "state": "deviation",
-          "evidence": "src/features/standing/repositories/useRepoLeaderboard.ts:55 Activity sorting has no immutable identity tiebreaker, so equal-valued repositories inherit their incoming order instead of a total deterministic order.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:f5aa23bf6f14872f",
-          "evaluatedRevision": 12,
+          "evidence": "src/features/standing/repositories/useRepoLeaderboard.ts:55 The activity column comparator returns equal for distinct repos with the same value and appends no immutable identity (fullName) tiebreaker, so tied repos fall back to the incoming order, which is itself sorted by overall score alone with no tiebreaker (RepositoriesLeaderboardPanel.tsx:77); the order is incomplete.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:c587a204413d5373",
+          "evaluatedRevision": 14,
           "digest": "sha256-b2:c587a204413d5373",
           "revision": 14,
           "changedAt": "2026-10-14",
-          "revisionsBehind": 2,
-          "stale": true
+          "revisionsBehind": 2
         }
       ],
       "governance": "governed"
@@ -6195,15 +6198,14 @@
           "source": "conform",
           "confidence": "strong",
           "state": "deviation",
-          "evidence": "src/components/shared/followups/FollowupsFilterBar.tsx:91 Clear filters resets the shared follow-up filters but leaves the Proposals worklist's separate Source selection active, so it does not clear the complete applied predicate.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:f5aa23bf6f14872f",
-          "evaluatedRevision": 12,
+          "evidence": "src/components/shared/followups/followupsModel.ts:110 The ledger's value order ends on the display title instead of the row identity. Two follow-ups with the same title, points, impact and effort in different repos compare equal and land in arbitrary order, and the comparator also uses an unparameterized locale.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:c587a204413d5373",
+          "evaluatedRevision": 14,
           "digest": "sha256-b2:c587a204413d5373",
           "revision": 14,
           "changedAt": "2026-10-14",
-          "revisionsBehind": 2,
-          "stale": true
+          "revisionsBehind": 2
         }
       ],
       "governance": "governed"

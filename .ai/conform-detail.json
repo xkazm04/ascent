@@ -2144,39 +2144,48 @@
       "subject": "table",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T10:39:11.279Z",
-      "worker": "56735964-f5f6-478b-aaae-58c70bb83c5b",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T02:49:49.561Z",
+      "worker": "40d9db5a-3068-43e0-8df7-9efc9778c45d",
       "techniques": [
         {
-          "technique": "client-server-split",
-          "verdict": "conformant",
-          "evidence": "src/features/standing/repositories/RepositoriesLeaderboardPanel.tsx:189 The client receives the complete posture-filtered, segment/stack-scoped repository set; the inspected rollup query does not truncate repositories before client sorting."
+          "technique": "sorting",
+          "verdict": "deviation",
+          "evidence": "src/features/standing/repositories/useRepoLeaderboard.ts:55 No identity tiebreaker. Missing activity does have a declared home (last in both directions, line 54)."
         },
         {
           "technique": "filtering",
-          "verdict": "deviation",
-          "evidence": "src/features/standing/repositories/RepositoriesLeaderboardPanel.tsx:104 The All action clears posture while preserving segment and stack; the inspected selector composition provides no single action clearing the complete applied predicate."
+          "verdict": "conformant",
+          "evidence": "src/features/standing/repositories/useRepoLeaderboard.ts:71 The raw record-keyed selection is intersected with the applied filter's rows at read time, not pruned by an effect, so widening back restores the ticks and a hidden repo can never reach 'Add to segment'."
+        },
+        {
+          "technique": "export-escapes-for-its-consumer",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/repositories/route.ts:66 The repositories CSV uses the shared guarded encoder."
+        },
+        {
+          "technique": "client-server-split",
+          "verdict": "conformant",
+          "evidence": "src/features/standing/repositories/RepositoriesLeaderboardPanel.tsx:189 The client receives the complete posture-filtered, segment/stack-scoped repository set; the inspected rollup query does not truncate repositories before client sorting.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "loading-and-empty-states",
           "verdict": "deviation",
-          "evidence": "src/features/standing/repositories/RepositoriesTab.tsx:75 Initial loading suspends the entire leaderboard panel, including its filter/export toolbar and column headers, instead of rendering chrome immediately with a body-only placeholder."
+          "evidence": "src/features/standing/repositories/RepositoriesTab.tsx:75 Initial loading suspends the entire leaderboard panel, including its filter/export toolbar and column headers, instead of rendering chrome immediately with a body-only placeholder.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "pagination",
           "verdict": "deviation",
-          "evidence": "src/features/standing/repositories/RepoLeaderboard.tsx:68 Every sorted repository is rendered; the inspected leaderboard has no bounded row window or pager."
+          "evidence": "src/features/standing/repositories/RepoLeaderboard.tsx:68 Every sorted repository is rendered; the inspected leaderboard has no bounded row window or pager.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "performance",
           "verdict": "deviation",
-          "evidence": "src/lib/db/org-rollup.ts:745 The inspected query fetches every matching repository without a top-level take, and the leaderboard mounts the full result; cost remains proportional to fleet size despite bounded latest-scan reads."
-        },
-        {
-          "technique": "sorting",
-          "verdict": "deviation",
-          "evidence": "src/features/standing/repositories/useRepoLeaderboard.ts:55 Missing activity now stays last in both directions, but distinct repositories with equal activity still compare equal because no identity comparison follows."
+          "evidence": "src/lib/db/org-rollup.ts:745 The inspected query fetches every matching repository without a top-level take, and the leaderboard mounts the full result; cost remains proportional to fleet size despite bounded latest-scan reads.",
+          "carriedFrom": "2026-10-13"
         }
       ],
       "superseded": [
@@ -2186,6 +2195,13 @@
           "evaluatedAt": "2026-09-20",
           "worker": null,
           "reason": "replaced by 56735964-f5f6-478b-aaae-58c70bb83c5b"
+        },
+        {
+          "state": "deviation",
+          "evidence": "src/features/standing/repositories/useRepoLeaderboard.ts:55 Activity sorting has no immutable identity tiebreaker, so equal-valued repositories inherit their incoming order instead of a total deterministic order.",
+          "evaluatedAt": "2026-10-13T10:39:11.279Z",
+          "worker": "56735964-f5f6-478b-aaae-58c70bb83c5b",
+          "reason": "replaced by 40d9db5a-3068-43e0-8df7-9efc9778c45d"
         }
       ]
     },
@@ -2244,39 +2260,42 @@
       "subject": "table",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T10:39:11.279Z",
-      "worker": "56735964-f5f6-478b-aaae-58c70bb83c5b",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T02:49:49.561Z",
+      "worker": "40d9db5a-3068-43e0-8df7-9efc9778c45d",
       "techniques": [
         {
-          "technique": "client-server-split",
+          "technique": "sorting",
           "verdict": "deviation",
-          "evidence": "src/features/inflight/proposals/ProposalsTab.tsx:36 Loop proposals are truncated to twelve recent run details before client repository, dimension, source and text filtering, while the ledger does not label those controls as searching only that recent window."
+          "evidence": "src/components/shared/followups/followupsModel.ts:110 The tiebreaker is the display label, which collides across repos. The standard requires the immutable row id."
         },
         {
           "technique": "filtering",
           "verdict": "deviation",
-          "evidence": "src/components/org/followups/FollowupsFilterBar.tsx:91 Source is independently stored in ProposalsWorklist at line 68 and supplied to applyProposalFilters; this reset cannot clear it."
+          "evidence": "src/features/inflight/proposals/ProposalFilters.tsx:93 The ledger's applied predicate is split into two values: FollowUpFilters and a separate Source set. 'Clear filters' resets the first and leaves Source narrowing the rows, and filtersActive (followupsModel.ts:152) ignores Source, so the clear affordance can be hidden while a filter still applies. The keystroke search (ProposalFilters.tsx:64) also changes the rows with no announced count."
         },
         {
           "technique": "loading-and-empty-states",
+          "verdict": "conformant",
+          "evidence": "src/components/shared/followups/FollowupHistory.tsx:35 The row timeline keeps loading, error (role=alert with Retry) and settled-empty as three distinct states. The loading text has no anti-flash delay, a minor gap on a list rather than a table body."
+        },
+        {
+          "technique": "client-server-split",
           "verdict": "deviation",
-          "evidence": "src/components/org/shared/DecisionTable.tsx:134 A zero-match result substitutes the empty content for the entire OrgTable, removing its schema-derived column headers instead of keeping chrome and changing only the body."
+          "evidence": "src/features/inflight/proposals/ProposalsTab.tsx:36 Loop proposals are truncated to twelve recent run details before client repository, dimension, source and text filtering, while the ledger does not label those controls as searching only that recent window.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "pagination",
           "verdict": "deviation",
-          "evidence": "src/components/org/shared/DecisionTable.tsx:153 ProposalsWorklist passes the complete filtered result as rows, and DecisionTable renders every row without a bounded window."
+          "evidence": "src/components/org/shared/DecisionTable.tsx:153 ProposalsWorklist passes the complete filtered result as rows, and DecisionTable renders every row without a bounded window.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "performance",
           "verdict": "deviation",
-          "evidence": "src/features/inflight/proposals/ProposalsWorklist.tsx:75 The presentation sequence is recomputed on every worklist render, including selection and modal changes, rather than cached against its named data and predicate inputs."
-        },
-        {
-          "technique": "sorting",
-          "verdict": "deviation",
-          "evidence": "src/components/org/followups/followupsModel.ts:110 The scan-ledger comparator ends with a mutable, potentially colliding title rather than the recommendation's immutable unique id."
+          "evidence": "src/features/inflight/proposals/ProposalsWorklist.tsx:75 The presentation sequence is recomputed on every worklist render, including selection and modal changes, rather than cached against its named data and predicate inputs.",
+          "carriedFrom": "2026-10-13"
         }
       ],
       "superseded": [
@@ -2286,6 +2305,13 @@
           "evaluatedAt": "2026-09-20",
           "worker": null,
           "reason": "replaced by 56735964-f5f6-478b-aaae-58c70bb83c5b"
+        },
+        {
+          "state": "deviation",
+          "evidence": "src/components/shared/followups/FollowupsFilterBar.tsx:91 Clear filters resets the shared follow-up filters but leaves the Proposals worklist's separate Source selection active, so it does not clear the complete applied predicate.",
+          "evaluatedAt": "2026-10-13T10:39:11.279Z",
+          "worker": "56735964-f5f6-478b-aaae-58c70bb83c5b",
+          "reason": "replaced by 40d9db5a-3068-43e0-8df7-9efc9778c45d"
         }
       ]
     },
@@ -6580,6 +6606,63 @@
       "evaluatedTs": "2026-10-24T02:31:42.994Z",
       "worker": "e0934ff9-af28-4c57-a063-75ff216aefd8",
       "techniques": []
+    },
+    "Org Dashboard & Analytics/Security Posture & Audit Log/table": {
+      "context": "Security Posture & Audit Log",
+      "subject": "table",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T02:49:49.561Z",
+      "worker": "40d9db5a-3068-43e0-8df7-9efc9778c45d",
+      "techniques": [
+        {
+          "technique": "loading-and-empty-states",
+          "verdict": "deviation",
+          "evidence": "src/features/admin/audit/AuditLogTable.tsx:106 Error is not kept apart from empty, and the empty copy isn't typed by cause. The header chrome also unmounts when there are zero rows (line 101). On a filter change, the rows produced under the abandoned predicate stay on screen dimmed (line 88) instead of clearing."
+        },
+        {
+          "technique": "filtering",
+          "verdict": "deviation",
+          "evidence": "src/features/admin/audit/AuditLogFilterBar.tsx:46 Entered vs applied, per-control commit points, a latest-wins token (useAuditLogFilters.ts:58) and a CSV built from the applied set are all realized. But the Action select and Apply button are disabled during every fetch, which is the race-avoidance the technique prohibits. There is also no single clear action."
+        },
+        {
+          "technique": "pagination",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/scans-audit.ts:339 Keyset pagination on (at, id), both descending, with the matching orderBy, limit+1 to compute hasMore, a capped page size and a load-more surface. The count reads 'N shown', not 'results'."
+        },
+        {
+          "technique": "sorting",
+          "verdict": "deviation",
+          "evidence": "src/features/standing/security/securityRegisterShared.ts:112 The security register comparator has no identity tiebreaker. Unmeasured D9 repos sort by their fail-closed 0 substitute, so absent values have no declared home and sort as the minimum."
+        },
+        {
+          "technique": "client-server-split",
+          "verdict": "conformant",
+          "evidence": "src/features/standing/security/useSecurityRegister.ts:19 The register sorts the complete row set before applying its show-more window, so the order is never computed below a truncating window. The audit trail runs filter, sort and window all on the server."
+        },
+        {
+          "technique": "export-escapes-for-its-consumer",
+          "verdict": "conformant",
+          "evidence": "src/app/api/audit/route.ts:53 The audit CSV uses the shared guarded csvField. Timestamps are ISO strings. The meta cell is deliberately JSON.stringify'd because it carries the signed canonical payload."
+        }
+      ],
+      "registryProposal": "export-escapes-for-its-consumer says objects must be flattened into columns or refused. An evidentiary export whose cell must reproduce a signed canonical payload (an HMAC over serialized meta) is a legitimate case for a single explicitly serialized JSON cell, and the technique doesn't name that exemption."
+    },
+    "Org Dashboard & Analytics/Developer home (UC3 individual care)/table": {
+      "context": "Developer home (UC3 individual care)",
+      "subject": "table",
+      "bundle": "software-engineering",
+      "state": "unknown",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T02:49:49.561Z",
+      "techniques": [],
+      "withdrawn": {
+        "worker": "40d9db5a-3068-43e0-8df7-9efc9778c45d",
+        "state": "not-applicable",
+        "at": "2026-10-24T02:50:18.173190+00:00",
+        "reason": "reviewer (sonnet): The not-applicable rests on a negative search, but CareShareUpload.dom.test.tsx:106 says the shared MatrixGrid kit 'captions its accessible table itself', so the privacy ledger is tabular data and the absence claim is contradicted."
+      }
     }
   }
 }
