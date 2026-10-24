@@ -903,12 +903,11 @@
           "changedAt": "2026-10-14",
           "confidence": "probable",
           "state": "not-applicable",
-          "evidence": "src/lib/scoring/gate.ts:2 evaluateGate turns a maturity report into a pass/fail policy for a CI endpoint. A search of src/lib/scoring/gate.ts, gate-comment.ts, and the gate route for a hook chain, assembly digest, checkpoint mode, agent loop, or tool wrapper found no matches.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:9036e979656a8dc5",
-          "evaluatedRevision": 27,
-          "revisionsBehind": 1,
-          "stale": true
+          "evidence": "src/lib/scoring/gate.ts:1 The gate folds policy over a finished maturity report and posts check runs. It calls no model and holds no tool loop, hook chain, code loading or conversation state. Searches of src/lib/scoring, src/app/api/gate, src/lib/github, src/app/api/org/gate-policy and src/lib/db for runToolLoop, maxLegs, plugin and checkpointMode found nothing. Its 'llm' hits are only scan cache-key suffixes.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:45b3f952560a4cbc",
+          "evaluatedRevision": 28,
+          "revisionsBehind": 1
         },
         {
           "subject": "hitl-approval",
@@ -3035,12 +3034,11 @@
           "changedAt": "2026-10-14",
           "confidence": "probable",
           "state": "not-applicable",
-          "evidence": "src/app/onboarding/page.tsx:23 Searches of src/components/onboarding and src/app/onboarding for a hook chain, assembly digest, checkpoint mode, runToolLoop, and spawn found none (only React hooks, test guards, and a draft-PR install CTA); a search of foundation generators for hooks, settings.json, SessionStart, and PreToolUse also found none, so this wizard never assembles the code around a model call.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:9036e979656a8dc5",
-          "evaluatedRevision": 27,
-          "revisionsBehind": 1,
-          "stale": true
+          "evidence": "src/app/onboarding/page.tsx:26 The wizard is a first-run door: GitHub sign-in, App install and an import scan. It never builds the code around a model call. Searches of src/components/onboarding and src/app/onboarding for runToolLoop, maxLegs, plugin and checkpointMode found nothing, and the only 'hook' hits are React hooks.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:45b3f952560a4cbc",
+          "evaluatedRevision": 28,
+          "revisionsBehind": 1
         },
         {
           "subject": "quality-gates",
@@ -4989,8 +4987,12 @@
           "revision": 28,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown",
-          "priorNotApplicable": 3
+          "state": "not-applicable",
+          "priorNotApplicable": 3,
+          "evidence": "src/lib/org/developer-view.ts:1 This is a pure read model and client view over contributor snapshots and the developer's own pushed share. It makes no model call and has no tool loop, hooks, code loading or conversation checkpoints. Searches of src/features/developer, src/lib/org, src/app/org and src/components/org/shell for runToolLoop, maxLegs and checkpointMode found nothing.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:45b3f952560a4cbc",
+          "evaluatedRevision": 28
         },
         {
           "subject": "fleet-orchestration",
@@ -7099,12 +7101,11 @@
           "changedAt": "2026-10-14",
           "confidence": "probable",
           "state": "deviation",
-          "evidence": "src/lib/athena/turn.ts:154 The user row is written before the model runs, and a mid-turn death or a thrown loop leaves that row with no closed result and no indeterminate status; a follow-up typed while the turn is in flight is dropped instead of joined at the model-call boundary.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:9036e979656a8dc5",
-          "evaluatedRevision": 27,
-          "revisionsBehind": 1,
-          "stale": true
+          "evidence": "src/lib/athena/turn.ts:156 The user row is saved before the metered tool loop runs. If the loop throws, the turn only yields an error event. If the function is killed at maxDuration, nothing closes the row. Either way the generation is never closed as indeterminate, so the next turn's history() replays a question with no answer and no status.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:45b3f952560a4cbc",
+          "evaluatedRevision": 28,
+          "revisionsBehind": 1
         },
         {
           "subject": "chat-transcript",
@@ -7254,12 +7255,11 @@
           "changedAt": "2026-10-14",
           "confidence": "probable",
           "state": "not-applicable",
-          "evidence": "src/app/api/mcp/route.ts:7 This is a stateless JSON-RPC tool door. Searches of src/app/api/mcp and src/lib/mcp found no hook chain, assembly digest, checkpoint mode, or model wrapper; dynamic import hits were tests, and write-gate's extension contract is two source edits compiled into the server. The golden path assigns the wire to mcp-tools.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:9036e979656a8dc5",
-          "evaluatedRevision": 27,
-          "revisionsBehind": 1,
-          "stale": true
+          "evidence": "src/app/api/mcp/route.ts:187 This is a stateless tool server with a compile-time catalog. It runs no model call, hook chain, runtime code loading or checkpoint store; the golden path gives this wire to mcp-tools. Searches of src/app/api/mcp and src/lib/mcp for runToolLoop, maxLegs, plugin and checkpointMode found nothing. Dynamic import( appears only in tests.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:45b3f952560a4cbc",
+          "evaluatedRevision": 28,
+          "revisionsBehind": 1
         },
         {
           "subject": "agent-instruction-files",

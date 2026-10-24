@@ -1417,19 +1417,30 @@
       "subject": "agent-runtime-assembly",
       "bundle": "software-engineering",
       "state": "not-applicable",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T03:34:29.670Z",
-      "worker": "a90fda31-da65-49f0-95b8-592845c3ad14",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T03:22:46.462Z",
+      "worker": "a7da889f-b2cd-42d2-8617-e5f753a69bb1",
       "techniques": [
         {
           "technique": "activation-is-a-separate-mutation",
           "verdict": "not-applicable",
-          "evidence": "src/components/onboarding/OnboardingFoundationPanel.tsx:6 Activation here is the wizard's draft foundation PR, not a persisted callback registration; the foundation search found no hook or session-callback payload."
+          "evidence": "src/components/onboarding/OnboardingFoundationPanel.tsx:6 Activation here is the wizard's draft foundation PR, not a persisted callback registration; the foundation search found no hook or session-callback payload.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "semantic-hook-placement",
           "verdict": "not-applicable",
-          "evidence": "src/app/onboarding/page.tsx:29 The page branches to a sign-in panel, a skill guide, or the repo-pick wizard. No model or tool wrapper is composed."
+          "evidence": "src/app/onboarding/page.tsx:29 The page branches to a sign-in panel, a skill guide, or the repo-pick wizard. No model or tool wrapper is composed.",
+          "carriedFrom": "2026-10-13"
+        }
+      ],
+      "superseded": [
+        {
+          "state": "not-applicable",
+          "evidence": "src/app/onboarding/page.tsx:23 Searches of src/components/onboarding and src/app/onboarding for a hook chain, assembly digest, checkpoint mode, runToolLoop, and spawn found none (only React hooks, test guards, and a draft-PR install CTA); a search of foundation generators for hooks, settings.json, SessionStart, and PreToolUse also found none, so this wizard never assembles the code around a model call.",
+          "evaluatedAt": "2026-10-13T03:34:29.670Z",
+          "worker": "a90fda31-da65-49f0-95b8-592845c3ad14",
+          "reason": "replaced by a7da889f-b2cd-42d2-8617-e5f753a69bb1"
         }
       ]
     },
@@ -1465,29 +1476,41 @@
       "subject": "agent-runtime-assembly",
       "bundle": "software-engineering",
       "state": "not-applicable",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T03:34:29.670Z",
-      "worker": "a90fda31-da65-49f0-95b8-592845c3ad14",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T03:22:46.462Z",
+      "worker": "a7da889f-b2cd-42d2-8617-e5f753a69bb1",
       "techniques": [
+        {
+          "technique": "session-scoped-capability",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/mcp/route.ts:177 This is a tool server, not an agent runtime. Still, the rule's analogue holds here: tools/list and tools/call both work from the same per-request token scopes and plan gates, never from process env."
+        },
         {
           "technique": "semantic-hook-placement",
           "verdict": "not-applicable",
-          "evidence": "src/app/api/mcp/route.ts:48 The handler imports are tool dispatch and the protocol. There is no model-call chain."
+          "evidence": "src/app/api/mcp/route.ts:48 The handler imports are tool dispatch and the protocol. There is no model-call chain.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "operator-tier-code-loading",
           "verdict": "not-applicable",
-          "evidence": "src/lib/mcp/write-gate.ts:10 Adding a write tool is a reviewed source edit, not a service-writable key that names code."
-        },
-        {
-          "technique": "session-scoped-capability",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/mcp/tools.ts:30 The roster varies by the token on the request. That is authorization, not a client-surface capability read from a process environment slot."
+          "evidence": "src/lib/mcp/write-gate.ts:10 Adding a write tool is a reviewed source edit, not a service-writable key that names code.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "guard-input-custody",
           "verdict": "not-applicable",
-          "evidence": "src/lib/mcp/write-gate.ts:28 Write policy is a server table fed numbers by the route. There is no agent working tree and no policy file the caller can rewrite."
+          "evidence": "src/lib/mcp/write-gate.ts:28 Write policy is a server table fed numbers by the route. There is no agent working tree and no policy file the caller can rewrite.",
+          "carriedFrom": "2026-10-13"
+        }
+      ],
+      "superseded": [
+        {
+          "state": "not-applicable",
+          "evidence": "src/app/api/mcp/route.ts:7 This is a stateless JSON-RPC tool door. Searches of src/app/api/mcp and src/lib/mcp found no hook chain, assembly digest, checkpoint mode, or model wrapper; dynamic import hits were tests, and write-gate's extension contract is two source edits compiled into the server. The golden path assigns the wire to mcp-tools.",
+          "evaluatedAt": "2026-10-13T03:34:29.670Z",
+          "worker": "a90fda31-da65-49f0-95b8-592845c3ad14",
+          "reason": "replaced by a7da889f-b2cd-42d2-8617-e5f753a69bb1"
         }
       ]
     },
@@ -1496,19 +1519,30 @@
       "subject": "agent-runtime-assembly",
       "bundle": "software-engineering",
       "state": "not-applicable",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T03:34:29.670Z",
-      "worker": "a90fda31-da65-49f0-95b8-592845c3ad14",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T03:22:46.462Z",
+      "worker": "a7da889f-b2cd-42d2-8617-e5f753a69bb1",
       "techniques": [
         {
           "technique": "semantic-hook-placement",
           "verdict": "not-applicable",
-          "evidence": "src/app/api/gate/[owner]/[repo]/route.ts:7 The route scores a repository. It does not wrap an agent model call or a tool call in hooks."
+          "evidence": "src/app/api/gate/[owner]/[repo]/route.ts:7 The route scores a repository. It does not wrap an agent model call or a tool call in hooks.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "guard-input-custody",
           "verdict": "not-applicable",
-          "evidence": "src/lib/scoring/gate.ts:13 A repo manifest is folded strictest-wins, so it cannot lower the org floor. That is a score-policy merge, not an agent containment guard reading a file in the agent's tree."
+          "evidence": "src/lib/scoring/gate.ts:13 A repo manifest is folded strictest-wins, so it cannot lower the org floor. That is a score-policy merge, not an agent containment guard reading a file in the agent's tree.",
+          "carriedFrom": "2026-10-13"
+        }
+      ],
+      "superseded": [
+        {
+          "state": "not-applicable",
+          "evidence": "src/lib/scoring/gate.ts:2 evaluateGate turns a maturity report into a pass/fail policy for a CI endpoint. A search of src/lib/scoring/gate.ts, gate-comment.ts, and the gate route for a hook chain, assembly digest, checkpoint mode, agent loop, or tool wrapper found no matches.",
+          "evaluatedAt": "2026-10-13T03:34:29.670Z",
+          "worker": "a90fda31-da65-49f0-95b8-592845c3ad14",
+          "reason": "replaced by a7da889f-b2cd-42d2-8617-e5f753a69bb1"
         }
       ]
     },
@@ -1517,87 +1551,103 @@
       "subject": "agent-runtime-assembly",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T03:34:29.670Z",
-      "worker": "a90fda31-da65-49f0-95b8-592845c3ad14",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T03:22:46.462Z",
+      "worker": "a7da889f-b2cd-42d2-8617-e5f753a69bb1",
       "techniques": [
         {
           "technique": "indeterminate-closure-on-interruption",
           "verdict": "deviation",
-          "evidence": "src/lib/athena/turn.ts:154 appendTurn writes the user message first. On a thrown loop, turn.ts yields an error event and returns without an assistant row. Tool calls live only in the loop's memory, so an interrupt leaves a hole rather than a first-class unknown outcome."
+          "evidence": "src/lib/athena/turn.ts:156 An interrupted or failed generation leaves no closure record. Proposals do get one: athena-proposals-sweep.ts:68 stamps a stale claim with a first-class 'interrupted' kind and never retries it. That part conforms, apart from an extra ok:false failure flag next to the kind."
         },
         {
           "technique": "additive-input-at-the-call-boundary",
           "verdict": "deviation",
-          "evidence": "src/features/shared/athena/AthenaComposer.tsx:26 The textarea stays enabled, but submit and useAthenaThread.send return immediately while sending. The draft is not drained into the running turn, not recorded, and a press during the turn is silent. The turn already has a durable append, so the no-record exception does not apply."
+          "evidence": "src/features/shared/athena/AthenaComposer.tsx:27 Typing a follow-up during a turn is allowed, but sending it is blocked (useAthenaThread.ts:106 also refuses). The text stays in the box and never joins the running tool loop at a model-call boundary. A durable turn record exists, so the 'refuse at the surface' exemption does not apply."
+        },
+        {
+          "technique": "session-scoped-capability",
+          "verdict": "conformant",
+          "evidence": "src/lib/athena/grounding.ts:174 Memory and skills gates are resolved per request. The tool roster is filtered from those values and execute() re-checks the same values at run time, so one policy drives both. Nothing reads process env."
         },
         {
           "technique": "guard-input-custody",
           "verdict": "conformant",
-          "evidence": "src/lib/athena/grounding.ts:242 Plan and read predicates are injected by the route. A thrown or absent skills predicate stays closed, and execute refuses every mutates tool, so the model cannot rewrite the gate's inputs."
-        },
-        {
-          "technique": "semantic-hook-placement",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/llm/tool-loop.ts:194 The loop calls the resolved runner directly. No contributed hook list, placement class, or compose-time order check exists."
-        },
-        {
-          "technique": "assembly-identity",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/athena/turn.ts:284 The settled turn records the resolved engine and model. There is no hook assembly, declared hook identity, or procedure-versioned digest to compare."
+          "evidence": "src/app/api/cron/athena/deps.ts:7 The constitution she runs under has no writer, and the self-model is changed only by accepted diffs. Mutating tools are also left out of her roster (grounding.ts:141), so her governing inputs are outside her write reach."
         },
         {
           "technique": "bounded-projection-of-external-work",
           "verdict": "not-applicable",
-          "evidence": "src/lib/llm/tool-loop.ts:248 Each tool is awaited inside the leg and the string comes back before the next model call. No remote handle is persisted and the model is not given a poll."
-        },
-        {
-          "technique": "checkpoint-mode-custody",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/athena/turn.ts:190 History is complete message rows, replayed up to a fixed count. There is no full-versus-delta mode, marker, or ancestry walk. A failed history() becomes [] at turn.ts:181; that is a separate honesty gap, not this mode gate."
-        },
-        {
-          "technique": "honest-hook-registry",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/athena/turn.ts:10 phase, recall, tool, settled, and error are the turn's own events. Nothing registers a contributed callback against them."
-        },
-        {
-          "technique": "host-routes-win",
-          "verdict": "not-applicable",
-          "evidence": "src/app/api/athena/[id]/message/route.ts:3 The message route is a host adapter. No contribution mounts a handler on it."
-        },
-        {
-          "technique": "nested-run-is-not-its-parent",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/athena/turn.ts:141 A search of src/lib/athena for spawn, subagent, and process.env found none. One turn does not start another run."
-        },
-        {
-          "technique": "observer-and-mutator-surfaces",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/llm/tool-loop.ts:80 Dispatch is one caller-supplied function. There is no observer registry and no mutator vocabulary for contributed code."
+          "evidence": "src/app/api/cron/athena/deps.ts:159 No remote operation outlives a turn. The cycle makes one call with no tools, and turn tools are synchronous reads."
         },
         {
           "technique": "operator-tier-code-loading",
           "verdict": "not-applicable",
-          "evidence": "src/lib/athena/grounding.ts:49 The catalog is a static import, then filtered. No configuration key names code to load."
+          "evidence": "src/lib/athena/grounding.ts:120 The tool registry is compiled in. Nothing loads contributed code."
+        },
+        {
+          "technique": "nested-run-is-not-its-parent",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/cron/athena/deps.ts:169 The cycle is a top-level cron run that creates its own thread. No run starts another run."
+        },
+        {
+          "technique": "semantic-hook-placement",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/tool-loop.ts:194 The loop calls the resolved runner directly. No contributed hook list, placement class, or compose-time order check exists.",
+          "carriedFrom": "2026-10-13"
+        },
+        {
+          "technique": "assembly-identity",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/athena/turn.ts:284 The settled turn records the resolved engine and model. There is no hook assembly, declared hook identity, or procedure-versioned digest to compare.",
+          "carriedFrom": "2026-10-13"
+        },
+        {
+          "technique": "checkpoint-mode-custody",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/athena/turn.ts:190 History is complete message rows, replayed up to a fixed count. There is no full-versus-delta mode, marker, or ancestry walk. A failed history() becomes [] at turn.ts:181; that is a separate honesty gap, not this mode gate.",
+          "carriedFrom": "2026-10-13"
+        },
+        {
+          "technique": "honest-hook-registry",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/athena/turn.ts:10 phase, recall, tool, settled, and error are the turn's own events. Nothing registers a contributed callback against them.",
+          "carriedFrom": "2026-10-13"
+        },
+        {
+          "technique": "host-routes-win",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/athena/[id]/message/route.ts:3 The message route is a host adapter. No contribution mounts a handler on it.",
+          "carriedFrom": "2026-10-13"
+        },
+        {
+          "technique": "observer-and-mutator-surfaces",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/tool-loop.ts:80 Dispatch is one caller-supplied function. There is no observer registry and no mutator vocabulary for contributed code.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "rewrite-before-the-gate",
           "verdict": "not-applicable",
-          "evidence": "src/lib/athena/grounding.ts:284 Arguments are passed through after the plan checks. No contributed rewrite point exists."
-        },
-        {
-          "technique": "session-scoped-capability",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/athena/grounding.ts:145 Tools differ by workspace plan, resolved per turn from injected predicates. A search of src/lib/athena found no process.env roster, and no tool exists only because of which UI client is attached."
+          "evidence": "src/lib/athena/grounding.ts:284 Arguments are passed through after the plan checks. No contributed rewrite point exists.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "substituted-result-attribution",
           "verdict": "not-applicable",
-          "evidence": "src/lib/llm/tool-loop.ts:252 The only result path is execute's string, stored under the call's own id and name. No cache or alternate producer returns in the tool's place."
+          "evidence": "src/lib/llm/tool-loop.ts:252 The only result path is execute's string, stored under the call's own id and name. No cache or alternate producer returns in the tool's place.",
+          "carriedFrom": "2026-10-13"
         }
       ],
-      "registryProposal": "additive-input names supersede and inject, and its surface sentence says the send control is never disabled. A composer that leaves the textarea live, refuses submit while the turn runs, and drops Enter with no visible pending state is a third design the decision rules do not name."
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "src/lib/athena/turn.ts:154 The user row is written before the model runs, and a mid-turn death or a thrown loop leaves that row with no closed result and no indeterminate status; a follow-up typed while the turn is in flight is dropped instead of joined at the model-call boundary.",
+          "evaluatedAt": "2026-10-13T03:34:29.670Z",
+          "worker": "a90fda31-da65-49f0-95b8-592845c3ad14",
+          "reason": "replaced by a7da889f-b2cd-42d2-8617-e5f753a69bb1"
+        }
+      ]
     },
     "Org Dashboard & Analytics/Developer home (UC3 individual care)/voice-io": {
       "context": "Developer home (UC3 individual care)",
@@ -6748,6 +6798,16 @@
         "at": "2026-10-24T02:50:18.173190+00:00",
         "reason": "reviewer (sonnet): The not-applicable rests on a negative search, but CareShareUpload.dom.test.tsx:106 says the shared MatrixGrid kit 'captions its accessible table itself', so the privacy ledger is tabular data and the absence claim is contradicted."
       }
+    },
+    "Org Dashboard & Analytics/Developer home (UC3 individual care)/agent-runtime-assembly": {
+      "context": "Developer home (UC3 individual care)",
+      "subject": "agent-runtime-assembly",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T03:22:46.462Z",
+      "worker": "a7da889f-b2cd-42d2-8617-e5f753a69bb1",
+      "techniques": []
     }
   }
 }
