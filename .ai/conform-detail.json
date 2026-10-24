@@ -7357,6 +7357,36 @@
         }
       ],
       "registryProposal": "mirror-type-at-the-edge lists request scopes, compiler sessions, device handles and editor documents as host-minted types. Browser observer entries (IntersectionObserverEntry, ResizeObserverEntry, MutationRecord) are a very common UI-side instance: test DOMs such as jsdom do not implement the observer at all, so selection logic written in the callback is silently unreachable. Worth naming as an example."
+    },
+    "Reporting & Visualization/Roadmap & Recommendation Tracking/untrusted-extension-host": {
+      "context": "Roadmap & Recommendation Tracking",
+      "subject": "untrusted-extension-host",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T21:34:29.738Z",
+      "worker": "44d97733-2578-432e-bf40-eaeb87c4fdd1",
+      "techniques": []
+    },
+    "Onboarding, Shell & AI Standard/AI-Native Standard & Onboarding Skill/untrusted-extension-host": {
+      "context": "AI-Native Standard & Onboarding Skill",
+      "subject": "untrusted-extension-host",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T21:34:29.738Z",
+      "worker": "44d97733-2578-432e-bf40-eaeb87c4fdd1",
+      "techniques": []
+    },
+    "Billing, Credits & Metering/Credits & Entitlements/untrusted-extension-host": {
+      "context": "Credits & Entitlements",
+      "subject": "untrusted-extension-host",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T21:34:29.738Z",
+      "worker": "44d97733-2578-432e-bf40-eaeb87c4fdd1",
+      "techniques": []
     }
   }
 }

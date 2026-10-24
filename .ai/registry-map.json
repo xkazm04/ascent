@@ -2774,7 +2774,11 @@
           "revision": 6,
           "changedAt": "2026-10-05",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/standard/index.ts:1 This module generates files (manifest, doctor.mjs, guardrails, memory) that Ascent writes into a customer repo, so Ascent is the author of that code, not a host running untrusted code. The 'extension' hits are YAML extension fields, and the new Function calls appear only in standard.test.ts, where they evaluate Ascent's own generated parser source. A search of src/ for isolated-vm, quickjs, vm2, node:vm and extensionHost found no hits.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:a23407994bc4b9db",
+          "evaluatedRevision": 6
         }
       ],
       "governance": "governed"
@@ -7636,7 +7640,11 @@
           "revision": 6,
           "changedAt": "2026-10-05",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/components/report/RoadmapSandbox.tsx:3 The only 'sandbox' here is a client-side what-if score planner, and the context's routes, db module and components only read and update persisted recommendation rows: nothing installs or runs third-party code. A search of all of src/ for isolated-vm, quickjs, vm2, node:vm and extensionHost found no hits.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:a23407994bc4b9db",
+          "evaluatedRevision": 6
         },
         {
           "subject": "quality-gates",
@@ -9033,7 +9041,11 @@
           "revision": 6,
           "changedAt": "2026-10-05",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/entitlement.ts:1 This context is a credit ledger, an owner-only grant route and a scan entitlement gate, so it has no extension install path, no isolation primitive and no foreign callbacks. A search of src/ for isolated-vm, quickjs, vm2, node:vm and extensionHost found no hits.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:a23407994bc4b9db",
+          "evaluatedRevision": 6
         },
         {
           "subject": "agent-memory",
