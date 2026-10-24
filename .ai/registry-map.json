@@ -8161,7 +8161,11 @@
           "revision": 17,
           "changedAt": "2026-10-14",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/components/report/useReportScan.ts:359 Any HTTP refusal the hook does not specifically recognise, whether a permanent 4xx or a 5xx, lands in the same unnamed generic class that offers Retry, shows the server's own error text as the user copy, and is never reported to telemetry from the client. So both the taxonomy and the error-door invariant fail on the live-scan path, even though the server permalink reads route correctly.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:d811928687fd4faf",
+          "evaluatedRevision": 17
         },
         {
           "subject": "docs-sync",

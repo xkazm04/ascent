@@ -1,0 +1,95 @@
+{
+ "schema": "conform-run/1",
+ "worker": "88873364-8dcf-49bb-83f3-f6331111c258",
+ "subject": "error-handling",
+ "evaluatedAt": "2026-10-24T21:56:29.748400+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Repo Report Shell & Tabs",
+   "subject": "error-handling",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/components/report/useReportScan.ts:359 Any HTTP refusal the hook does not specifically recognise, whether a permanent 4xx or a 5xx, lands in the same unnamed generic class that offers Retry, shows the server's own error text as the user copy, and is never reported to telemetry from the client. So both the taxonomy and the error-door invariant fail on the live-scan path, even though the server permalink reads route correctly.",
+   "techniques": [
+    {
+     "technique": "error-doors",
+     "verdict": "deviation",
+     "evidence": "src/components/report/useReportScan.ts:459 Client-observed failures (backstop timeout, interruption, network, 'ended unexpectedly', invalid result payload) reach only the user door. The hook makes no telemetry call, and src/lib/scan-read-door.ts:15 explicitly leaves client components to console.warn at the site. On the server, page.tsx:52 does route correctly through reportFailedRead (console plus reportHandledError/Sentry)."
+    },
+    {
+     "technique": "swallowed-error-prevention",
+     "verdict": "deviation",
+     "evidence": "src/components/report/useReportScan.ts:264 The cache-peek and salvage-peek catches (also :28 and :343) fall back and only log to the browser console. The technique names this console-only class as a swallow. The comment says the log keeps a broken cache tier distinguishable from a miss, which is exactly the kind of fact an operator would act on, yet no operator ever sees it. The server side does give the routed path a cheap one-call form (degradeTo/reportDegradedRead)."
+    },
+    {
+     "technique": "crash-capture",
+     "verdict": "deviation",
+     "evidence": "src/components/report/ReportErrorBoundary.tsx:65 page.tsx:174 and ReportClient.tsx:105 wrap the report body in ReportErrorBoundary, which catches render throws before they can reach error.tsx and records them only to the console. The segment boundary error.tsx (via RouteError) does capture to Sentry (error.tsx:9), but the inner boundary that catches first makes report render crashes invisible to operators. This is the 'catching makes it darker' gradient the technique describes."
+    },
+    {
+     "technique": "taxonomy-design",
+     "verdict": "deviation",
+     "evidence": "src/components/report/useReportScan.ts:37 The catch-all is not an explicit member: an empty bag means 'generic' and is assumed transient, so Retry is offered. classifyScanAbort (reportTaxonomy.ts:50) also maps every non-abort throw, including code defects, to 'network'. The standard requires an explicit unknown category with the most conservative properties."
+    },
+    {
+     "technique": "user-facing-mapping",
+     "verdict": "deviation",
+     "evidence": "src/components/report/useReportScan.ts:421 Copy is written at each call site (:301, :312, :359, :421, :459-461), and the server's raw error prose is passed straight through as the user message. There is no single registry, the generic fallback does not report itself as a mapping gap, and 'Network error while scanning.' (:461) carries no suggestion."
+    },
+    {
+     "technique": "structured-propagation",
+     "verdict": "conformant",
+     "evidence": "src/components/report/useReportScan.ts:300 The class crosses the wire as structured fields (HTTP status plus a machine `code`: auth_required, INSUFFICIENT_CREDITS, monthly_quota, NOT_FOUND in the SSE error frame) and travels inside the app as one ScanErrorClass bag, not as prose. The server read doors keep the original cause (reportFailedRead(read, err))."
+    },
+    {
+     "technique": "cancellation-attribution",
+     "verdict": "conformant",
+     "evidence": "src/components/report/useReportScan.ts:186 The cause is recorded at the canceller: the backstop sets timedOut before controller.abort(), and the effect cleanup sets `cancelled` (requester went away), which suppresses any settle. classifyScanAbort then splits timeout, interrupted and none from these recorded causes instead of reading the causeless AbortError."
+    },
+    {
+     "technique": "consumer-decides-error-shape",
+     "verdict": "conformant",
+     "evidence": "src/app/report/[owner]/[repo]/page.tsx:50 The permalink read returns a small closed union, ok | empty | unavailable, which the same release's page branches on at :129-130 (PermalinkReadError vs ColdScanGate). Each consumer gets exactly the shape it branches on, and across the SSE/HTTP boundary to the client the result is a stable code."
+    },
+    {
+     "technique": "parse-failure-keeps-identity",
+     "verdict": "not-applicable",
+     "evidence": "src/components/report/useReportScan.ts:414 The only decode here is one whole ScanReport, a single document from the app's own server, not an externally owned collection of independent items. Refusing the whole document and saying why is the technique's own rule when its clauses fail."
+    },
+    {
+     "technique": "containment-boundary-restores-state",
+     "verdict": "not-applicable",
+     "evidence": "src/components/report/useReportScan.ts:223 The report surface is read-only and holds no user work that a half-run operation could mutate. A failed re-test simply keeps the prior report mounted."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-24T21:56:29.748400+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "error-handling"
+   ],
+   "techniques": [
+    "cancellation-attribution",
+    "consumer-decides-error-shape",
+    "containment-boundary-restores-state",
+    "crash-capture",
+    "error-doors",
+    "parse-failure-keeps-identity",
+    "structured-propagation",
+    "swallowed-error-prevention",
+    "taxonomy-design",
+    "user-facing-mapping"
+   ],
+   "deviations": 1,
+   "context": "Repo Report Shell & Tabs",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
