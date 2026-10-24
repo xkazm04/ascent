@@ -7153,6 +7153,46 @@
           "evidence": "src/app/api/org/issue/route.ts:9 A duplicate file action finds the work already done (reused:true) rather than filing again."
         }
       ]
+    },
+    "Org Dashboard & Analytics/Provider Integrations/cicd-monitoring": {
+      "context": "Provider Integrations",
+      "subject": "cicd-monitoring",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T05:50:42.909Z",
+      "worker": "93b9425f-47b8-4436-b791-012139d4365e",
+      "techniques": [
+        {
+          "technique": "liveness-scoped-polling",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/integrations/providers.ts:25 Connectors either receive OTel pushes or pull usage on a schedule. There is no poll loop over live run or deploy state, and setInterval/poll do not appear in the context directories."
+        },
+        {
+          "technique": "transition-detection-and-notify",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/integrations/ingest/route.ts:1 Ingest stores usage records. No snapshots of pipeline status are taken, so there are no status transitions to diff or announce."
+        },
+        {
+          "technique": "failure-drill-down",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/integrations/ingest/v1/logs/route.ts:19 The only logs here are Claude Code OTLP prompt/tool events, which are accepted and thrown away. There is no pipeline, stage, job or log-tail ladder."
+        },
+        {
+          "technique": "provider-capability-honesty",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/integrations/providers.ts:38 Each vendor gets an honest capability and fidelity declaration, but the vendors are AI-usage providers, not CI providers. There is no status vocabulary to map, so the technique as written does not apply."
+        }
+      ],
+      "superseded": [
+        {
+          "state": "not-applicable",
+          "evidence": "Context is AI-assistant usage/cost telemetry connectors (Claude Code OTel push, Copilot seats); nothing is polled, no run/deploy is watched - the subject's 'watch what you do not own' precondition fails.",
+          "evaluatedAt": "2026-08-23",
+          "worker": null,
+          "reason": "replaced by 93b9425f-47b8-4436-b791-012139d4365e"
+        }
+      ]
     }
   }
 }

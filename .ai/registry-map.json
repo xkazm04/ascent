@@ -4649,14 +4649,14 @@
           ],
           "confidence": "probable",
           "state": "not-applicable",
-          "evidence": "Context is AI-assistant usage/cost telemetry connectors (Claude Code OTel push, Copilot seats); nothing is polled, no run/deploy is watched - the subject's 'watch what you do not own' precondition fails.",
-          "evaluatedAt": "2026-08-23",
-          "evaluatedAgainst": "sha256:d3485a5a691fd995",
+          "evidence": "src/lib/integrations/providers.ts:26 The context's provider registry covers only AI-assistant usage and cost vendors (Claude Code OTel push, Copilot seats pull, OpenAI costs pull), so it never watches a pipeline it doesn't own. A search of src/lib/integrations, src/app/org/[slug]/integrations and src/app/api/integrations/ingest for workflow_run, pipeline, check_run, setInterval and rerun found nothing, which means the subject's observer-side precondition does not hold.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:9acef61dd04439ca",
           "source": "retained",
           "digest": "sha256-b2:9acef61dd04439ca",
           "revision": 3,
           "changedAt": "2026-09-26",
-          "stale": true
+          "evaluatedRevision": 3
         },
         {
           "subject": "connector-catalog",
