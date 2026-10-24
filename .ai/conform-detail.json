@@ -7193,6 +7193,63 @@
           "reason": "replaced by 93b9425f-47b8-4436-b791-012139d4365e"
         }
       ]
+    },
+    "Repository Scanning & Scoring/CI Gate & Status Checks/conformance-checking": {
+      "context": "CI Gate & Status Checks",
+      "subject": "conformance-checking",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T06:02:02.878Z",
+      "worker": "669752c6-8b51-492a-8b54-d0fcaa8bf570",
+      "techniques": [
+        {
+          "technique": "declared-deviation-register",
+          "verdict": "deviation",
+          "evidence": "src/lib/scoring/gate.ts:552 Only two outcome classes exist. A grep of gate*.ts and the gate-policy route for waiver/exempt/deviation/expires found nothing, and the admission layer can only tighten. Accepted failures are therefore either permanent red or removed by relaxing policy, which are the two shortcuts the technique forbids."
+        },
+        {
+          "technique": "finding-severity-ladder",
+          "verdict": "conformant",
+          "evidence": "src/lib/scoring/gate.ts:154 Unable-to-check is a first-class result with a reason, shown in the summary ('Not measured on this run') and in the API body. Failure codes are a closed vocabulary shared by the verdict, skip list and telemetry. An incomplete scan gets its own 'incomplete' code and headline, though it still fails closed."
+        },
+        {
+          "technique": "declared-then-proven",
+          "verdict": "conformant",
+          "evidence": "src/lib/scoring/gate.ts:387 The requireChecks bar rests on the repo's own self-reported doctor run, and it is labelled 'Reported' rather than presented as verified. Also, gate-comment.ts tells a deterministic-rubric verdict apart from an LLM-graded one."
+        },
+        {
+          "technique": "checker-false-positive-discipline",
+          "verdict": "conformant",
+          "evidence": "src/lib/scoring/gate.ts:651 A missing token or a failed sensor read becomes an announced skip, never a failure, so 'missing tool' is not counted as 'missing practice'. Each failure message carries its score, floor and sample. The missing exemption path is recorded under declared-deviation-register."
+        },
+        {
+          "technique": "derived-expectation-needs-an-evidence-floor",
+          "verdict": "conformant",
+          "evidence": "src/lib/scoring/gate.ts:119 A run that derived no evidence (zero dimensions) cannot pass vacuously; it short-circuits to an explicit incomplete verdict. A floor on a dimension missing from the report also fails closed (lines 626-637)."
+        },
+        {
+          "technique": "rule-registry-enumerated-fixtures",
+          "verdict": "conformant",
+          "evidence": "src/lib/scoring/gate-policy-sources.test.ts:81 Every criterion is enumerated from one compile-checked authority (Required<GatePolicy>), and so is every skip code. That enumeration asserts sanitize, merge, render and skip paths; firing is asserted per criterion by hand-written tests in gate.test.ts, not by the enumeration."
+        },
+        {
+          "technique": "fixture-repo-testing",
+          "verdict": "conformant",
+          "evidence": "src/app/api/gate/[owner]/[repo]/route.test.ts:202 The gate is tested through its real entry point (GET), asserting status codes and failure codes rather than prose. The fixtures are ScanReport-shaped, not repository trees, because the gate's input is a scan report."
+        },
+        {
+          "technique": "claim-write-back",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/gate/[owner]/[repo]/route.ts:83 The gate runs no declared commands and stamps no proof into a contract. It only reads a scan and policy and posts a verdict, so there is no write-back loop to judge."
+        },
+        {
+          "technique": "pass-ratio-comparability",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/scoring/gate-comment.ts:127 The number shown is a maturity-rubric composite (scoring-rubrics territory), not a pass ratio over the gate's findings. For incomplete scans the comment refuses to print a score at all."
+        }
+      ],
+      "registryProposal": "finding-severity-ladder says unable-to-check projects to a zero exit code, but a CI gate deployed as a required status check commonly has to fail closed on an unreadable subject (this gate maps an incomplete scan to failure, and an explicitly requested unmeasurable bar to 503, because GitHub treats neutral as satisfying). The technique could say how its exit-code projection relates to quality-gates' fail-closed rule, so a gate that spells the state distinctly but exits non-zero is not misread as folding unable-to-check into fail."
     }
   }
 }
