@@ -6156,10 +6156,11 @@
           "revision": 6,
           "changedAt": "2026-10-01",
           "confidence": "probable",
-          "state": "conformant",
-          "evidence": "handoff/route.ts realizes handoff-tenancy-and-idempotence: requireOrgAccess + whole-request 403 on any foreign/unknown id (no existence oracle), PUBLIC_ORG refused, MAX_BATCH 50, only open->in_progress with skipped-and-why reported. Wave-3 item 8 closed the one gap: db/scans-recommendations.ts handoffRecommendations now does ONE membership-scoped read and per-row CAS (status+org in the WHERE) in one tx with events+audit, so a row moving open->done mid-request can no longer be silently reopened. Residual tension: the ownership predicate now has two spellings (getRecommendationOrgSlug and the batch read's join), both in the same module.",
-          "evaluatedAt": "2026-08-30",
-          "stale": true
+          "state": "deviation",
+          "evidence": "src/app/api/org/followups/handoff/route.ts:112 In the sandbox branch an unknown first id gets the fixed 403 body 'One or more items do not belong to this organization.' before any gate runs, but a first id that exists in a foreign org reaches requireOrgAccess, which answers with its own body ('You don't have access to this organization.' 403, or 401 'Sign in…' for an anonymous caller), so the response tells the caller whether a foreign recommendation id exists.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:ab4f0ae40c100d8e",
+          "evaluatedRevision": 6
         },
         {
           "subject": "eval-harness",

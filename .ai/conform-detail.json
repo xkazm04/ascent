@@ -4534,47 +4534,48 @@
       "context": "Follow-ups Ledger",
       "subject": "remediation-handoff",
       "bundle": "software-engineering",
-      "state": "conformant",
-      "evaluatedAt": "2026-10-15",
-      "evaluatedTs": "2026-10-15T21:22:07.597Z",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T06:24:59.790Z",
+      "worker": "e63300af-4d01-4014-b934-47648d15c611",
       "techniques": [
         {
-          "technique": "batch-shaping-for-one-session",
-          "verdict": "conformant",
-          "evidence": "src/components/org/followups/followupsModel.ts:199 Computes estate-wide category spread to shape batches as cross-repo practice decisions rather than isolated tickets, combined with value sorting and MAX_BATCH capping."
+          "technique": "handoff-tenancy-and-idempotence",
+          "verdict": "deviation",
+          "evidence": "src/app/api/org/followups/handoff/route.ts:112 The default branch is sound: container gate, one org-scoped ownership read, all-or-nothing 403, MAX_BATCH 50 refused rather than truncated, an open->in_progress compare-and-set only, held/not-open skips reported with no second event. Two gaps remain. (1) In the sandbox branch a foreign first id is answered differently from an unknown one, which is an existence oracle; route.sandbox.test.ts:88-91 checks only the status code against a mocked gate. (2) releaseFollowups (followup-claims.ts:262, `where: { id, status: \"in_progress\", claimActor: actor }`) fences only on the holder name, which lane-exit.ts shares across lanes as LANE_ACTOR, and a stale write is a silent count of 0. That is the holder-identity-instead-of-generation failure the technique names; reportAttempt is properly fenced. The ownership predicate also has two spellings: the orgId join at followup-claims.ts:168 and getRecommendationOrgSlug."
         },
         {
           "technique": "claim-carry-forward-rules",
           "verdict": "deviation",
-          "evidence": "src/lib/db/scans-persist.ts:417 Restricts tier-3 unpairing and title-tier enforcement strictly to in_progress rows, permitting dismissed and done rows to structurally pair with fresh gaps and suppressing regression reopenings."
+          "evidence": "src/lib/db/scan-carry-plan.ts:156 Claimed rows are handled correctly: they are restated only on title tiers (isRestated), and a tier-3 pairing is undone in both the close and keep outcomes (lines 165-175). Dismissed and done rows skip this rule, so matchRecommendations' tier-3 lone-in-dimension pairing carries their status onto a brand-new gap through trackedState(carried, carried.status) at scans-persist.ts:517. A done row restated on a title tier is carried forward as done, not reopened as a regression."
+        },
+        {
+          "technique": "batch-shaping-for-one-session",
+          "verdict": "deviation",
+          "evidence": "src/components/shared/followups/followupsModel.ts:199 Per-repo sections ordered by summed points, items ordered by impact then effort, and a hard cap of 50 that refuses rather than truncates are all realized. The estate-wide flag's minimum denominator of 2 still lets 1 repo out of 2 qualify as org-wide, which the technique says it must not. sumPts also imputes null projected points as 0 when ordering repos, and the prompt does not ask for one checked commit per item."
+        },
+        {
+          "technique": "single-artifact-prompt-construction",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/followups.ts:652 Realized: buildFixPrompt is pure and deterministic, with the stamp passed in; it has the header, framing, rules block, per-repo sections, verbatim ids and titles, an explore-first list, and unknown points omitted. Missing: after the last repo section the human prompt ends with only this footer, so the trailer return contract (line 583) is never repeated after the data. The artifact also says 'next scan of the branch' rather than 'merged and rescanned'; only the modal chrome (FollowupsPromptModal.tsx:87) mentions the default branch, and that text is not pasted."
         },
         {
           "technique": "evidence-based-auto-close",
-          "verdict": "conformant",
-          "evidence": "src/lib/org/followups.ts:145 Treats trailer markers as claims that must be confirmed by the rescan, keeping claimed items open if still restated or if score movement is absent or unattributable."
+          "verdict": "deviation",
+          "evidence": "src/lib/org/followups.ts:187 Realized well: the trailer is a hint that the rescan must confirm, the movement must be attributable (no mock or rubric boundary, outside the noise band), craft rows close on the marker alone, every close records its mechanism (resolutionNote/keepNote), and resolution is written onto the new scan. But decideInProgress has no input for what the resolving commits touched, so a close by absence after a commit that edited the instrument's inputs is not held for a person. There is also no 'removed' outcome separate from 'resolved'; a grep of scans-persist and scan-carry-plan found neither."
+        },
+        {
+          "technique": "resolution-trailers",
+          "verdict": "deviation",
+          "evidence": "src/lib/scoring/engine.ts:424 The grammar is conformant: FOLLOWUP_TRAILER is one constant (followups.ts:39) shared by the parser and the prompt; the key is case-insensitive, anchored at line start, takes several ids and several lines, and its absence is never treated as evidence. Every sampled message is parsed, though, with no revert or withdrawal check. A craft row closes on its marker alone (followups.ts:162), so a later revert of a marked commit still closes it. The prompt also does not ask for the trailer in the final block."
         },
         {
           "technique": "finding-refutation-channel",
           "verdict": "deviation",
-          "evidence": "src/lib/db/followup-claims.ts:381 A skipped item simply reverts to open without providing a refutation channel that suppresses re-raising or reports precision feedback to the producer."
-        },
-        {
-          "technique": "handoff-tenancy-and-idempotence",
-          "verdict": "conformant",
-          "evidence": "src/app/api/org/followups/handoff/route.ts:69 Gates organization access, validates batch ownership in one query, returns an indistinguishable 403 on foreign or nonexistent IDs, and safely reports skipped items on retry."
-        },
-        {
-          "technique": "resolution-trailers",
-          "verdict": "conformant",
-          "evidence": "src/lib/org/followups.ts:39 Defines a single authoritative trailer key parsed case-insensitively at line start across commit messages, treating presence as a claim verified by the subsequent rescan."
-        },
-        {
-          "technique": "single-artifact-prompt-construction",
-          "verdict": "conformant",
-          "evidence": "src/lib/org/followups.ts:550 Constructs a pure, deterministic markdown prompt partitioned by repository and sorted by value, stating findings in the scan's words with clear rules and trailer instructions."
+          "evidence": "src/lib/org/followups.ts:595 The human hand-off asks for resolved / skipped / needs-human with nothing parsed back. ATTEMPT_VERDICTS (followups-claims.ts:42) offers the same three. No outcome separates 'premise false' from 'already satisfied', no refutation writes back to suppress the producer re-raising the finding, and no per-producer refutation rate is tracked, even though these briefs carry LLM judgement."
         }
       ],
-      "registryProposal": "Clarify how human dismissals (such as deliberate architectural exemptions or false positives) should carry forward versus machine auto-closures, specifically whether an explicit rule/path-scoped suppression record should be modeled separately from title-tier carry-forward.",
+      "registryProposal": "handoff-tenancy-and-idempotence could add a resolve-then-gate branch hazard: when the container is derived from the first identifier, an unknown id can short-circuit before the container gate while a foreign id reaches the gate and gets the gate's own body. The technique's indistinguishability rule covers this, but this shape of the bug is easy to miss and worth naming.",
       "superseded": [
         {
           "state": "conformant",
@@ -4583,13 +4584,7 @@
           "worker": null,
           "reason": "replaced by 70ce59f9-d153-4ff2-935a-f4108c0ffaa9"
         }
-      ],
-      "withdrawn": {
-        "worker": "70ce59f9-d153-4ff2-935a-f4108c0ffaa9",
-        "state": "deviation",
-        "at": "2026-10-15T21:23:16.073278+00:00",
-        "reason": "reviewer (sonnet): The code does show dismissed and done rows tier-3 pairing and carrying status (scans-persist.ts:417 and 596, recommendation-identity.ts tier 3), but that file is not one of the context's files, and the 'fails to reopen restated done rows as regressions' claim could not be confirmed: a REOPEN concept"
-      }
+      ]
     },
     "Org Dashboard & Analytics/Security Posture & Audit Log/translation-pipeline-topology": {
       "context": "Security Posture & Audit Log",
