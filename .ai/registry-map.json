@@ -4494,14 +4494,13 @@
           "revision": 15,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "conformant",
-          "evidence": "src/lib/integrations/otlp.ts:92 OTLP telemetry ingestion tracks and reports skipped datapoints by reason alongside received counts to make dropped spend visible.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:b3129728f9d9c336",
-          "evaluatedRevision": 14,
+          "state": "deviation",
+          "evidence": "src/lib/integrations/otlp.ts:166 Every `type` of claude_code.token.usage datapoint (input, output, cache read, cache creation) is summed into one undifferentiated `tokens` figure, with no nesting and no counted residual. Spend whose resource has no git.repository is also dropped instead of being stored in an org-scope or unattributed bucket.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:7247db31eb8f3dce",
+          "evaluatedRevision": 15,
           "source": "retained",
-          "revisionsBehind": 1,
-          "stale": true
+          "revisionsBehind": 1
         },
         {
           "subject": "agent-runtime-assembly",
@@ -8935,12 +8934,11 @@
           "changedAt": "2026-10-14",
           "confidence": "probable",
           "state": "deviation",
-          "evidence": "src/lib/db/credits.ts:379 consumeScanCredit uses a static scan:<scanId> idempotency key that allows retries of refunded operations to execute for free without attempt walking.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:b3129728f9d9c336",
-          "evaluatedRevision": 14,
-          "revisionsBehind": 1,
-          "stale": true
+          "evidence": "src/lib/db/credits.ts:434 When the debit's idempotency key already exists, consumeScanCredit returns a bare 'charged' (also at line 402) without checking whether that key's refund:<key> row exists. The store cannot tell an open attempt from a closed one, and there is no bounded attempt walk. Closed-key reuse is avoided only because callers mint keys per claim attempt or per UUID.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:7247db31eb8f3dce",
+          "evaluatedRevision": 15,
+          "revisionsBehind": 1
         },
         {
           "subject": "hitl-approval",
@@ -9058,13 +9056,12 @@
           "revision": 15,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "conformant",
-          "evidence": "src/lib/db/usage.ts:96 The unified isBillableScan predicate governs billing across summary tiles, daily trends, and exports without divergence.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:b3129728f9d9c336",
-          "evaluatedRevision": 14,
-          "revisionsBehind": 1,
-          "stale": true
+          "state": "deviation",
+          "evidence": "src/lib/db/usage.ts:169 The scan lane, the main spend class, is built only from persisted computed Scan rows. A scan whose provider calls failed or timed out and degraded to the `mock` engine (UNMETERED_PROVIDER) carries no tokens and is excluded, so failed-call spend in the scan lane leaves no row, which breaks 'failures are spend'.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:7247db31eb8f3dce",
+          "evaluatedRevision": 15,
+          "revisionsBehind": 1
         },
         {
           "subject": "usage-event-ingestion",
