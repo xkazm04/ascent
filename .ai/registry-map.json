@@ -1016,12 +1016,11 @@
           "changedAt": "2026-10-14",
           "confidence": "strong",
           "state": "deviation",
-          "evidence": "src/lib/llm/openai.ts:92 Providers send the assembled assessment and mark one cache cut on the stable system block, but the output ceiling stays an env default of 4096 while measured output length never changes it or retries a cut response.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:7436fd55a7cb2500",
-          "evaluatedRevision": 43,
-          "revisionsBehind": 1,
-          "stale": true
+          "evidence": "src/lib/llm/openai.ts:92 Every provider sends the one assembled assessment and Bedrock puts one cache cut on the stable system block, but the response reservation is an env default (4096, config.ts:135) that measured output length never feeds back into, and a cut response throws telling the operator to raise the env rather than retrying once at a higher ceiling.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:ad13b2ee69c25e8d",
+          "evaluatedRevision": 44,
+          "revisionsBehind": 1
         },
         {
           "subject": "eval-harness",
@@ -6995,12 +6994,11 @@
           "changedAt": "2026-10-14",
           "confidence": "strong",
           "state": "deviation",
-          "evidence": "src/lib/athena/prompt.ts:152 Athena has one ordered assembler and a registry-generated action contract, but each turn silently keeps only the last eight stored turns as truncated prose and reloads identity into the standing head immediately.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:7436fd55a7cb2500",
-          "evaluatedRevision": 43,
-          "revisionsBehind": 1,
-          "stale": true
+          "evidence": "src/lib/athena/prompt.ts:152 Athena has one pure, ordered assembler, a fenced untrusted recall block, and an action contract generated from the catalog. But each turn keeps only the last eight stored turns as excerpts and never tells the model older turns exist, and the self-model is re-read into the standing head on every turn, so an accepted identity diff takes effect mid-thread.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:ad13b2ee69c25e8d",
+          "evaluatedRevision": 44,
+          "revisionsBehind": 1
         },
         {
           "subject": "quality-gates",

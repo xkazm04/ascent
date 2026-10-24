@@ -1,0 +1,181 @@
+{
+  "schema": "conform-run/1",
+  "worker": "51d33515-65a2-49b4-b2bf-068a4f9ca363",
+  "subject": "prompt-assembly",
+  "evaluatedAt": "2026-10-24T00:58:11.587706+00:00",
+  "provider": "claude",
+  "model": "claude-opus-5-5",
+  "pairs": [
+    {
+      "context": "LLM Provider Abstraction",
+      "subject": "prompt-assembly",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/lib/llm/openai.ts:92 Every provider sends the one assembled assessment and Bedrock puts one cache cut on the stable system block, but the response reservation is an env default (4096, config.ts:135) that measured output length never feeds back into, and a cut response throws telling the operator to raise the env rather than retrying once at a higher ceiling.",
+      "techniques": [
+        {
+          "technique": "response-reservation-sizing",
+          "verdict": "deviation",
+          "evidence": "src/lib/llm/openai.ts:92 The ceiling is an env knob with a 4096 fallback and no declared percentile. output-budget.ts measures usage against the model cap but is 'a measurement, not a guard'. finish_reason=length throws at line 166 instead of escalating per call."
+        },
+        {
+          "technique": "cache-breakpoint-allocation",
+          "verdict": "conformant",
+          "evidence": "src/lib/llm/bedrock.ts:137 One cut, placed at the only cadence boundary (stable system versus per-repo user). claude-cli also meters cache read and write tokens."
+        },
+        {
+          "technique": "layered-composition",
+          "verdict": "conformant",
+          "evidence": "src/lib/llm/claude-cli.ts:46 Every provider calls buildAssessmentPrompt and adds no prose. The CLI transport folds system into a single piped prompt but keeps it first, so the fold preserves position and the prefix stays stable."
+        },
+        {
+          "technique": "variable-interpolation",
+          "verdict": "conformant",
+          "evidence": "src/lib/llm/provider.ts:46 The assembler's inputs are a declared, typed contract with a documented source for each field. Call sites pass data, never rendered text."
+        },
+        {
+          "technique": "context-reachability",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/claude-cli.ts:16 The assessment seam runs without tools, so nothing injected is reachable and there is no reachable/unreachable split to make."
+        },
+        {
+          "technique": "endpoint-sealed-continuation-metadata",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/openai.ts:95 There are no replayed assistant or reasoning turns, so no sealed metadata crosses endpoints, including on failover."
+        },
+        {
+          "technique": "context-ownership-regimes",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/gemini.ts:86 Single-turn and stateless: no transcript is held by anyone between turns."
+        }
+      ]
+    },
+    {
+      "context": "Athena Companion",
+      "subject": "prompt-assembly",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/lib/athena/prompt.ts:152 Athena has one pure, ordered assembler, a fenced untrusted recall block, and an action contract generated from the catalog. But each turn keeps only the last eight stored turns as excerpts and never tells the model older turns exist, and the self-model is re-read into the standing head on every turn, so an accepted identity diff takes effect mid-thread.",
+      "techniques": [
+        {
+          "technique": "context-budgeting",
+          "verdict": "deviation",
+          "evidence": "src/lib/athena/prompt.ts:152 Older turns are dropped with no 'N earlier turns not shown' notice. Per-turn excerpts are character-sliced (1,500 chars), and there is no token budget or owner of the total."
+        },
+        {
+          "technique": "tiered-history-projection",
+          "verdict": "deviation",
+          "evidence": "src/app/api/athena/gate.ts:221 The record lives in the DB and the prompt is rebuilt per call (this technique's regime), but the projection is a flat tail that drops coverage of earlier turns silently."
+        },
+        {
+          "technique": "deferred-interface-invalidation",
+          "verdict": "deviation",
+          "evidence": "src/app/api/athena/gate.ts:217 Identity is fetched fresh on every turn, so an accepted self-model diff rewrites the standing layer inside a live thread. There is no deferral to a new thread and no visible queued state."
+        },
+        {
+          "technique": "capability-documentation",
+          "verdict": "conformant",
+          "evidence": "src/lib/athena/actions.ts:355 The action layer is rendered from the same catalog that drives the validator and the executor Record. Every action is taught regardless of role; requiredRole is checked when a proposal is resolved."
+        },
+        {
+          "technique": "layered-composition",
+          "verdict": "conformant",
+          "evidence": "src/lib/athena/prompt.ts:168 One assembler, ordered identity → contracts → evidence → message. Empty sections are omitted (section() returns null), and the result is passed unmodified to runToolLoop."
+        },
+        {
+          "technique": "variable-interpolation",
+          "verdict": "conformant",
+          "evidence": "src/lib/athena/prompt.ts:51 Trust class is declared on the input type. Recall is neutralized and wrapped inside the memory boundary, and history is neutralized."
+        },
+        {
+          "technique": "task-envelope",
+          "verdict": "conformant",
+          "evidence": "src/lib/athena/prompt.ts:170 The identity line states scope and shared-memory facts that change behaviour, not a competence claim."
+        },
+        {
+          "technique": "pinned-prompt-clock",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/athena/prompt.ts:165 No date or time enters the prompt."
+        },
+        {
+          "technique": "history-compaction",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/athena/gate.ts:224 The message list is not the durable record. History is a rendering of stored turns, which is tiered-history-projection's regime."
+        }
+      ]
+    }
+  ],
+  "declined": [
+    {
+      "subject": "prompt-assembly",
+      "context": "Maturity Model & Scoring Engine",
+      "reason": "evidence leans on maturity/model.ts, which is not a tracked file"
+    },
+    {
+      "subject": "prompt-assembly",
+      "context": "Follow-ups Ledger",
+      "reason": "evidence leans on scoring/prompt.ts, which is not a tracked file"
+    },
+    {
+      "subject": "prompt-assembly",
+      "context": "Developer home (UC3 individual care)",
+      "reason": "withdrawn after review: reviewer (sonnet): The anchor developer-view.ts:240 is only a sharing-ledger row saying 'Prompts, diffs, file contents: never collected'. It doesn't show that the route calls no model. OrgShell.tsx, which is in the context, mentions hosting the Athena companion conversation, and I did not trace that, so the absence cl"
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-10-24T00:58:11.587706+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "prompt-assembly"
+      ],
+      "techniques": [
+        "cache-breakpoint-allocation",
+        "context-ownership-regimes",
+        "context-reachability",
+        "endpoint-sealed-continuation-metadata",
+        "layered-composition",
+        "response-reservation-sizing",
+        "variable-interpolation"
+      ],
+      "deviations": 1,
+      "context": "LLM Provider Abstraction",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-10-24T00:58:11.587706+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "prompt-assembly"
+      ],
+      "techniques": [
+        "capability-documentation",
+        "context-budgeting",
+        "deferred-interface-invalidation",
+        "history-compaction",
+        "layered-composition",
+        "pinned-prompt-clock",
+        "task-envelope",
+        "tiered-history-projection",
+        "variable-interpolation"
+      ],
+      "deviations": 1,
+      "context": "Athena Companion",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-10-24T00:58:11.587706+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "prompt-assembly"
+      ],
+      "techniques": [],
+      "deviations": 0,
+      "context": "Developer home (UC3 individual care)",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    }
+  ]
+}

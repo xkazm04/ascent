@@ -981,44 +981,71 @@
       "subject": "prompt-assembly",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T00:24:42.892Z",
-      "worker": "c7c43841-8146-44ed-a006-052acaf3d426",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T00:58:11.587Z",
+      "worker": "51d33515-65a2-49b4-b2bf-068a4f9ca363",
       "techniques": [
         {
           "technique": "response-reservation-sizing",
           "verdict": "deviation",
-          "evidence": "src/lib/llm/output-budget.ts:19 Output length is classified against a model table, and the request ceiling stays llmMaxTokens' fallback of 4096 with no percentile and no retry at a higher cap."
+          "evidence": "src/lib/llm/openai.ts:92 The ceiling is an env knob with a 4096 fallback and no declared percentile. output-budget.ts measures usage against the model cap but is 'a measurement, not a guard'. finish_reason=length throws at line 166 instead of escalating per call."
         },
         {
           "technique": "cache-breakpoint-allocation",
           "verdict": "conformant",
-          "evidence": "src/lib/llm/bedrock.ts:137 One cut sits after the whole stable system block, which changes on one cadence, and the per-repo user message stays outside it."
+          "evidence": "src/lib/llm/bedrock.ts:137 One cut, placed at the only cadence boundary (stable system versus per-repo user). claude-cli also meters cache read and write tokens."
         },
         {
           "technique": "layered-composition",
           "verdict": "conformant",
-          "evidence": "src/lib/llm/bedrock.ts:103 The provider calls the scoring assembler and sends those two sections; this path does not append further instruction text."
+          "evidence": "src/lib/llm/claude-cli.ts:46 Every provider calls buildAssessmentPrompt and adds no prose. The CLI transport folds system into a single piped prompt but keeps it first, so the fold preserves position and the prefix stays stable."
         },
         {
-          "technique": "capability-documentation",
+          "technique": "variable-interpolation",
           "verdict": "conformant",
-          "evidence": "src/lib/llm/schema.ts:74 The assessment tool schema takes its craft-axis enum from the taxonomy, so the dispatcher and the schema share one list."
+          "evidence": "src/lib/llm/provider.ts:46 The assembler's inputs are a declared, typed contract with a documented source for each field. Call sites pass data, never rendered text."
+        },
+        {
+          "technique": "context-reachability",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/claude-cli.ts:16 The assessment seam runs without tools, so nothing injected is reachable and there is no reachable/unreachable split to make."
+        },
+        {
+          "technique": "endpoint-sealed-continuation-metadata",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/openai.ts:95 There are no replayed assistant or reasoning turns, so no sealed metadata crosses endpoints, including on failover."
         },
         {
           "technique": "context-ownership-regimes",
           "verdict": "not-applicable",
-          "evidence": "src/lib/llm/bedrock.ts:138 The assessment request is one user message and sets no provider context-editing or compaction block."
+          "evidence": "src/lib/llm/gemini.ts:86 Single-turn and stateless: no transcript is held by anyone between turns."
+        },
+        {
+          "technique": "capability-documentation",
+          "verdict": "conformant",
+          "evidence": "src/lib/llm/schema.ts:74 The assessment tool schema takes its craft-axis enum from the taxonomy, so the dispatcher and the schema share one list.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "history-compaction",
           "verdict": "not-applicable",
-          "evidence": "src/lib/llm/tool-loop.ts:57 The tool loop keeps every in-loop turn and stops at four legs; it does not cut a tail."
+          "evidence": "src/lib/llm/tool-loop.ts:57 The tool loop keeps every in-loop turn and stops at four legs; it does not cut a tail.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "house-vocabulary-layer",
           "verdict": "not-applicable",
-          "evidence": "src/lib/llm/prose.ts:28 This file is a style rider imported by the scoring assembler; the house terms are the rubric, rendered in the other context."
+          "evidence": "src/lib/llm/prose.ts:28 This file is a style rider imported by the scoring assembler; the house terms are the rubric, rendered in the other context.",
+          "carriedFrom": "2026-10-13"
+        }
+      ],
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "src/lib/llm/openai.ts:92 Providers send the assembled assessment and mark one cache cut on the stable system block, but the output ceiling stays an env default of 4096 while measured output length never changes it or retries a cut response.",
+          "evaluatedAt": "2026-10-13T00:24:42.892Z",
+          "worker": "c7c43841-8146-44ed-a006-052acaf3d426",
+          "reason": "replaced by 51d33515-65a2-49b4-b2bf-068a4f9ca363"
         }
       ]
     },
@@ -1073,77 +1100,89 @@
       "subject": "prompt-assembly",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T00:24:42.892Z",
-      "worker": "c7c43841-8146-44ed-a006-052acaf3d426",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T00:58:11.587Z",
+      "worker": "51d33515-65a2-49b4-b2bf-068a4f9ca363",
       "techniques": [
-        {
-          "technique": "layered-composition",
-          "verdict": "conformant",
-          "evidence": "src/lib/athena/prompt.ts:115 Empty identity sections are omitted, and buildAthenaPrompt orders constitution and contracts before recall, history and the new message."
-        },
-        {
-          "technique": "variable-interpolation",
-          "verdict": "conformant",
-          "evidence": "src/lib/athena/prompt.ts:139 Recalled memory is declared foreign-authored and wrapped; the assembler comment states it reads no clock."
-        },
-        {
-          "technique": "capability-documentation",
-          "verdict": "conformant",
-          "evidence": "src/lib/athena/actions.ts:355 The action section is generated from the same wire list the validator accepts, including argument constraints."
-        },
-        {
-          "technique": "task-envelope",
-          "verdict": "conformant",
-          "evidence": "src/lib/athena/cycle-prompt.ts:192 The cycle prompt states an autonomy fact and, below it, a silence token as the done line when nothing changed."
-        },
-        {
-          "technique": "house-vocabulary-layer",
-          "verdict": "deviation",
-          "evidence": "src/lib/athena/prompt.ts:80 The standing text is a checkable style contract and does not render a house-term section for standing, dimension, rung or craft."
-        },
         {
           "technique": "context-budgeting",
           "verdict": "deviation",
-          "evidence": "src/lib/athena/prompt.ts:152 Turns beyond the last eight are dropped with no in-prompt count, and what remains is cut by a character cap."
+          "evidence": "src/lib/athena/prompt.ts:152 Older turns are dropped with no 'N earlier turns not shown' notice. Per-turn excerpts are character-sliced (1,500 chars), and there is no token budget or owner of the total."
         },
         {
           "technique": "tiered-history-projection",
           "verdict": "deviation",
-          "evidence": "src/app/api/athena/gate.ts:221 The prompt is rebuilt from stored turns, but only a flat recent window is loaded, with no coarser tier and no id back to older turns."
-        },
-        {
-          "technique": "continuation-prompts",
-          "verdict": "deviation",
-          "evidence": "src/lib/athena/prompt.ts:158 Each stateless rebuild replays a truncated raw tail rather than carried decisions and their reasons."
-        },
-        {
-          "technique": "recovery-path-as-loss-signal",
-          "verdict": "deviation",
-          "evidence": "src/lib/athena/prompt.ts:134 Recall is shortened with a truncation mark and nothing counts a later read of the cut text."
+          "evidence": "src/app/api/athena/gate.ts:221 The record lives in the DB and the prompt is rebuilt per call (this technique's regime), but the projection is a flat tail that drops coverage of earlier turns silently."
         },
         {
           "technique": "deferred-interface-invalidation",
           "verdict": "deviation",
-          "evidence": "src/lib/athena/turn.ts:186 Identity is read into the standing head on every turn, so an accepted identity change rewrites the prefix on the next message."
+          "evidence": "src/app/api/athena/gate.ts:217 Identity is fetched fresh on every turn, so an accepted self-model diff rewrites the standing layer inside a live thread. There is no deferral to a new thread and no visible queued state."
         },
         {
-          "technique": "endpoint-sealed-continuation-metadata",
-          "verdict": "not-applicable",
-          "evidence": "src/app/api/athena/gate.ts:224 Stored history is role and content only, so there is no sealed provider metadata to replay or strip."
+          "technique": "capability-documentation",
+          "verdict": "conformant",
+          "evidence": "src/lib/athena/actions.ts:355 The action layer is rendered from the same catalog that drives the validator and the executor Record. Every action is taught regardless of role; requiredRole is checked when a proposal is resolved."
+        },
+        {
+          "technique": "layered-composition",
+          "verdict": "conformant",
+          "evidence": "src/lib/athena/prompt.ts:168 One assembler, ordered identity → contracts → evidence → message. Empty sections are omitted (section() returns null), and the result is passed unmodified to runToolLoop."
+        },
+        {
+          "technique": "variable-interpolation",
+          "verdict": "conformant",
+          "evidence": "src/lib/athena/prompt.ts:51 Trust class is declared on the input type. Recall is neutralized and wrapped inside the memory boundary, and history is neutralized."
+        },
+        {
+          "technique": "task-envelope",
+          "verdict": "conformant",
+          "evidence": "src/lib/athena/prompt.ts:170 The identity line states scope and shared-memory facts that change behaviour, not a competence claim."
         },
         {
           "technique": "pinned-prompt-clock",
           "verdict": "not-applicable",
-          "evidence": "src/lib/athena/prompt.ts:165 buildAthenaPrompt takes no date and the function body does not read a clock."
+          "evidence": "src/lib/athena/prompt.ts:165 No date or time enters the prompt."
         },
         {
           "technique": "history-compaction",
           "verdict": "not-applicable",
-          "evidence": "src/lib/athena/prompt.ts:43 Replayed history is prose role lines, not a tool-call protocol, so there is no call/result pair for a cut to orphan."
+          "evidence": "src/app/api/athena/gate.ts:224 The message list is not the durable record. History is a rendering of stored turns, which is tiered-history-projection's regime."
+        },
+        {
+          "technique": "house-vocabulary-layer",
+          "verdict": "deviation",
+          "evidence": "src/lib/athena/prompt.ts:80 The standing text is a checkable style contract and does not render a house-term section for standing, dimension, rung or craft.",
+          "carriedFrom": "2026-10-13"
+        },
+        {
+          "technique": "continuation-prompts",
+          "verdict": "deviation",
+          "evidence": "src/lib/athena/prompt.ts:158 Each stateless rebuild replays a truncated raw tail rather than carried decisions and their reasons.",
+          "carriedFrom": "2026-10-13"
+        },
+        {
+          "technique": "recovery-path-as-loss-signal",
+          "verdict": "deviation",
+          "evidence": "src/lib/athena/prompt.ts:134 Recall is shortened with a truncation mark and nothing counts a later read of the cut text.",
+          "carriedFrom": "2026-10-13"
+        },
+        {
+          "technique": "endpoint-sealed-continuation-metadata",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/athena/gate.ts:224 Stored history is role and content only, so there is no sealed provider metadata to replay or strip.",
+          "carriedFrom": "2026-10-13"
         }
       ],
-      "registryProposal": "The pyramid gate (do not build tiers until histories routinely outgrow the flat tail) is easy to miss beside the silent-drop rule; a fixed cap that names how many turns were omitted may be the honest ladder until that gate is met."
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "src/lib/athena/prompt.ts:152 Athena has one ordered assembler and a registry-generated action contract, but each turn silently keeps only the last eight stored turns as truncated prose and reloads identity into the standing head immediately.",
+          "evaluatedAt": "2026-10-13T00:24:42.892Z",
+          "worker": "c7c43841-8146-44ed-a006-052acaf3d426",
+          "reason": "replaced by 51d33515-65a2-49b4-b2bf-068a4f9ca363"
+        }
+      ]
     },
     "Org Planning & Execution/Local Autopilot & Loop Engine/agent-instruction-files": {
       "context": "Local Autopilot & Loop Engine",
@@ -6242,6 +6281,21 @@
           "evidence": "package.json:4 The package is a private application, matching the technique's unpublished-application exception, and its manifest declares no prover or specification tooling."
         }
       ]
+    },
+    "Org Dashboard & Analytics/Developer home (UC3 individual care)/prompt-assembly": {
+      "context": "Developer home (UC3 individual care)",
+      "subject": "prompt-assembly",
+      "bundle": "software-engineering",
+      "state": "unknown",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T00:58:11.587Z",
+      "techniques": [],
+      "withdrawn": {
+        "worker": "51d33515-65a2-49b4-b2bf-068a4f9ca363",
+        "state": "not-applicable",
+        "at": "2026-10-24T00:58:33.270387+00:00",
+        "reason": "reviewer (sonnet): The anchor developer-view.ts:240 is only a sharing-ledger row saying 'Prompts, diffs, file contents: never collected'. It doesn't show that the route calls no model. OrgShell.tsx, which is in the context, mentions hosting the Athena companion conversation, and I did not trace that, so the absence cl"
+      }
     }
   }
 }
