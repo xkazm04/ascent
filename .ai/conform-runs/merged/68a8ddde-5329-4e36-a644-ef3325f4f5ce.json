@@ -1,0 +1,59 @@
+{
+ "schema": "conform-run/1",
+ "worker": "68a8ddde-5329-4e36-a644-ef3325f4f5ce",
+ "subject": "node-boot-and-declarative-bootstrap",
+ "evaluatedAt": "2026-10-24T22:51:00.170782+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Security Posture & Audit Log",
+   "subject": "node-boot-and-declarative-bootstrap",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/org/security.ts:4 The context is request-time dashboard and API code (a redirect page, a pure assembly module over the db layer, an org-scoped audit read and CSV export, a PDF render), so none of the subject's preconditions hold: no stateful-node boot graph, no reload path, no first-start bootstrap, no seal. A search of the context's own files for SIGHUP, reloadable, restart-only and firstStart found nothing. Two hits are not this subject: the only 'marker' is a once-per-window audit claim, and 'reload' appears in UI copy in a sibling file. Broader terms ('bootstrap', 'seed', 'seal', 'unseal') do hit sibling files in src/lib/db (pglite-boot.ts, control-observations.ts) and src/app/api/audit/verify, but those belong to other contexts (the local-DB boot and the control-ledger seals).",
+   "techniques": [
+    {
+     "technique": "ordered-boot-dag",
+     "verdict": "not-applicable",
+     "evidence": "src/app/org/[slug]/security/page.tsx:10 The page is a per-request redirect with no startup steps to order; this context has no node boot."
+    },
+    {
+     "technique": "once-only-bootstrap-with-marker",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/scans-audit.ts:106 The audit 'marker' is a transactional once-per-window claim for a cron side effect, not a first-start bootstrap of a fresh node."
+    },
+    {
+     "technique": "config-objects-are-api-immutable",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/audit/route.ts:2 The audit trail is a DB table that this API only reads. No audit sink or device is born from configuration that the API could edit."
+    }
+   ],
+   "absenceTerms": [
+    "SIGHUP",
+    "reloadable",
+    "restart-only",
+    "firstStart"
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-24T22:51:00.170782+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "node-boot-and-declarative-bootstrap"
+   ],
+   "techniques": [
+    "config-objects-are-api-immutable",
+    "once-only-bootstrap-with-marker",
+    "ordered-boot-dag"
+   ],
+   "deviations": 0,
+   "context": "Security Posture & Audit Log",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

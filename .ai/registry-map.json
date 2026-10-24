@@ -3826,7 +3826,11 @@
           "revision": 3,
           "changedAt": "2026-09-26",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/org/security.ts:4 The context is request-time dashboard and API code (a redirect page, a pure assembly module over the db layer, an org-scoped audit read and CSV export, a PDF render), so none of the subject's preconditions hold: no stateful-node boot graph, no reload path, no first-start bootstrap, no seal. A search of the context's own files for SIGHUP, reloadable, restart-only and firstStart found nothing. Two hits are not this subject: the only 'marker' is a once-per-window audit claim, and 'reload' appears in UI copy in a sibling file. Broader terms ('bootstrap', 'seed', 'seal', 'unseal') do hit sibling files in src/lib/db (pglite-boot.ts, control-observations.ts) and src/app/api/audit/verify, but those belong to other contexts (the local-DB boot and the control-ledger seals).",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:1c83f54ea0028875",
+          "evaluatedRevision": 3
         },
         {
           "subject": "table",
