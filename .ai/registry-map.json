@@ -1053,12 +1053,11 @@
           "changedAt": "2026-10-18",
           "confidence": "strong",
           "state": "not-applicable",
-          "evidence": "src/lib/llm/provider.ts:94 A grep search across the LLM provider files for voice, speech, audio, and synthesis found no speech I/O capabilities, as the abstraction defines static repository assessment methods (`assess`) evaluating git metadata and code files to produce maturity scores.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:fa1c8ca716f872dc",
-          "evaluatedRevision": 20,
-          "revisionsBehind": 3,
-          "stale": true
+          "evidence": "src/lib/llm/provider.ts:94 The provider interface has one method, a text assessment that returns maturity scores. It has no transcription or synthesis direction, and a search of src/lib/llm and src/ found no speech APIs, so voice-io's engine layer does not exist here.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:29f8b158c4d44054",
+          "evaluatedRevision": 23,
+          "revisionsBehind": 3
         },
         {
           "subject": "agent-cli-transport",
@@ -2970,8 +2969,12 @@
           "revision": 23,
           "changedAt": "2026-10-18",
           "confidence": "strong",
-          "state": "unknown",
-          "priorNotApplicable": 4
+          "state": "not-applicable",
+          "priorNotApplicable": 4,
+          "evidence": "src/components/onboarding/OnboardingFlow.tsx:6 The first-run wizard is a gate, pick, select and scan flow for repositories, with no voice setup step. The tour's 'narrated' and 'speaks' wording means displayed text. A search of src/components/onboarding, src/app/onboarding and src/ found no speech APIs, so voice-setup-experience's precondition (first-run voice onboarding) does not hold.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:29f8b158c4d44054",
+          "evaluatedRevision": 23
         },
         {
           "subject": "prompt-assembly",
@@ -4889,12 +4892,11 @@
           "changedAt": "2026-10-18",
           "confidence": "strong",
           "state": "not-applicable",
-          "evidence": "src/lib/org/developer-view.ts:236 A grep search across Developer Home files for voice, speech, audio, mic, and tts found zero voice I/O constructs, as this surface is a private developer care notebook where 'transcript' refers strictly to local agent session logs that never leave the developer's machine.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:fa1c8ca716f872dc",
-          "evaluatedRevision": 20,
-          "revisionsBehind": 3,
-          "stale": true
+          "evidence": "src/features/developer/CareProfileCard.tsx:50 Here 'transcripts' means the text logs of local agent sessions, not speech recognition output. A search of the developer files and of src/ found no speechSynthesis, SpeechRecognition, getUserMedia or MediaRecorder, so the surface neither captures nor synthesizes speech.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:29f8b158c4d44054",
+          "evaluatedRevision": 23,
+          "revisionsBehind": 3
         },
         {
           "subject": "prompt-assembly",
@@ -7048,12 +7050,11 @@
           "changedAt": "2026-10-18",
           "confidence": "strong",
           "state": "not-applicable",
-          "evidence": "src/features/shared/athena/AthenaComposer.tsx:42 A grep search across Athena files for voice, speech, mic, and audio found only written brand persona references; the companion interaction surface is a text-only TextArea form communicating via HTTP server-sent events without voice input or synthesis pipelines.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:fa1c8ca716f872dc",
-          "evaluatedRevision": 20,
-          "revisionsBehind": 3,
-          "stale": true
+          "evidence": "src/features/shared/athena/AthenaComposer.tsx:43 The companion's input is a typed TextArea composer. Words like 'voice', 'Speaker' and 'speaks' in the Athena files refer to persona and copy, not audio. A search found no speechSynthesis, SpeechRecognition, getUserMedia or MediaRecorder in the Athena directories or in src/.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:29f8b158c4d44054",
+          "evaluatedRevision": 23,
+          "revisionsBehind": 3
         },
         {
           "subject": "agent-instruction-files",
