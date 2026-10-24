@@ -810,81 +810,139 @@
       "subject": "mcp-tools",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-12",
-      "evaluatedTs": "2026-10-12T23:28:50.641Z",
-      "worker": "1580c430-e281-486e-81cb-dcf2e9691af8",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T01:20:19.026Z",
+      "worker": "b8ccd558-550e-4482-a4dc-3aa063afb1f2",
       "techniques": [
-        {
-          "technique": "ambient-selection-is-not-an-argument",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/mcp/tools.ts:83 The inspected catalog addresses organization resources explicitly; searches found no active-document or current-selection interface to a single-seat application."
-        },
-        {
-          "technique": "authentication-and-scoping",
-          "verdict": "conformant",
-          "evidence": "src/app/api/mcp/route.ts:118 Each request verifies a separately minted, revocable token against the existing registry before dispatch; scope admission and attribution use its current record and minted identifier."
-        },
-        {
-          "technique": "enumeration-without-a-scope",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/mcp/handlers.ts:136 The listing has a real organization scope supplied from the verified token, so this is not enumeration without a definable caller scope."
-        },
         {
           "technique": "server-composition",
           "verdict": "deviation",
-          "evidence": "src/lib/mcp/handlers.ts:421 MCP_TOOLS supplies listing and validation, but handlers are selected by this independently maintained switch rather than stored in registry entries."
-        },
-        {
-          "technique": "tool-identity-vs-tool-name",
-          "verdict": "deviation",
-          "evidence": "src/lib/mcp/write-gate.ts:95 Persisted audit actions and per-tool counters use the addressable tool name; the inspected definitions and results publish no separate rename-stable tool identifier."
+          "evidence": "src/app/api/mcp/route.ts:273 Registry, dispatch and the fault catch (route.ts:318) are one spine now. But the technique makes timeouts and result-size caps door policy, and the route applies neither around runTool or toolResultText. Athena caps results at 12_000 chars; the MCP door does not."
         },
         {
           "technique": "tool-schema-design",
           "verdict": "deviation",
-          "evidence": "src/lib/mcp/tools.ts:461 The wire projection publishes no behavior annotations, including for mutating tools, whereas the technique requires an explicit verdict on every blast-radius axis."
+          "evidence": "src/lib/mcp/tools.ts:493 Validation is right: the validator reads the published inputSchema (handlers.ts:443) and failures go in-band (handlers.ts:447). The gap is that the wire shape publishes no read-only/destructive/idempotent hints, and the server-side `mutates?: true` is optional, so an absent hint stands in for a verdict."
+        },
+        {
+          "technique": "tool-identity-vs-tool-name",
+          "verdict": "deviation",
+          "evidence": "src/app/api/mcp/route.ts:293 The audit row, WRITE_TOOL_POLICY and the bindings are all keyed on the addressable name. No rename-stable identifier is published on the definition or on the result."
+        },
+        {
+          "technique": "authentication-and-scoping",
+          "verdict": "conformant",
+          "evidence": "src/app/api/mcp/route.ts:238 Per-token bearer auth, verified before any argument handling (route.ts:119). Scopes come from the existing org API-token registry. Audit actor, rate limit and holder key on the minted token id, not its name, and revocation is a revokedAt path."
         },
         {
           "technique": "transport-selection",
           "verdict": "conformant",
-          "evidence": "src/app/api/mcp/route.ts:76 The multi-consumer organization service uses HTTP with enforced origin validation, per-request bearer authentication, and protocol-version checks."
+          "evidence": "src/app/api/mcp/route.ts:101 Streamable-HTTP door with origin validation on by default, failing closed when no site URL is set, plus a mandatory bearer token on every request."
+        },
+        {
+          "technique": "untrusted-result-handling",
+          "verdict": "conformant",
+          "evidence": "src/app/api/mcp/route.ts:308 Org-authored results get credential shapes redacted and a provenance _meta stamped before serialization. This is keyed on the catalog's required resultTrust field."
+        },
+        {
+          "technique": "enumeration-without-a-scope",
+          "verdict": "conformant",
+          "evidence": "src/lib/mcp/handlers.ts:137 Every listing takes an org that the route derives from the verified token (token.orgSlug). No caller-supplied org exists, so no listing lacks a scope."
+        },
+        {
+          "technique": "catalog-projection-modes",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/mcp/tools.ts:488 A 16-tool catalog, filtered by scope, sits far below any host's hard tool ceiling, so there is no projection pressure."
+        },
+        {
+          "technique": "sanctioned-session-state",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/mcp/route.ts:7 Stateless, with no affinity requirement."
+        },
+        {
+          "technique": "suspendable-request-classes",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/mcp/route.ts:177 No elicitation or suspension exists. Listing is a pure function of the token's scopes and the plan gates."
+        },
+        {
+          "technique": "ambient-selection-is-not-an-argument",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/mcp/tools.ts:83 The inspected catalog addresses organization resources explicitly; searches found no active-document or current-selection interface to a single-seat application.",
+          "carriedFrom": "2026-10-12"
         }
       ],
-      "registryProposal": "The golden-path overview says writes never refresh read marks, while write-freshness-gate permits refresh after a verified whole-artifact write; align the overview with that explicit exception."
+      "registryProposal": "tool-identity-vs-tool-name should state whether its precondition is 'a catalog that has renamed or will rename' or 'any published catalog'. A small catalog that has never renamed a tool reads as either not-applicable or a deviation, depending on the seat.",
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "src/lib/mcp/handlers.ts:421 Dispatch maintains a separate switch over tool names instead of resolving handlers through the published registry, leaving two authorities for which tools exist.",
+          "evaluatedAt": "2026-10-12T23:28:50.641Z",
+          "worker": "1580c430-e281-486e-81cb-dcf2e9691af8",
+          "reason": "replaced by b8ccd558-550e-4482-a4dc-3aa063afb1f2"
+        }
+      ]
     },
     "Org Knowledge & Skills/Athena Companion/mcp-tools": {
       "context": "Athena Companion",
       "subject": "mcp-tools",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-12",
-      "evaluatedTs": "2026-10-12T23:28:50.641Z",
-      "worker": "1580c430-e281-486e-81cb-dcf2e9691af8",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T01:20:19.026Z",
+      "worker": "b8ccd558-550e-4482-a4dc-3aa063afb1f2",
       "techniques": [
+        {
+          "technique": "first-party-agent-is-a-principal",
+          "verdict": "deviation",
+          "evidence": "src/lib/athena/grounding.ts:141 Admission by exclusion, which the technique names as the failure shape. There is no scope grant and no shared admission with route.ts toolsForScopes."
+        },
+        {
+          "technique": "untrusted-result-handling",
+          "verdict": "conformant",
+          "evidence": "src/lib/athena/grounding.ts:228 Org-authored results are redacted and fenced as untrusted data before the model reads them."
+        },
+        {
+          "technique": "server-composition",
+          "verdict": "conformant",
+          "evidence": "src/lib/athena/grounding.ts:219 Uses the same dispatcher (runTool via the registry) and the same serializer as the MCP door, so both doors show byte-identical text."
+        },
+        {
+          "technique": "caller-differentiated-capability",
+          "verdict": "conformant",
+          "evidence": "src/lib/athena/grounding.ts:183 Write tools are subtracted by name, and the refusal names this surface and its reason."
+        },
         {
           "technique": "ambient-selection-is-not-an-argument",
           "verdict": "not-applicable",
-          "evidence": "src/app/api/athena/[id]/message/route.ts:62 The request names a thread identity constrained to the authorized organization, rather than resolving an ambient active document or selection."
+          "evidence": "src/app/api/athena/[id]/message/route.ts:62 The request names a thread identity constrained to the authorized organization, rather than resolving an ambient active document or selection.",
+          "carriedFrom": "2026-10-12"
         },
         {
           "technique": "enumeration-without-a-scope",
           "verdict": "not-applicable",
-          "evidence": "src/app/api/athena/threads/route.ts:34 Thread enumeration has a server-resolved, authorized organization scope."
-        },
-        {
-          "technique": "first-party-agent-is-a-principal",
-          "verdict": "deviation",
-          "evidence": "src/lib/athena/grounding.ts:143 The subsequent filters exclude followups:write and closed plans, but no explicit typed scope grant or shared toolsForScopes admission controls newly added scoped reads."
+          "evidence": "src/app/api/athena/threads/route.ts:34 Thread enumeration has a server-resolved, authorized organization scope.",
+          "carriedFrom": "2026-10-12"
         },
         {
           "technique": "tool-schema-design",
           "verdict": "deviation",
-          "evidence": "src/lib/athena/grounding.ts:197 Athena publishes the MCP memory tool's schema, including charBudget and namespace, but its local handler hardcodes the default budget and does not consume the namespace filter."
+          "evidence": "src/lib/athena/grounding.ts:197 Athena publishes the MCP memory tool's schema, including charBudget and namespace, but its local handler hardcodes the default budget and does not consume the namespace filter.",
+          "carriedFrom": "2026-10-12"
         },
         {
           "technique": "transport-selection",
           "verdict": "not-applicable",
-          "evidence": "src/lib/athena/grounding.ts:284 This companion invokes shared handlers in process; it does not choose an HTTP or standard-stream MCP connection for these calls."
+          "evidence": "src/lib/athena/grounding.ts:284 This companion invokes shared handlers in process; it does not choose an HTTP or standard-stream MCP connection for these calls.",
+          "carriedFrom": "2026-10-12"
+        }
+      ],
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "src/lib/athena/grounding.ts:143 Athena computes access by excluding writes and holder-scoped tools rather than admitting an explicit scope grant through shared admission, allowing future scoped reads to become available by default.",
+          "evaluatedAt": "2026-10-12T23:28:50.641Z",
+          "worker": "1580c430-e281-486e-81cb-dcf2e9691af8",
+          "reason": "replaced by b8ccd558-550e-4482-a4dc-3aa063afb1f2"
         }
       ]
     },
@@ -893,14 +951,24 @@
       "subject": "mcp-tools",
       "bundle": "software-engineering",
       "state": "not-applicable",
-      "evaluatedAt": "2026-10-12",
-      "evaluatedTs": "2026-10-12T23:28:50.641Z",
-      "worker": "1580c430-e281-486e-81cb-dcf2e9691af8",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T01:20:19.026Z",
+      "worker": "b8ccd558-550e-4482-a4dc-3aa063afb1f2",
       "techniques": [
         {
           "technique": "server-composition",
           "verdict": "not-applicable",
-          "evidence": "src/components/onboarding/importScan.ts:114 The searched wizard implements an application import client, not a tool server or tool-protocol host."
+          "evidence": "src/components/onboarding/importScan.ts:114 The searched wizard implements an application import client, not a tool server or tool-protocol host.",
+          "carriedFrom": "2026-10-12"
+        }
+      ],
+      "superseded": [
+        {
+          "state": "not-applicable",
+          "evidence": "src/components/onboarding/importScan.ts:114 Searches of the onboarding files and repository MCP terms found no wizard tool catalog or protocol dispatch, and the wizard submits a browser-controlled import request to an application API.",
+          "evaluatedAt": "2026-10-12T23:28:50.641Z",
+          "worker": "1580c430-e281-486e-81cb-dcf2e9691af8",
+          "reason": "replaced by b8ccd558-550e-4482-a4dc-3aa063afb1f2"
         }
       ]
     },
