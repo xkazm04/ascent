@@ -10206,12 +10206,11 @@
           "changedAt": "2026-10-21",
           "confidence": "probable",
           "state": "not-applicable",
-          "evidence": "src/components/about/ChampionNetwork.tsx:16 The page animates marketing diagrams without a speaking face, and searches of the context directories and repository found no viseme, phoneme, lipSync, talkingAvatar or speechSynthesis implementation.",
-          "evaluatedAt": "2026-10-21",
-          "evaluatedAgainst": "sha256-b2:f96c1d7ea0398677",
-          "evaluatedRevision": 3,
-          "revisionsBehind": 1,
-          "stale": true
+          "evidence": "src/components/about/RemotionStage.tsx:3 The page's only animation is Remotion playback of marketing diagrams (fleet grid, champion network, gauges), and case-insensitive searches of src/app/about and src/components/about (recursive) found no viseme, phoneme, lipsync, speechSynthesis, talkingAvatar, avatar, mouth, blink, audio or voice term, while a repo-wide src search found no viseme/phoneme/lipsync/speechSynthesis/talkingAvatar either, so there is no speaking face for the subject to govern.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:72517c45ca8e4198",
+          "evaluatedRevision": 4,
+          "revisionsBehind": 1
         },
         {
           "subject": "mcp-tools",
