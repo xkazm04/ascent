@@ -1036,7 +1036,11 @@
           "revision": 37,
           "changedAt": "2026-09-29",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/llm/matrix-scores.ts:59 The model scorecard publishes a best-first order (and bestModel() recommends rank[0] as the org pin) from a single-trial, n=10 matrix that records no within-condition SD, so no spread-versus-noise check can precede the ranking.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:7ccead00b7f92aba",
+          "evaluatedRevision": 37
         },
         {
           "subject": "voice-io",
@@ -1572,7 +1576,11 @@
           "revision": 37,
           "changedAt": "2026-09-29",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/scan/route.ts:8 These files are the product's scan protocol adapters (JSON and SSE), the scan form, and their deterministic route tests; they run no candidate models against declared scenarios. A search of the context's files found no judge, trial, holdout, golden-set or anchor-set constructs, and only product 'rubric' and 'baseline' wording.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:7ccead00b7f92aba",
+          "evaluatedRevision": 37
         },
         {
           "subject": "agent-memory",
@@ -6126,7 +6134,11 @@
           "revision": 37,
           "changedAt": "2026-09-29",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/org/followups.ts:162 A craft rung is closed solely on the Ascent-Resolves trailer that the lane agent (the candidate) writes, so the craft odometer counts the candidate's own claim, which is exactly what the gap path two branches earlier refuses to accept.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:7ccead00b7f92aba",
+          "evaluatedRevision": 37
         },
         {
           "subject": "voice-io",
@@ -8354,7 +8366,11 @@
           "revision": 37,
           "changedAt": "2026-09-29",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/report/passport/route.ts:3 The passport, overrides, PR, issue and decision routes serve and act on stored scan output and never score models or agents. A recursive search of the context's directories for judge, trials, holdout, benchmark and rubric returned no hits; the only 'llm' hits are provider mocks in route tests.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:7ccead00b7f92aba",
+          "evaluatedRevision": 37
         },
         {
           "subject": "agent-instruction-files",

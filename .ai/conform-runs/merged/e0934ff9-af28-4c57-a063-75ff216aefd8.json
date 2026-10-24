@@ -1,0 +1,201 @@
+{
+ "schema": "conform-run/1",
+ "worker": "e0934ff9-af28-4c57-a063-75ff216aefd8",
+ "subject": "eval-harness",
+ "evaluatedAt": "2026-10-24T02:31:42.994727+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "LLM Provider Abstraction",
+   "subject": "eval-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/llm/matrix-scores.ts:59 The model scorecard publishes a best-first order (and bestModel() recommends rank[0] as the org pin) from a single-trial, n=10 matrix that records no within-condition SD, so no spread-versus-noise check can precede the ranking.",
+   "techniques": [
+    {
+     "technique": "resolution-precondition",
+     "verdict": "deviation",
+     "evidence": "src/lib/llm/matrix-scores.ts:59 Sorts models with no within-condition SD in ModelScore and no tie report; the order is published unconditionally."
+    },
+    {
+     "technique": "metric-role-contract",
+     "verdict": "deviation",
+     "evidence": "src/lib/llm/matrix-scores.ts:53 Two optimized metrics are folded into a weighted composite (then scaled by reliability) instead of one optimized metric with thresholds."
+    },
+    {
+     "technique": "judge-stability",
+     "verdict": "deviation",
+     "evidence": "scripts/matrix/run.mts:33 A single judge, overridable by env, that is the same model as a scored candidate (matrix-scores.data.ts lists anthropic/claude-sonnet-5 as both judge and model); no anchor-set drift re-score exists in scripts/matrix. temperature: 0 is pinned (run.mts:85)."
+    },
+    {
+     "technique": "reliability-aggregation",
+     "verdict": "deviation",
+     "evidence": "src/lib/llm/matrix-scores.ts:27 n counts repos; each repo\u00d7model cell is one attempt, so there are no repeated trials, no declared N per cell and no all-of-N figure beside the mean."
+    },
+    {
+     "technique": "outcome-conditioned-cost",
+     "verdict": "deviation",
+     "evidence": "scripts/matrix/run.mts:203 Each model's cost proxy averages its own non-error trials, including unusable ones. There is no both-succeeded paired subset and no subset count, so token comparisons between models mix outcome populations."
+    },
+    {
+     "technique": "assertion-vs-judgment",
+     "verdict": "conformant",
+     "evidence": "scripts/matrix/run.mts:166 A deterministic usability gate runs before the judge, and calibration is scored deterministically against ground-truth level labels; the judge is kept for quality only, with a structured JudgeScore."
+    },
+    {
+     "technique": "failure-attribution",
+     "verdict": "conformant",
+     "evidence": "src/lib/llm/matrix-scores.ts:97 Output-cap truncation is detected structurally and attributed to the pipeline/adapter layer, not rendered as a model failure."
+    },
+    {
+     "technique": "eval-economics",
+     "verdict": "conformant",
+     "evidence": "src/lib/llm/matrix-scores.ts:105 An old baked matrix is flagged as historical rather than cited as current; the five-arm live bench is opt-in (LLM_BENCH=1) and never runs in CI."
+    },
+    {
+     "technique": "pairing-schedule",
+     "verdict": "not-applicable",
+     "evidence": "scripts/matrix/run.mts:4 Absolute rubric scoring, not a pairwise arena."
+    }
+   ]
+  },
+  {
+   "context": "Follow-ups Ledger",
+   "subject": "eval-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/org/followups.ts:162 A craft rung is closed solely on the Ascent-Resolves trailer that the lane agent (the candidate) writes, so the craft odometer counts the candidate's own claim, which is exactly what the gap path two branches earlier refuses to accept.",
+   "techniques": [
+    {
+     "technique": "candidate-write-access",
+     "verdict": "deviation",
+     "evidence": "src/lib/org/followups.ts:162 The measurement asserts from a surface the candidate writes (its own trailer), with no independent witness for craft rows."
+    },
+    {
+     "technique": "monitor-inside-the-loop",
+     "verdict": "conformant",
+     "evidence": "src/lib/org/followups.ts:145 For gap rows the artifact (the rescan) outranks the account (the trailer): a row the scan still restates stays open however many trailers claim it."
+    },
+    {
+     "technique": "resolution-precondition",
+     "verdict": "conformant",
+     "evidence": "src/lib/org/followups.ts:177 A dimension movement inside SCORE_NOISE_BAND is treated as a re-run of the same measurement, not as repair."
+    },
+    {
+     "technique": "judge-stability",
+     "verdict": "conformant",
+     "evidence": "src/lib/org/followups.ts:171 Scores taken under two different rubrics are treated as incomparable instead of as a trend."
+    },
+    {
+     "technique": "eval-economics",
+     "verdict": "conformant",
+     "evidence": "src/lib/org/followups.ts:173 A mock-provider scan carries its provenance, and the consumer refuses to close on it."
+    }
+   ],
+   "registryProposal": "candidate-write-access does not cover the case where the instrument structurally cannot witness the property (here, a craft rung on an already-green dimension where the rubric has no headroom), leaving the candidate's own claim as the only available signal. The technique could say what replaces the missing witness (a second instrument, a sampled human read, or declaring the count as claimed-not-measured) rather than leaving implementers to accept the claim."
+  },
+  {
+   "context": "Scan Pipeline & Ingestion",
+   "subject": "eval-harness",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/app/api/scan/route.ts:8 These files are the product's scan protocol adapters (JSON and SSE), the scan form, and their deterministic route tests; they run no candidate models against declared scenarios. A search of the context's files found no judge, trial, holdout, golden-set or anchor-set constructs, and only product 'rubric' and 'baseline' wording.",
+   "techniques": [],
+   "absenceTerms": [
+    "trials",
+    "holdout",
+    "golden set",
+    "anchor set"
+   ]
+  },
+  {
+   "context": "AI-Native Passports",
+   "subject": "eval-harness",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/app/api/report/passport/route.ts:3 The passport, overrides, PR, issue and decision routes serve and act on stored scan output and never score models or agents. A recursive search of the context's directories for judge, trials, holdout, benchmark and rubric returned no hits; the only 'llm' hits are provider mocks in route tests.",
+   "techniques": [],
+   "absenceTerms": [
+    "judge",
+    "trials",
+    "holdout",
+    "benchmark",
+    "rubric"
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "eval-harness",
+   "context": "Live War Room",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-10-24T02:31:42.994727+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "eval-harness"
+   ],
+   "techniques": [
+    "assertion-vs-judgment",
+    "eval-economics",
+    "failure-attribution",
+    "judge-stability",
+    "metric-role-contract",
+    "outcome-conditioned-cost",
+    "pairing-schedule",
+    "reliability-aggregation",
+    "resolution-precondition"
+   ],
+   "deviations": 1,
+   "context": "LLM Provider Abstraction",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-10-24T02:31:42.994727+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "eval-harness"
+   ],
+   "techniques": [
+    "candidate-write-access",
+    "eval-economics",
+    "judge-stability",
+    "monitor-inside-the-loop",
+    "resolution-precondition"
+   ],
+   "deviations": 1,
+   "context": "Follow-ups Ledger",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-10-24T02:31:42.994727+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "eval-harness"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Scan Pipeline & Ingestion",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-10-24T02:31:42.994727+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "eval-harness"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "AI-Native Passports",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
