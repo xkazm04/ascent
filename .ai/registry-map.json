@@ -1337,8 +1337,12 @@
           "revision": 31,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown",
-          "priorNotApplicable": 2
+          "state": "deviation",
+          "priorNotApplicable": 2,
+          "evidence": "src/lib/analyze/guidance-quality.ts:24 The D1 guidance grader awards 6 points whenever a guidance file has an architecture, overview, directory-structure or layout section. That pays repos for the reachable \"describe your repo\" overview that the standard measures as buying nothing at higher cost per session, even though r18 already stopped paying for length on exactly that cost argument.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:25b61236a62604b0",
+          "evaluatedRevision": 31
         },
         {
           "subject": "quality-gates",
@@ -3108,8 +3112,8 @@
           "revision": 31,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown",
-          "priorNotApplicable": 2
+          "priorNotApplicable": 2,
+          "state": "unknown"
         },
         {
           "subject": "hitl-approval",
@@ -6083,8 +6087,12 @@
           "revision": 31,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown",
-          "priorNotApplicable": 2
+          "state": "deviation",
+          "priorNotApplicable": 2,
+          "evidence": "src/lib/org/followups.ts:298 The fix prompt types out the integrity guard's gate-config list by hand instead of deriving it from the guard, and it has drifted again. It omits `codecov.yml`, `.golangci.yml`, `sonar-project.properties` and `.coveragerc`, all of which GATE_CONFIG_BASENAME in src/lib/local/lane-gate-diff.ts:146 voids, and no test ties the two lists together. So a lane that follows the brief exactly can still have a whole cycle voided, a drift the comments at lines 283-295 already record three times.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:25b61236a62604b0",
+          "evaluatedRevision": 31
         },
         {
           "subject": "quality-gates",

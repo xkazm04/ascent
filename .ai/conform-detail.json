@@ -1321,16 +1321,38 @@
       "context": "Follow-ups Ledger",
       "subject": "agent-instruction-files",
       "bundle": "software-engineering",
-      "state": "unknown",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T01:38:32.083Z",
-      "techniques": [],
-      "withdrawn": {
-        "worker": "def659ca-4613-4a69-8881-5cea7911caad",
-        "state": "not-applicable",
-        "at": "2026-10-13T01:39:29.704405+00:00",
-        "reason": "reviewer (sonnet): followups.ts:550 shows the context does touch agent instruction files. buildFixPrompt tells the agent to read CLAUDE.md / AGENTS.md, and line 299 of the same file allows the agent to declare the verify command in AGENTS.md / CLAUDE.md / .ai/manifest.yaml. So the line does not show the subject is abs"
-      }
+      "state": "deviation",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T04:16:59.459Z",
+      "worker": "52ea7efc-5f71-4003-87fd-32c9a0a556b2",
+      "techniques": [
+        {
+          "technique": "instruction-freshness",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/followups.ts:298 A volatile fact inlined into the brief instead of rendered from the artifact that knows it, and it is stale today: four entries the guard voids are missing from the prose. The dated 'Measured 2026-10-xx' comments above it follow the technique, but the list itself does not."
+        },
+        {
+          "technique": "enforcement-demotion",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/followups.ts:296 The rule lives in a deterministic gate (lane-gate-diff.ts) that diffs the artifact, and the brief names that gate so the agent works with it rather than against it. The drift in the restated list is booked under instruction-freshness."
+        },
+        {
+          "technique": "capability-before-steering",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/followups.ts:277 \"Could not\" and \"would not\" are reported differently: a missing shell or network becomes a distinct SKIPPED reason instead of a sharper instruction. The rule is sent only to lane sessions (line 600), because the human's terminal agent does have those capabilities."
+        },
+        {
+          "technique": "restraint-amplifier-balance",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/followups.ts:568 Two restraint lines were removed on measured evidence (comment at lines 551-559) and replaced with an explicit amplifier that licenses larger changes."
+        },
+        {
+          "technique": "rewrite-behavior-pinning",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/followups.test.ts:252 Behavioural pins on the brief include the permissive branch, not only the prohibitions, so a compressing rewrite that drops the permission goes red."
+        }
+      ],
+      "registryProposal": "Both instruction-freshness and enforcement-demotion are written for a hand-authored repo file. When the 'instruction file' is a brief generated in code that restates a gate's rule set (as here), the natural remedy is a parity test between the brief's text and the gate's own constant, or rendering the list from that constant. Neither technique says so for programmatically assembled briefs."
     },
     "Onboarding, Shell & AI Standard/AI-Native Standard & Onboarding Skill/agent-instruction-files": {
       "context": "AI-Native Standard & Onboarding Skill",
@@ -6862,6 +6884,47 @@
       "evaluatedTs": "2026-10-24T03:22:46.462Z",
       "worker": "a7da889f-b2cd-42d2-8617-e5f753a69bb1",
       "techniques": []
+    },
+    "Repository Scanning & Scoring/Maturity Model & Scoring Engine/agent-instruction-files": {
+      "context": "Maturity Model & Scoring Engine",
+      "subject": "agent-instruction-files",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T04:16:59.459Z",
+      "worker": "52ea7efc-5f71-4003-87fd-32c9a0a556b2",
+      "techniques": [
+        {
+          "technique": "line-earning",
+          "verdict": "deviation",
+          "evidence": "src/lib/analyze/guidance-quality.ts:24 Rewards reachable tree material, the generated-overview failure mode. Partly conformant: r18 (guidance-quality.ts:14, model.ts:210) removed length credit because always-on guidance is a per-request cost."
+        },
+        {
+          "technique": "single-source-topology",
+          "verdict": "conformant",
+          "evidence": "src/lib/analyze/guidance-graph.ts:12 r11 scores coherence across vendor formats: one canonical source plus in-sync projections. Four contradicting copies now score below one true document, which rewards the single-source topology over forks."
+        },
+        {
+          "technique": "machine-owned-regions",
+          "verdict": "conformant",
+          "evidence": "src/lib/analyze/guidance-graph.ts:61 Generated projections carry a `generated-from` header that names their source and a body hash (line 58), and the arbiter classifies them in-sync, drifted or unknown, so a stale derived file can be told apart from its source."
+        }
+      ]
+    },
+    "Onboarding, Shell & AI Standard/First-Run Onboarding Wizard/agent-instruction-files": {
+      "context": "First-Run Onboarding Wizard",
+      "subject": "agent-instruction-files",
+      "bundle": "software-engineering",
+      "state": "unknown",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T04:16:59.459Z",
+      "techniques": [],
+      "withdrawn": {
+        "worker": "52ea7efc-5f71-4003-87fd-32c9a0a556b2",
+        "state": "not-applicable",
+        "at": "2026-10-24T04:17:25.997034+00:00",
+        "reason": "reviewer (sonnet): OnboardingFoundationPanel.tsx opens draft PRs that seed the `.ai/` foundation, including the 'agent contract' (an agent instruction file), into the scanned repos, so the claim that the wizard delivers no agent instruction content is contradicted. The anchor at line 64 is only a fetch call, and the a"
+      }
     }
   }
 }
