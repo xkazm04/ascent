@@ -6336,13 +6336,12 @@
           "changedAt": "2026-10-15",
           "confidence": "probable",
           "state": "deviation",
-          "evidence": "src/lib/db/loop-runs-stale.ts:73 A failed external-executor lookup becomes an empty exclusion list, allowing the following sweep to stop externally driven runs without establishing their death.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:4fc5c1fbe75c52d2",
-          "evaluatedRevision": 25,
+          "evidence": "src/lib/db/loop-runs-stale.ts:73 The GET /api/org/loop sweep (route.ts:84) runs this lookup; when it fails, the error becomes an empty exclusion set, so runs driven by remote agents or hosted workers are written `stopped` and their lanes and claims released, which treats a failed probe as proof of death (the comment above even admits a wrongly stopped run is work thrown away).",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:93bd71853ab468b1",
+          "evaluatedRevision": 28,
           "source": "retained",
-          "revisionsBehind": 3,
-          "stale": true
+          "revisionsBehind": 3
         },
         {
           "subject": "agent-cli-transport",

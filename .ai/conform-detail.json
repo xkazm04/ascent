@@ -1770,44 +1770,81 @@
       "subject": "fleet-orchestration",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T08:23:00.262Z",
-      "worker": "64ffc148-ae82-4b38-a9ea-c17d50bfa005",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T01:59:04.709Z",
+      "worker": "c0ad4fc6-3666-4540-b1d6-49f3d72a5883",
       "techniques": [
         {
-          "technique": "absent-status-passthrough",
+          "technique": "evidence-outranks-a-liveness-claim",
           "verdict": "deviation",
-          "evidence": "src/lib/db/loop-runs-stale.ts:73 An unavailable executor lookup is treated as a definite empty answer; the subsequent filter and update can mark external work stopped."
-        },
-        {
-          "technique": "deliberation-as-an-elected-turn",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/local/loop-engine.ts:804 This dispatch width is computed by code from configured targets and arms, rather than elected by a model dispatcher."
-        },
-        {
-          "technique": "durable-fleet-state",
-          "verdict": "deviation",
-          "evidence": "src/lib/db/loop-runs-stale.ts:59 Recovery classifies runs from absence in this process's live map, without corroborating surviving child processes before stopping records and releasing claims."
-        },
-        {
-          "technique": "parallel-dispatch",
-          "verdict": "deviation",
-          "evidence": "src/lib/local/loop-engine.ts:682 Retry resets the lane unconditionally and launches work directly outside the normal mapPool admission path; concurrent retries have neither an atomic reservation nor shared capacity enforcement."
-        },
-        {
-          "technique": "result-harvest",
-          "verdict": "deviation",
-          "evidence": "src/lib/local/lane-report.ts:128 Worker report ingestion reads the entire file without a size bound; later field slicing does not bound the initial read or JSON parsing."
+          "evidence": "src/lib/db/loop-runs-stale.ts:73 A failed lookup should land on unknown, not dead. Here it falls through to the stop updateMany, so an unobserved external run is killed."
         },
         {
           "technique": "session-registry",
           "verdict": "deviation",
-          "evidence": "src/lib/db/loop-runs-write.ts:377 The lane mutation door accepts phase patches by id without checking the current state, legal transition edge, or session incarnation."
+          "evidence": "src/lib/db/loop-runs-types.ts:172 The closed vocabulary has no `lost`. The sweep writes `stopped` (loop-runs-stale.ts:80), the same state an operator Stop yields (loop-engine.ts:967), and the two differ only in free-text error."
+        },
+        {
+          "technique": "durable-fleet-state",
+          "verdict": "conformant",
+          "evidence": "src/lib/local/boot-sweep.ts:78 A boot sweep from instrumentation register() reconciles running rows, then removes stranded worktrees, before the first request. The DB row is the source of truth."
+        },
+        {
+          "technique": "lifecycle-signals",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/loop/route.ts:84 A tier-two sweep on read, with the process-wide live predicate, so the run being rendered is not reaped."
+        },
+        {
+          "technique": "parallel-dispatch",
+          "verdict": "conformant",
+          "evidence": "src/lib/local/loop-engine.ts:805 Bounded pool under LOOP_CONCURRENCY_CAP (A/B and compare refused past the cap at 295/305), one worktree per repo/arm (809), and a whole-run hosted reservation (537) as the run-total number."
         },
         {
           "technique": "substrate-reconciliation",
+          "verdict": "conformant",
+          "evidence": "src/lib/local/loop-worktree.ts:263 The stranded-worktree sweep deletes only dirs it can identify as its own temp checkouts, and skips the repo when the listing fails (260)."
+        },
+        {
+          "technique": "inherited-state-provenance",
+          "verdict": "conformant",
+          "evidence": "src/lib/local/loop-engine.ts:688 A retry gets a fresh worktree and branch rather than an unexplained leftover of the previous attempt."
+        },
+        {
+          "technique": "outbound-compute-plane",
+          "verdict": "conformant",
+          "evidence": "src/lib/local/loop-engine.ts:386 Remote and hosted lanes are rows in `curating` that external workers claim into. The control plane opens no worktree and pushes nothing to them."
+        },
+        {
+          "technique": "completion-claim-verification",
+          "verdict": "conformant",
+          "evidence": "src/lib/local/loop-engine.ts:802 On the loop path, a lane's outcome is adjudicated by the parent's rescan of its own worktree, not by the session's report."
+        },
+        {
+          "technique": "absent-status-passthrough",
           "verdict": "deviation",
-          "evidence": "src/lib/local/boot-sweep.ts:95 Boot removes worktrees from the pre-sweep candidate list even if markStaleRunsStopped throws and is converted to zero, so destruction is not gated on successful authoritative reconciliation."
+          "evidence": "src/lib/db/loop-runs-stale.ts:73 An unavailable executor lookup is treated as a definite empty answer; the subsequent filter and update can mark external work stopped.",
+          "carriedFrom": "2026-10-13"
+        },
+        {
+          "technique": "deliberation-as-an-elected-turn",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/local/loop-engine.ts:804 This dispatch width is computed by code from configured targets and arms, rather than elected by a model dispatcher.",
+          "carriedFrom": "2026-10-13"
+        },
+        {
+          "technique": "result-harvest",
+          "verdict": "deviation",
+          "evidence": "src/lib/local/lane-report.ts:128 Worker report ingestion reads the entire file without a size bound; later field slicing does not bound the initial read or JSON parsing.",
+          "carriedFrom": "2026-10-13"
+        }
+      ],
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "src/lib/db/loop-runs-stale.ts:73 A failed external-executor lookup becomes an empty exclusion list, allowing the following sweep to stop externally driven runs without establishing their death.",
+          "evaluatedAt": "2026-10-13T08:23:00.262Z",
+          "worker": "64ffc148-ae82-4b38-a9ea-c17d50bfa005",
+          "reason": "replaced by c0ad4fc6-3666-4540-b1d6-49f3d72a5883"
         }
       ]
     },
