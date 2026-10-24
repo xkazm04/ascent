@@ -9834,7 +9834,11 @@
           "revision": 18,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/components/deck/DeckNav.tsx:36 DeckNav's 'most-central entry wins' selection (a bug fix with a stated rationale) is written directly against host-minted IntersectionObserverEntry objects inside the observer callback. jsdom has no IntersectionObserver, so the effect returns at line 27, and DeckNav.test.tsx reaches none of these branches.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:7c8008f2207b1946",
+          "evaluatedRevision": 18
         },
         {
           "subject": "quality-gates",
@@ -10131,7 +10135,11 @@
           "revision": 18,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "conformant",
+          "evidence": "src/components/about/aboutFleetModel.ts:67 The server page is the only I/O edge (one bounded, degrade-to-null read), and it passes a plain gallery prop to a pure reducer that feeds live and illustrative fleets through one AboutFleet interface, so the panes' decisions can be tested without doubles.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:7c8008f2207b1946",
+          "evaluatedRevision": 18
         },
         {
           "subject": "prompt-assembly",
