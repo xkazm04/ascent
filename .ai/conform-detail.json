@@ -2820,59 +2820,76 @@
       "subject": "translation-quality-measurement",
       "bundle": "localization",
       "state": "not-applicable",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T21:53:27.073Z",
-      "worker": "d1c492c4-4aa3-4e37-862a-b13619dba502",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T03:03:39.563Z",
+      "worker": "60cf5a00-7c7a-413b-915a-d2cded4b3fb8",
       "techniques": [
         {
-          "technique": "context-sufficiency-signals",
+          "technique": "reference-free-quality-estimation",
           "verdict": "not-applicable",
-          "evidence": "src/lib/practices.ts:31 This context supports coding agents; no source-string translation review was found."
-        },
-        {
-          "technique": "cost-and-licence-of-measurement",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/analyze/index.ts:3 The analyzer extracts repository signals rather than choosing a translation-quality estimator."
+          "evidence": "src/lib/maturity/model.ts:1 There is no machine-translated segment to score. The rubric scores repositories."
         },
         {
           "technique": "deterministic-checks-before-estimates",
           "verdict": "not-applicable",
-          "evidence": "src/lib/analyze/index.ts:2 These checks inspect repository artifacts, with no machine-translated store found."
+          "evidence": "src/lib/maturity/model.ts:1 There is no translated store or termbase for a check suite to verify."
+        },
+        {
+          "technique": "context-sufficiency-signals",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/practices.ts:31 This context supports coding agents; no source-string translation review was found.",
+          "carriedFrom": "2026-10-13"
+        },
+        {
+          "technique": "cost-and-licence-of-measurement",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/analyze/index.ts:3 The analyzer extracts repository signals rather than choosing a translation-quality estimator.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "engine-quality-from-reviewer-corrections",
           "verdict": "not-applicable",
-          "evidence": "src/lib/analyze/pulls.ts:378 The review rate concerns human-authored pull requests, not corrected pretranslations."
+          "evidence": "src/lib/analyze/pulls.ts:378 The review rate concerns human-authored pull requests, not corrected pretranslations.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "error-typology-over-a-single-score",
           "verdict": "not-applicable",
-          "evidence": "src/lib/maturity/model.ts:508 This quality dimension concerns code safeguards rather than linguistic defects."
+          "evidence": "src/lib/maturity/model.ts:508 This quality dimension concerns code safeguards rather than linguistic defects.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "human-review-sampling-under-a-budget",
           "verdict": "not-applicable",
-          "evidence": "src/lib/analyze/pulls.ts:249 The summarized population consists of pull-request nodes, not translated units."
+          "evidence": "src/lib/analyze/pulls.ts:249 The summarized population consists of pull-request nodes, not translated units.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "language-scoped-check-exemptions",
           "verdict": "not-applicable",
-          "evidence": "src/lib/analyze/platform-signals.ts:60 Platform checks concern CI capabilities; no target-language text checks were found."
+          "evidence": "src/lib/analyze/platform-signals.ts:60 Platform checks concern CI capabilities; no target-language text checks were found.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "per-pair-engine-selection",
           "verdict": "not-applicable",
-          "evidence": "src/lib/maturity/model.ts:456 The rubric evaluates AI development practices rather than translation engines by language pair."
-        },
-        {
-          "technique": "reference-free-quality-estimation",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/maturity/model.ts:518 The scored evidence is development history, not source-and-target translation text."
+          "evidence": "src/lib/maturity/model.ts:456 The rubric evaluates AI development practices rather than translation engines by language pair.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "regression-detection-under-a-moving-engine",
           "verdict": "not-applicable",
-          "evidence": "src/lib/analyze/calibration.test.ts:43 Calibration tests cover a security scoring rubric; no translation regeneration pipeline was found."
+          "evidence": "src/lib/analyze/calibration.test.ts:43 Calibration tests cover a security scoring rubric; no translation regeneration pipeline was found.",
+          "carriedFrom": "2026-10-13"
+        }
+      ],
+      "superseded": [
+        {
+          "state": "not-applicable",
+          "evidence": "src/lib/maturity/model.ts:466 The rubric measures engineering practices and generated-code safeguards, and context and repository searches found no pretranslation or termbase machinery that would activate translation-quality measurement.",
+          "evaluatedAt": "2026-10-13T21:53:27.073Z",
+          "worker": "d1c492c4-4aa3-4e37-862a-b13619dba502",
+          "reason": "replaced by 60cf5a00-7c7a-413b-915a-d2cded4b3fb8"
         }
       ]
     },
@@ -2881,59 +2898,76 @@
       "subject": "translation-quality-measurement",
       "bundle": "localization",
       "state": "not-applicable",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T21:53:27.073Z",
-      "worker": "d1c492c4-4aa3-4e37-862a-b13619dba502",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T03:03:39.563Z",
+      "worker": "60cf5a00-7c7a-413b-915a-d2cded4b3fb8",
       "techniques": [
-        {
-          "technique": "context-sufficiency-signals",
-          "verdict": "not-applicable",
-          "evidence": "src/components/report/DimensionDetail.tsx:52 This renders a maturity-dimension summary; no translation-context assessment was found."
-        },
-        {
-          "technique": "cost-and-licence-of-measurement",
-          "verdict": "not-applicable",
-          "evidence": "src/components/report/ScoreWaterfall.tsx:39 Provider information controls chart presentation rather than selecting a translation-quality judge."
-        },
-        {
-          "technique": "deterministic-checks-before-estimates",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/scoring/provenance.ts:61 This describes maturity-score provenance, not checks on translated units."
-        },
-        {
-          "technique": "engine-quality-from-reviewer-corrections",
-          "verdict": "not-applicable",
-          "evidence": "src/components/report/PrSignalsPanel.tsx:135 The panel reports pull-request review coverage rather than translation corrections."
-        },
         {
           "technique": "error-typology-over-a-single-score",
           "verdict": "not-applicable",
-          "evidence": "src/components/report/DimensionDetail.tsx:58 The displayed evidence belongs to a maturity dimension, with no linguistic finding taxonomy found."
-        },
-        {
-          "technique": "human-review-sampling-under-a-budget",
-          "verdict": "not-applicable",
-          "evidence": "src/components/report/RadarChart.tsx:148 The chart summarizes maturity dimensions rather than a sampled translation corpus."
-        },
-        {
-          "technique": "language-scoped-check-exemptions",
-          "verdict": "not-applicable",
-          "evidence": "src/components/report/DimLine.tsx:116 The locale-related operation formats dates; it does not validate translated text."
+          "evidence": "src/components/report/PostureQuadrant.tsx:3 The charts show engineering dimension scores, not translation quality scores."
         },
         {
           "technique": "per-pair-engine-selection",
           "verdict": "not-applicable",
-          "evidence": "src/components/report/PosturePanel.tsx:31 The existing scan provider is passed to a visualization, with no translation-engine selection found."
+          "evidence": "src/components/report/PostureQuadrant.tsx:3 There is no MT engine and no language pair."
+        },
+        {
+          "technique": "context-sufficiency-signals",
+          "verdict": "not-applicable",
+          "evidence": "src/components/report/DimensionDetail.tsx:52 This renders a maturity-dimension summary; no translation-context assessment was found.",
+          "carriedFrom": "2026-10-13"
+        },
+        {
+          "technique": "cost-and-licence-of-measurement",
+          "verdict": "not-applicable",
+          "evidence": "src/components/report/ScoreWaterfall.tsx:39 Provider information controls chart presentation rather than selecting a translation-quality judge.",
+          "carriedFrom": "2026-10-13"
+        },
+        {
+          "technique": "deterministic-checks-before-estimates",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/scoring/provenance.ts:61 This describes maturity-score provenance, not checks on translated units.",
+          "carriedFrom": "2026-10-13"
+        },
+        {
+          "technique": "engine-quality-from-reviewer-corrections",
+          "verdict": "not-applicable",
+          "evidence": "src/components/report/PrSignalsPanel.tsx:135 The panel reports pull-request review coverage rather than translation corrections.",
+          "carriedFrom": "2026-10-13"
+        },
+        {
+          "technique": "human-review-sampling-under-a-budget",
+          "verdict": "not-applicable",
+          "evidence": "src/components/report/RadarChart.tsx:148 The chart summarizes maturity dimensions rather than a sampled translation corpus.",
+          "carriedFrom": "2026-10-13"
+        },
+        {
+          "technique": "language-scoped-check-exemptions",
+          "verdict": "not-applicable",
+          "evidence": "src/components/report/DimLine.tsx:116 The locale-related operation formats dates; it does not validate translated text.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "reference-free-quality-estimation",
           "verdict": "not-applicable",
-          "evidence": "src/components/report/ScoreRing.tsx:64 The number represents repository maturity rather than estimated translation quality."
+          "evidence": "src/components/report/ScoreRing.tsx:64 The number represents repository maturity rather than estimated translation quality.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "regression-detection-under-a-moving-engine",
           "verdict": "not-applicable",
-          "evidence": "src/components/report/DimensionExplorer.tsx:34 Comparisons use previous maturity scores, with no regenerated translation text found."
+          "evidence": "src/components/report/DimensionExplorer.tsx:34 Comparisons use previous maturity scores, with no regenerated translation text found.",
+          "carriedFrom": "2026-10-13"
+        }
+      ],
+      "superseded": [
+        {
+          "state": "not-applicable",
+          "evidence": "src/components/report/PostureQuadrant.tsx:98 The visuals present AI adoption and engineering rigor, and context and repository searches found no pretranslation or termbase machinery for measuring translated text.",
+          "evaluatedAt": "2026-10-13T21:53:27.073Z",
+          "worker": "d1c492c4-4aa3-4e37-862a-b13619dba502",
+          "reason": "replaced by 60cf5a00-7c7a-413b-915a-d2cded4b3fb8"
         }
       ]
     },
@@ -2942,59 +2976,76 @@
       "subject": "translation-quality-measurement",
       "bundle": "localization",
       "state": "not-applicable",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T21:53:27.073Z",
-      "worker": "d1c492c4-4aa3-4e37-862a-b13619dba502",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T03:03:39.563Z",
+      "worker": "60cf5a00-7c7a-413b-915a-d2cded4b3fb8",
       "techniques": [
-        {
-          "technique": "context-sufficiency-signals",
-          "verdict": "not-applicable",
-          "evidence": "src/features/standing/repositories/useRepoSegmentsPanel.ts:51 The text operation filters repository names rather than assessing translation-source ambiguity."
-        },
-        {
-          "technique": "cost-and-licence-of-measurement",
-          "verdict": "not-applicable",
-          "evidence": "src/app/api/org/repositories/route.ts:38 The route reads a fleet rollup, with no translation-quality model choice found."
-        },
-        {
-          "technique": "deterministic-checks-before-estimates",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/db/segments.ts:43 This bounds a user-supplied grouping name rather than checking a translated catalog."
-        },
-        {
-          "technique": "engine-quality-from-reviewer-corrections",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/db/segments.ts:216 Manual provenance describes repository membership, not a reviewer correcting machine text."
-        },
-        {
-          "technique": "error-typology-over-a-single-score",
-          "verdict": "not-applicable",
-          "evidence": "src/app/api/org/segments/[id]/route.ts:47 The operation edits a fleet grouping; no translation-defect recording flow was found."
-        },
         {
           "technique": "human-review-sampling-under-a-budget",
           "verdict": "not-applicable",
-          "evidence": "src/app/api/org/segments/[id]/repos/bulk/route.ts:31 The bounded batch contains repository names for tagging, not units selected for human translation review."
+          "evidence": "src/lib/db/segments.ts:1 There is no translated corpus to sample for review."
         },
         {
           "technique": "language-scoped-check-exemptions",
           "verdict": "not-applicable",
-          "evidence": "src/lib/db/segments.ts:313 Language is the repository's detected programming language, not a translation target."
+          "evidence": "src/lib/db/segments.ts:1 There are no target languages and no check suite."
+        },
+        {
+          "technique": "context-sufficiency-signals",
+          "verdict": "not-applicable",
+          "evidence": "src/features/standing/repositories/useRepoSegmentsPanel.ts:51 The text operation filters repository names rather than assessing translation-source ambiguity.",
+          "carriedFrom": "2026-10-13"
+        },
+        {
+          "technique": "cost-and-licence-of-measurement",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/repositories/route.ts:38 The route reads a fleet rollup, with no translation-quality model choice found.",
+          "carriedFrom": "2026-10-13"
+        },
+        {
+          "technique": "deterministic-checks-before-estimates",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/segments.ts:43 This bounds a user-supplied grouping name rather than checking a translated catalog.",
+          "carriedFrom": "2026-10-13"
+        },
+        {
+          "technique": "engine-quality-from-reviewer-corrections",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/segments.ts:216 Manual provenance describes repository membership, not a reviewer correcting machine text.",
+          "carriedFrom": "2026-10-13"
+        },
+        {
+          "technique": "error-typology-over-a-single-score",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/segments/[id]/route.ts:47 The operation edits a fleet grouping; no translation-defect recording flow was found.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "per-pair-engine-selection",
           "verdict": "not-applicable",
-          "evidence": "src/features/standing/repositories/SegmentComparePicker.tsx:44 Comparison choices are fleet scopes rather than language pairs or translation engines."
+          "evidence": "src/features/standing/repositories/SegmentComparePicker.tsx:44 Comparison choices are fleet scopes rather than language pairs or translation engines.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "reference-free-quality-estimation",
           "verdict": "not-applicable",
-          "evidence": "src/lib/db/segments.ts:490 The comparison consumes repository rollup rows rather than source-and-candidate translation pairs."
+          "evidence": "src/lib/db/segments.ts:490 The comparison consumes repository rollup rows rather than source-and-candidate translation pairs.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "regression-detection-under-a-moving-engine",
           "verdict": "not-applicable",
-          "evidence": "src/app/api/org/segments/route.ts:29 The returned mapping tracks repository membership, with no translation regeneration configuration found."
+          "evidence": "src/app/api/org/segments/route.ts:29 The returned mapping tracks repository membership, with no translation regeneration configuration found.",
+          "carriedFrom": "2026-10-13"
+        }
+      ],
+      "superseded": [
+        {
+          "state": "not-applicable",
+          "evidence": "src/lib/db/segments.ts:214 Segments group repository identities rather than translated text units, and context and repository searches found no pretranslation or termbase machinery.",
+          "evaluatedAt": "2026-10-13T21:53:27.073Z",
+          "worker": "d1c492c4-4aa3-4e37-862a-b13619dba502",
+          "reason": "replaced by 60cf5a00-7c7a-413b-915a-d2cded4b3fb8"
         }
       ]
     },
@@ -3003,59 +3054,76 @@
       "subject": "translation-quality-measurement",
       "bundle": "localization",
       "state": "not-applicable",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T21:53:27.073Z",
-      "worker": "d1c492c4-4aa3-4e37-862a-b13619dba502",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T03:03:39.563Z",
+      "worker": "60cf5a00-7c7a-413b-915a-d2cded4b3fb8",
       "techniques": [
         {
-          "technique": "context-sufficiency-signals",
+          "technique": "regression-detection-under-a-moving-engine",
           "verdict": "not-applicable",
-          "evidence": "src/components/report/ReportClient.tsx:31 The input selects a repository revision, with no translation-source context contract found."
+          "evidence": "src/app/report/page.tsx:8 The LLM here scores code. It does not translate text, so there is no rebuilt store to re-prove."
         },
         {
           "technique": "cost-and-licence-of-measurement",
           "verdict": "not-applicable",
-          "evidence": "src/components/report/scanEstimate.ts:28 The estimate concerns scan duration rather than the cost or licence of a translation estimator."
+          "evidence": "src/app/report/page.tsx:8 There is no translation quality gate to budget for."
+        },
+        {
+          "technique": "context-sufficiency-signals",
+          "verdict": "not-applicable",
+          "evidence": "src/components/report/ReportClient.tsx:31 The input selects a repository revision, with no translation-source context contract found.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "deterministic-checks-before-estimates",
           "verdict": "not-applicable",
-          "evidence": "src/components/report/ReportClientStatus.tsx:32 The staged analysis concerns maturity dimensions, with no translated-store validation found."
+          "evidence": "src/components/report/ReportClientStatus.tsx:32 The staged analysis concerns maturity dimensions, with no translated-store validation found.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "engine-quality-from-reviewer-corrections",
           "verdict": "not-applicable",
-          "evidence": "src/components/report/useReportScan.ts:121 The retained artifact is a scan report, with no machine baseline and reviewer-final translation pair found."
+          "evidence": "src/components/report/useReportScan.ts:121 The retained artifact is a scan report, with no machine baseline and reviewer-final translation pair found.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "error-typology-over-a-single-score",
           "verdict": "not-applicable",
-          "evidence": "src/app/report/[owner]/[repo]/error.tsx:41 The error surface concerns report rendering rather than linguistic defect classification."
+          "evidence": "src/app/report/[owner]/[repo]/error.tsx:41 The error surface concerns report rendering rather than linguistic defect classification.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "human-review-sampling-under-a-budget",
           "verdict": "not-applicable",
-          "evidence": "src/components/report/ReportClient.tsx:65 The workflow tracks scan progress rather than assigning translation units to human reviewers."
+          "evidence": "src/components/report/ReportClient.tsx:65 The workflow tracks scan progress rather than assigning translation units to human reviewers.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "language-scoped-check-exemptions",
           "verdict": "not-applicable",
-          "evidence": "src/components/report/ReportClient.tsx:32 Scope is a repository sub-path; no target-language check configuration was found."
+          "evidence": "src/components/report/ReportClient.tsx:32 Scope is a repository sub-path; no target-language check configuration was found.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "per-pair-engine-selection",
           "verdict": "not-applicable",
-          "evidence": "src/components/report/scanEstimate.ts:43 Provider branching selects a duration estimate rather than an engine measured on a language pair."
+          "evidence": "src/components/report/scanEstimate.ts:43 Provider branching selects a duration estimate rather than an engine measured on a language pair.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "reference-free-quality-estimation",
           "verdict": "not-applicable",
-          "evidence": "src/components/report/ReportClient.tsx:113 The result is a repository scan report rather than a translation-quality ordering or gate."
-        },
+          "evidence": "src/components/report/ReportClient.tsx:113 The result is a repository scan report rather than a translation-quality ordering or gate.",
+          "carriedFrom": "2026-10-13"
+        }
+      ],
+      "superseded": [
         {
-          "technique": "regression-detection-under-a-moving-engine",
-          "verdict": "not-applicable",
-          "evidence": "src/components/report/ReportRescanBanner.tsx:74 The repeated operation rescans a repository, with no derived translation-store regeneration found."
+          "state": "not-applicable",
+          "evidence": "src/app/report/page.tsx:8 The report shell runs and presents repository maturity scans, and context and repository searches found no pretranslation or termbase machinery for translation-quality assessment.",
+          "evaluatedAt": "2026-10-13T21:53:27.073Z",
+          "worker": "d1c492c4-4aa3-4e37-862a-b13619dba502",
+          "reason": "replaced by 60cf5a00-7c7a-413b-915a-d2cded4b3fb8"
         }
       ]
     },
@@ -3064,59 +3132,76 @@
       "subject": "translation-quality-measurement",
       "bundle": "localization",
       "state": "not-applicable",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T21:53:27.073Z",
-      "worker": "d1c492c4-4aa3-4e37-862a-b13619dba502",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T03:03:39.563Z",
+      "worker": "60cf5a00-7c7a-413b-915a-d2cded4b3fb8",
       "techniques": [
+        {
+          "technique": "engine-quality-from-reviewer-corrections",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/personal.ts:1 There is no pretranslation approve/correct flow. The backlog holds engineering recommendations."
+        },
         {
           "technique": "context-sufficiency-signals",
           "verdict": "not-applicable",
-          "evidence": "src/components/org/PersonalBacklog.tsx:15 Backlog identity is repository-and-dimension based, with no ambiguous translation-source units found."
+          "evidence": "src/lib/db/personal.ts:1 There are no source strings being sent for translation."
         },
         {
           "technique": "cost-and-licence-of-measurement",
           "verdict": "not-applicable",
-          "evidence": "src/components/org/PersonalOverview.tsx:106 The overview loads workspace usage, with no translation-estimator purchasing or deployment choice found."
+          "evidence": "src/components/org/PersonalOverview.tsx:106 The overview loads workspace usage, with no translation-estimator purchasing or deployment choice found.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "deterministic-checks-before-estimates",
           "verdict": "not-applicable",
-          "evidence": "src/app/api/me/watch/route.ts:40 The deterministic check establishes repository visibility rather than translation constraints."
-        },
-        {
-          "technique": "engine-quality-from-reviewer-corrections",
-          "verdict": "not-applicable",
-          "evidence": "src/components/org/PersonalBacklogControls.tsx:45 The interaction changes recommendation status rather than correcting machine-translated text."
+          "evidence": "src/app/api/me/watch/route.ts:40 The deterministic check establishes repository visibility rather than translation constraints.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "error-typology-over-a-single-score",
           "verdict": "not-applicable",
-          "evidence": "src/lib/db/personal-backlog.ts:101 The selected fields describe maturity recommendations rather than translation categories and severities."
+          "evidence": "src/lib/db/personal-backlog.ts:101 The selected fields describe maturity recommendations rather than translation categories and severities.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "human-review-sampling-under-a-budget",
           "verdict": "not-applicable",
-          "evidence": "src/lib/db/personal.ts:164 The population is watched repositories' scan histories, not translated units sampled for human review."
+          "evidence": "src/lib/db/personal.ts:164 The population is watched repositories' scan histories, not translated units sampled for human review.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "language-scoped-check-exemptions",
           "verdict": "not-applicable",
-          "evidence": "src/components/org/PersonalWatchControls.tsx:15 The watch operation handles repository identity and tracking state, with no translation-language checks found."
+          "evidence": "src/components/org/PersonalWatchControls.tsx:15 The watch operation handles repository identity and tracking state, with no translation-language checks found.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "per-pair-engine-selection",
           "verdict": "not-applicable",
-          "evidence": "src/components/org/PersonalOverview.tsx:35 Navigation addresses a repository report rather than a language-pair engine comparison."
+          "evidence": "src/components/org/PersonalOverview.tsx:35 Navigation addresses a repository report rather than a language-pair engine comparison.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "reference-free-quality-estimation",
           "verdict": "not-applicable",
-          "evidence": "src/lib/db/personal.ts:182 The displayed score is copied from a repository maturity scan, not estimated from translation text."
+          "evidence": "src/lib/db/personal.ts:182 The displayed score is copied from a repository maturity scan, not estimated from translation text.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "regression-detection-under-a-moving-engine",
           "verdict": "not-applicable",
-          "evidence": "src/lib/db/personal.ts:202 The delta compares repository scan scores rather than translation churn under changed engine configuration."
+          "evidence": "src/lib/db/personal.ts:202 The delta compares repository scan scores rather than translation churn under changed engine configuration.",
+          "carriedFrom": "2026-10-13"
+        }
+      ],
+      "superseded": [
+        {
+          "state": "not-applicable",
+          "evidence": "src/components/org/personal/PersonalOverview.tsx:54 The overview tracks repository maturity histories and personal recommendations, and context and repository searches found no pretranslation or termbase machinery.",
+          "evaluatedAt": "2026-10-13T21:53:27.073Z",
+          "worker": "d1c492c4-4aa3-4e37-862a-b13619dba502",
+          "reason": "replaced by 60cf5a00-7c7a-413b-915a-d2cded4b3fb8"
         }
       ]
     },

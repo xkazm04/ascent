@@ -1265,12 +1265,11 @@
           "changedAt": "2026-10-14",
           "confidence": "probable",
           "state": "not-applicable",
-          "evidence": "src/lib/maturity/model.ts:466 The rubric measures engineering practices and generated-code safeguards, and context and repository searches found no pretranslation or termbase machinery that would activate translation-quality measurement.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:cfe21e4fea74ddc1",
-          "evaluatedRevision": 4,
-          "revisionsBehind": 2,
-          "stale": true
+          "evidence": "src/lib/maturity/model.ts:1 This module is a rubric for scoring engineering maturity, not a store of machine-translated text. A case-insensitive search of src/lib, src/components and src/app found no hits for pretranslat, termbase, i18next, next-intl or machine translation, and package.json has no i18n dependency, so there is no derived translation store for the subject to measure.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:a50db88f6aef4acb",
+          "evaluatedRevision": 8,
+          "revisionsBehind": 2
         },
         {
           "subject": "agent-memory",
@@ -4048,12 +4047,11 @@
           "changedAt": "2026-10-14",
           "confidence": "probable",
           "state": "not-applicable",
-          "evidence": "src/lib/db/segments.ts:214 Segments group repository identities rather than translated text units, and context and repository searches found no pretranslation or termbase machinery.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:cfe21e4fea74ddc1",
-          "evaluatedRevision": 4,
-          "revisionsBehind": 2,
-          "stale": true
+          "evidence": "src/lib/db/segments.ts:1 Segments are org-scoped tags that group repositories, not translated units. A search of src/lib/db, src/app and src/features/standing found none of the subject's terms, so no technique's precondition holds.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:a50db88f6aef4acb",
+          "evaluatedRevision": 8,
+          "revisionsBehind": 2
         },
         {
           "subject": "quality-gates",
@@ -4858,13 +4856,12 @@
           "changedAt": "2026-10-14",
           "confidence": "probable",
           "state": "not-applicable",
-          "evidence": "src/components/org/personal/PersonalOverview.tsx:54 The overview tracks repository maturity histories and personal recommendations, and context and repository searches found no pretranslation or termbase machinery.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:cfe21e4fea74ddc1",
-          "evaluatedRevision": 4,
+          "evidence": "src/lib/db/personal.ts:1 This module reads personal-workspace scan histories and backlog over the public corpus. A search of src/lib, src/app and src/components found none of the subject's terms, so there are no machine pretranslations or reviewer corrections to measure.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:a50db88f6aef4acb",
+          "evaluatedRevision": 8,
           "source": "retained",
-          "revisionsBehind": 2,
-          "stale": true
+          "revisionsBehind": 2
         }
       ],
       "governance": "governed"
@@ -7913,12 +7910,11 @@
           "changedAt": "2026-10-14",
           "confidence": "probable",
           "state": "not-applicable",
-          "evidence": "src/components/report/PostureQuadrant.tsx:98 The visuals present AI adoption and engineering rigor, and context and repository searches found no pretranslation or termbase machinery for measuring translated text.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:cfe21e4fea74ddc1",
-          "evaluatedRevision": 4,
-          "revisionsBehind": 2,
-          "stale": true
+          "evidence": "src/components/report/PostureQuadrant.tsx:3 These are SVG charts of maturity scores. The only 'translate' hits in the context are CSS transforms (PostureQuadrant.tsx:168, chartHover.tsx:121). The searched terms had zero hits repo-wide, so no translation output exists for these files to measure or chart.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:a50db88f6aef4acb",
+          "evaluatedRevision": 8,
+          "revisionsBehind": 2
         },
         {
           "subject": "test-harness",
@@ -8239,13 +8235,12 @@
           "changedAt": "2026-10-14",
           "confidence": "probable",
           "state": "not-applicable",
-          "evidence": "src/app/report/page.tsx:8 The report shell runs and presents repository maturity scans, and context and repository searches found no pretranslation or termbase machinery for translation-quality assessment.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:cfe21e4fea74ddc1",
-          "evaluatedRevision": 4,
+          "evidence": "src/app/report/page.tsx:8 The report shell runs and presents repository maturity scans in English only (the root layout sets lang=\"en\"). The searched terms had zero hits under src/app and src/components, so no derived translation store or regeneration pipeline exists for regression detection or estimation.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:a50db88f6aef4acb",
+          "evaluatedRevision": 8,
           "source": "retained",
-          "revisionsBehind": 2,
-          "stale": true
+          "revisionsBehind": 2
         }
       ],
       "governance": "governed"
