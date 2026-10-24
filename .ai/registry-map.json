@@ -2132,7 +2132,11 @@
           "revision": 9,
           "changedAt": "2026-10-15",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/db/sessions.ts:2 \"Session\" here means a signed login cookie with a revocation version, not a working session in a shared checkout. The OAuth and session code performs no VCS operations. A ripgrep of src/app/api/auth, src/app/auth, src/lib/supabase, src/lib/db and src/lib found no read-tree, git stash or update-index.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:de557423d4cf3016",
+          "evaluatedRevision": 9
         },
         {
           "subject": "terminal-multiplexing",
@@ -3579,7 +3583,11 @@
           "revision": 9,
           "changedAt": "2026-10-15",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/org/import/route.ts:33 The \"claim\" in this context is a database ScanJob row that dedups concurrent scans of one repo, not a session's claim on paths in a shared git checkout. The routes scan via the GitHub API and persist to the DB; they never stage, commit, stash or create worktrees. A ripgrep of the import/repos/scan/watch/schedule/active/cron-rescan route dirs and src/lib/db found no read-tree, git stash or GIT_INDEX_FILE.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:de557423d4cf3016",
+          "evaluatedRevision": 9
         },
         {
           "subject": "supply-chain",
@@ -6897,7 +6905,11 @@
           "revision": 9,
           "changedAt": "2026-10-15",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/org/registry-view.ts:280 This context's only contact with version control is this fire-and-forget refresh, and its callee (src/lib/registry/local-registry.ts) only runs read-only `git rev-parse HEAD` / `ls-tree HEAD` on the paired registry checkout. Nothing in the context stages, commits, stashes, rebases or creates worktrees, so the subject's precondition (sessions editing and committing in a shared checkout) does not hold here. A ripgrep of src/lib/org and src/features/shared/registry found no read-tree, git stash or GIT_INDEX_FILE.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:de557423d4cf3016",
+          "evaluatedRevision": 9
         },
         {
           "subject": "settings",
@@ -8728,7 +8740,11 @@
           "revision": 9,
           "changedAt": "2026-10-15",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/billing/webhook/route.ts:5 The concurrency this context handles is webhook redelivery, made idempotent on the Polar order id; it performs no VCS operation at all. A ripgrep of src/app/api/billing, src/app/api/org/plan, src/app/pricing, src/features/admin/settings and src/lib found no read-tree, git stash or update-index, so the shared-checkout commit techniques have no surface here.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:de557423d4cf3016",
+          "evaluatedRevision": 9
         },
         {
           "subject": "usage-pricing-models",

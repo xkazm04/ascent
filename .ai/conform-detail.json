@@ -6925,6 +6925,46 @@
         "at": "2026-10-24T04:17:25.997034+00:00",
         "reason": "reviewer (sonnet): OnboardingFoundationPanel.tsx opens draft PRs that seed the `.ai/` foundation, including the 'agent contract' (an agent instruction file), into the scanned repos, so the claim that the wizard delivers no agent instruction content is contradicted. The anchor at line 64 is only a fetch call, and the a"
       }
+    },
+    "Org Knowledge & Skills/AI Registry Repo (Onboarding & Index)/concurrent-vcs": {
+      "context": "AI Registry Repo (Onboarding & Index)",
+      "subject": "concurrent-vcs",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T04:30:29.752Z",
+      "worker": "96345c6c-c93e-4533-87a2-415af67d4619",
+      "techniques": []
+    },
+    "Billing, Credits & Metering/Checkout & Plans (Polar)/concurrent-vcs": {
+      "context": "Checkout & Plans (Polar)",
+      "subject": "concurrent-vcs",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T04:30:29.752Z",
+      "worker": "96345c6c-c93e-4533-87a2-415af67d4619",
+      "techniques": []
+    },
+    "Org Scanning & Fleet Rollups/Org Import, Scan & Watchlist/concurrent-vcs": {
+      "context": "Org Import, Scan & Watchlist",
+      "subject": "concurrent-vcs",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T04:30:29.752Z",
+      "worker": "96345c6c-c93e-4533-87a2-415af67d4619",
+      "techniques": []
+    },
+    "Identity & GitHub Connectivity/GitHub OAuth & Session/concurrent-vcs": {
+      "context": "GitHub OAuth & Session",
+      "subject": "concurrent-vcs",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T04:30:29.752Z",
+      "worker": "96345c6c-c93e-4533-87a2-415af67d4619",
+      "techniques": []
     }
   }
 }
