@@ -236,22 +236,36 @@
       "context": "LLM Provider Abstraction",
       "subject": "codebase-scanning",
       "bundle": "software-engineering",
-      "state": "conformant",
-      "evaluatedAt": "2026-08-31",
-      "worker": "w9-ascent",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T03:58:44.593Z",
+      "worker": "566f9c75-aeff-4981-a937-81aec4cb0aab",
       "techniques": [
         {
           "technique": "llm-assisted-scanning",
-          "verdict": "conformant",
-          "evidence": "json.ts:15-23 (typed ProviderParseError, truncated snippet) + :74-150 (layered recovery, never a silent drop)"
+          "verdict": "deviation",
+          "evidence": "src/lib/llm/provider.ts:311 The technique says malformed lines are counted and reported, and a finding that cites a rule missing from the shipped ruleset counts as malformed. Here such claims are dropped silently, and grep found no dropped or malformed counter anywhere in src/lib/llm. The parts that conform: ProviderParseError on total failure (json.ts:159), closed-vocabulary clamping to a conservative default (provider.ts:153), and claims passed on as candidates for the engine to verify."
         },
         {
           "technique": "sensor-pipeline",
-          "verdict": "unknown",
-          "evidence": "not verified in this pass — would need the gather-stage callers (provider.ts/index.ts) checked against the sibling's already-recorded swallow pattern"
+          "verdict": "conformant",
+          "evidence": "src/lib/llm/json.ts:159 When no JSON can be recovered, the parser throws a typed error with a snippet. That surfaces as a failed sensor that scan.ts degrades with accounting, not as an empty assessment."
+        },
+        {
+          "technique": "verify-after-generate",
+          "verdict": "conformant",
+          "evidence": "src/lib/llm/provider.ts:387 Before a model-generated assessment is trusted, it is checked against a coverage invariant (at least 50% of the requested dimensions, counting only finite numeric scores). A reply that parses but says nothing is treated as a model failure, not shown as a score."
         }
       ],
-      "registryProposal": ""
+      "superseded": [
+        {
+          "state": "conformant",
+          "evidence": "src/lib/llm/json.ts:15-23,74-150 parseJsonLoose never silently drops a malformed model reply: fast parse -> fenced-block recovery -> jsonc cleanup -> balanced-brace scan, and total failure throws a typed ProviderParseError with a truncated snippet rather than degrading silently. Realizes llm-assisted-scanning's 'model as unreliable sensor, malformed output counted not dropped' discipline. Contrast: the sibling 'Scan Pipeline & Ingestion' context is recorded deviation for governance/posture/exposure fetches still doing .catch(()=>null) with score-bearing folds — this parsing layer is markedly more careful than that sibling ingestion layer, i.e. the discipline is uneven across the same pipeline's own stages.",
+          "evaluatedAt": "2026-08-31",
+          "worker": null,
+          "reason": "replaced by 566f9c75-aeff-4981-a937-81aec4cb0aab"
+        }
+      ]
     },
     "Org Scanning & Fleet Rollups/Org Import, Scan & Watchlist/codebase-scanning": {
       "context": "Org Import, Scan & Watchlist",
@@ -2054,22 +2068,23 @@
       "context": "Org Memory",
       "subject": "codebase-scanning",
       "bundle": "software-engineering",
-      "state": "unknown",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T08:53:46.833Z",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T03:58:44.593Z",
+      "worker": "566f9c75-aeff-4981-a937-81aec4cb0aab",
       "techniques": [
+        {
+          "technique": "llm-assisted-scanning",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/memory/reflect/route.ts:13 Echoes the 'unavailable is not empty' discipline (llmUnavailable vs clusterCount 0, comparedCount), but the model judges memory text, not code."
+        },
         {
           "technique": "sensor-pipeline",
           "verdict": "not-applicable",
-          "evidence": "src/app/api/org/memory/check/route.ts:87 Precondition does not hold: context performs memory deduplication and recall over stored memory rows rather than codebase sensors."
+          "evidence": "src/app/api/org/memory/check/route.ts:87 Precondition does not hold: context performs memory deduplication and recall over stored memory rows rather than codebase sensors.",
+          "carriedFrom": "2026-10-13"
         }
-      ],
-      "withdrawn": {
-        "worker": "5f368074-9d22-4774-a0aa-c097f501fafe",
-        "state": "not-applicable",
-        "at": "2026-10-13T08:54:16.168935+00:00",
-        "reason": "reviewer (sonnet): The anchor at src/app/api/org/memory/check/route.ts:87 is only the JSON response (comparedCount) of a dedup endpoint, so it does not show that the scanning precondition is absent, and the verdict rests on a zero-hit grep rather than on a line that shows it."
-      }
+      ]
     },
     "Org Dashboard & Analytics/Practices, Governance & Adoption/codebase-scanning": {
       "context": "Practices, Governance & Adoption",

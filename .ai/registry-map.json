@@ -1118,12 +1118,12 @@
           "revision": 12,
           "changedAt": "2026-09-23",
           "confidence": "probable",
-          "state": "conformant",
-          "evidence": "src/lib/llm/json.ts:15-23,74-150 parseJsonLoose never silently drops a malformed model reply: fast parse -> fenced-block recovery -> jsonc cleanup -> balanced-brace scan, and total failure throws a typed ProviderParseError with a truncated snippet rather than degrading silently. Realizes llm-assisted-scanning's 'model as unreliable sensor, malformed output counted not dropped' discipline. Contrast: the sibling 'Scan Pipeline & Ingestion' context is recorded deviation for governance/posture/exposure fetches still doing .catch(()=>null) with score-bearing folds — this parsing layer is markedly more careful than that sibling ingestion layer, i.e. the discipline is uneven across the same pipeline's own stages.",
-          "evaluatedAt": "2026-08-31",
-          "evaluatedAgainst": "sha256:5215e21162717d59",
+          "state": "deviation",
+          "evidence": "src/lib/llm/provider.ts:311 validateAssessment drops a malformed model claim (unknown facet, a dimension that is not scored, missing path or quote) with a bare `continue` and never counts it. The same happens to roadmap entries and discrepancies, so a reply where most claims cite rules that don't exist looks like a quiet, smaller reply instead of a degraded one, which llm-assisted-scanning names as its failure.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:06416fce13bc2342",
           "source": "retained",
-          "stale": true
+          "evaluatedRevision": 12
         },
         {
           "subject": "settings",
@@ -6505,7 +6505,11 @@
           "revision": 12,
           "changedAt": "2026-09-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/org/memory/check/route.ts:4 These files are a CRUD, recall, check and reflect surface over the org's stored memories, not a scanner of a codebase. A case-insensitive grep of src/app/api/org/memory, src/app/org/[slug]/memory and src/features/shared/memory for detector, sensor, deadCode and ruleset returned nothing. 'finding' appears only in UI copy describing memory kinds, so the subject's precondition (detecting defects in a code tree) does not hold.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:06416fce13bc2342",
+          "evaluatedRevision": 12
         },
         {
           "subject": "bounded-enumeration",
