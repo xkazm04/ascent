@@ -4237,7 +4237,11 @@
           "revision": 9,
           "changedAt": "2026-10-02",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/org/practice-library.ts:8 This context's only LLM contact is a markdown brief that a person copies into their own tool, and practices/generate builds a deterministic artifact from one GitHub metadata call; I searched src/lib/org, src/features/shared/practices, src/app/api/practices and the three org pages recursively for child_process, stream-json, execFile and dangerously-skip-permissions and found nothing.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:5791230ffb7d9fad",
+          "evaluatedRevision": 9
         },
         {
           "subject": "agent-memory",

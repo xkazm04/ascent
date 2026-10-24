@@ -2542,62 +2542,66 @@
       "context": "Practices, Governance & Adoption",
       "subject": "agent-cli-transport",
       "bundle": "software-engineering",
-      "state": "unknown",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T11:24:06.642Z",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T05:17:29.170Z",
+      "worker": "f18b2407-1137-4010-97e7-d3445d34e1d7",
       "techniques": [
         {
           "technique": "availability-probe",
           "verdict": "not-applicable",
-          "evidence": "src/lib/practices/artifact.ts:62 Template generation has no agent binary to probe."
+          "evidence": "src/lib/practices/artifact.ts:62 Template generation has no agent binary to probe.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "child-observed-posture",
           "verdict": "not-applicable",
-          "evidence": "src/lib/practices/artifact.ts:62 No child-agent posture is configured."
+          "evidence": "src/lib/practices/artifact.ts:62 No child-agent posture is configured.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "dated-capability-matrix",
           "verdict": "not-applicable",
-          "evidence": "src/lib/practices/artifact.ts:62 No agent CLI capability assumptions are encoded."
+          "evidence": "src/lib/practices/artifact.ts:62 No agent CLI capability assumptions are encoded.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "fallback-ladder",
           "verdict": "not-applicable",
-          "evidence": "src/lib/practices/artifact.ts:62 Generic templates are direct product behavior, not fallback from an agent transport."
+          "evidence": "src/lib/practices/artifact.ts:62 Generic templates are direct product behavior, not fallback from an agent transport.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "host-routed-approval-round-trip",
           "verdict": "not-applicable",
-          "evidence": "src/lib/practices/artifact.ts:62 Starter-PR review does not answer native child-agent permission requests."
+          "evidence": "src/lib/practices/artifact.ts:62 Starter-PR review does not answer native child-agent permission requests.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "output-normalization",
           "verdict": "not-applicable",
-          "evidence": "src/lib/practices/artifact.ts:62 Artifacts are returned directly, without CLI envelopes."
+          "evidence": "src/lib/practices/artifact.ts:62 Artifacts are returned directly, without CLI envelopes.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "permission-stance-enforcement",
           "verdict": "not-applicable",
-          "evidence": "src/lib/practices/artifact.ts:62 No agent session receives workspace permissions."
+          "evidence": "src/lib/practices/artifact.ts:62 No agent session receives workspace permissions.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "subscription-auth-selection",
           "verdict": "not-applicable",
-          "evidence": "src/lib/practices/artifact.ts:62 No spawned model run selects seat or API-key billing."
+          "evidence": "src/lib/practices/artifact.ts:62 No spawned model run selects seat or API-key billing.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "thread-custody-across-resume",
           "verdict": "not-applicable",
-          "evidence": "src/lib/practices/artifact.ts:62 No child conversation identifier is stored or resumed."
+          "evidence": "src/lib/practices/artifact.ts:62 No child conversation identifier is stored or resumed.",
+          "carriedFrom": "2026-10-13"
         }
-      ],
-      "withdrawn": {
-        "worker": "ef824da9-b06d-4031-bd48-31351fb383d5",
-        "state": "not-applicable",
-        "at": "2026-10-13T11:24:47.168915+00:00",
-        "reason": "reviewer (sonnet): The anchor artifact.ts:62 is the buildPracticeArtifact function. It doesn't show that no agent CLI is spawned, and the absence rests only on a search I couldn't tie to that line. The anchor is incidental, so the not-applicable is withdrawn."
-      }
+      ]
     },
     "Org Dashboard & Analytics/Security Posture & Audit Log/supply-chain": {
       "context": "Security Posture & Audit Log",
