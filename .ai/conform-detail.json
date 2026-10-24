@@ -482,29 +482,53 @@
       "subject": "quality-gates",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-12",
-      "evaluatedTs": "2026-10-12T20:14:34.132Z",
-      "worker": "c0e336bf-9635-4704-9e50-dad080f0240c",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T00:36:47.786Z",
+      "worker": "aa74d47e-6e06-432a-9ca0-c436357e021b",
       "techniques": [
         {
-          "technique": "policy-projection",
-          "verdict": "conformant",
-          "evidence": "src/lib/scoring/gate-comment.ts:260 The PR footer projects the effective policy through the shared condition enumeration and marks skipped conditions."
-        },
-        {
-          "technique": "refusal-names-a-reachable-remedy",
-          "verdict": "conformant",
-          "evidence": "src/app/api/gate/[owner]/[repo]/route.ts:401 The refusal explains the unavailable inputs and names the authenticated check-run surface that can enforce those bars."
+          "technique": "unmeasurable-criteria",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/org-gate.ts:23 The configured bar can't be read because the gate's own instrument is broken. That should REFUSE or fail closed, but it quietly swaps in a weaker default and only logs. The rest of the technique is followed well: non-finite scores fail closed, skips are named, and an explicitly requested unmeasured bar returns 503."
         },
         {
           "technique": "severity-by-construction",
           "verdict": "conformant",
-          "evidence": "src/app/api/gate/[owner]/[repo]/route.ts:350 Failure maps to HTTP 422, while degradation or explicitly requested unmeasured bars map to 503; route tests assert the non-success mapping."
+          "evidence": "src/app/api/gate/[owner]/[repo]/route.ts:2 Each verdict maps to its own exit status, so `curl --fail` actually trips on a fail or a could-not-run."
         },
         {
-          "technique": "unmeasurable-criteria",
-          "verdict": "deviation",
-          "evidence": "src/lib/db/org-gate.ts:23 The parser returns null after this diagnostic; the gate route treats null as no configured policy and uses defaults rather than refusing an unreadable policy."
+          "technique": "vacuous-by-evaluation",
+          "verdict": "conformant",
+          "evidence": "src/lib/scoring/gate.ts:424 A floor that can never fail is dropped instead of being kept as a bar that looks configured."
+        },
+        {
+          "technique": "gate-liveness",
+          "verdict": "conformant",
+          "evidence": "src/lib/scoring/gate.ts:119 'Measured nothing' is derived from the data, not only read from a flag, and gate.ts:763 turns it into a failure rather than a green."
+        },
+        {
+          "technique": "policy-projection",
+          "verdict": "conformant",
+          "evidence": "src/lib/scoring/gate-comment.ts:260 The PR footer is a map over the one shared enumeration, and skipped conditions are marked as not measured."
+        },
+        {
+          "technique": "enforcement-binding",
+          "verdict": "conformant",
+          "evidence": "src/lib/scoring/gate-comment.ts:46 The skip asymmetry is handled: an unscored PR posts failure, not neutral. Line 135 keeps the check name stable because branch-protection lists match it by exact name."
+        },
+        {
+          "technique": "refusal-names-a-reachable-remedy",
+          "verdict": "conformant",
+          "evidence": "src/app/api/gate/[owner]/[repo]/route.ts:406 The refusal names both a remedy the caller can act on and the surface that does enforce the bar."
+        }
+      ],
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "src/lib/db/org-gate.ts:23 A corrupt stored policy becomes an unset policy, allowing the archetype default to replace an unreadable configured bar instead of refusing the verdict.",
+          "evaluatedAt": "2026-10-12T20:14:34.132Z",
+          "worker": "c0e336bf-9635-4704-9e50-dad080f0240c",
+          "reason": "replaced by aa74d47e-6e06-432a-9ca0-c436357e021b"
         }
       ]
     },
@@ -513,29 +537,52 @@
       "subject": "quality-gates",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-12",
-      "evaluatedTs": "2026-10-12T20:14:34.132Z",
-      "worker": "c0e336bf-9635-4704-9e50-dad080f0240c",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T00:36:47.786Z",
+      "worker": "aa74d47e-6e06-432a-9ca0-c436357e021b",
       "techniques": [
-        {
-          "technique": "instrument-answers-only-its-own-question",
-          "verdict": "conformant",
-          "evidence": "src/lib/local/lane-guard.ts:474 A narrowed verification result explicitly states its compile/lint scope and declines to claim that the test suite passed."
-        },
         {
           "technique": "oracle-frozen-during-repair",
           "verdict": "deviation",
-          "evidence": "src/lib/local/lane-gate-repair.ts:40 repairDeclaredGate resumes the same session to edit the failing gate scripts/configuration; the prohibition on weakening is prose, and correcting the oracle is not a separate human-owned task."
+          "evidence": "src/lib/local/lane-gate-repair.ts:40 The freeze is only an instruction, and the fixer is invited to write to the oracle. The integrity guard (lane-gate-diff.ts:10) is the weaker review-time form, and for an added bootstrap gate it clears edits the lane itself made."
+        },
+        {
+          "technique": "gate-liveness",
+          "verdict": "conformant",
+          "evidence": "src/lib/local/lane-gate-diff.ts:27 An added test is cleared only after its text has been read for run short-circuits, so it can't produce a 'green with nothing run'."
+        },
+        {
+          "technique": "refusal-names-a-reachable-remedy",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/local/autopilot/route.ts:84 The refusal names a remedy the operator can reach inside the product."
+        },
+        {
+          "technique": "instrument-answers-only-its-own-question",
+          "verdict": "conformant",
+          "evidence": "src/lib/local/lane-guard.ts:474 A narrowed verification result explicitly states its compile/lint scope and declines to claim that the test suite passed.",
+          "carriedFrom": "2026-10-12"
         },
         {
           "technique": "severity-by-construction",
           "verdict": "conformant",
-          "evidence": "src/lib/local/loop-delivery.ts:129 The delivery boundary checks rejection before landing or opening a PR and returns delivered:false from this branch."
+          "evidence": "src/lib/local/loop-delivery.ts:129 The delivery boundary checks rejection before landing or opening a PR and returns delivered:false from this branch.",
+          "carriedFrom": "2026-10-12"
         },
         {
           "technique": "unmeasurable-criteria",
           "verdict": "conformant",
-          "evidence": "src/lib/local/loop-delivery.ts:155 With verification enabled, skipped, unavailable, or missing verdicts block delivery; unverifiedDeliveryReason preserves their distinct explanations."
+          "evidence": "src/lib/local/loop-delivery.ts:155 With verification enabled, skipped, unavailable, or missing verdicts block delivery; unverifiedDeliveryReason preserves their distinct explanations.",
+          "carriedFrom": "2026-10-12"
+        }
+      ],
+      "registryProposal": "oracle-frozen-during-repair assumes the oracle already exists before the repair. A bootstrap case, where the fixer's own lane created the gate and the repair is about that new gate, isn't covered: the technique should say whether a self-authored first gate can ever be repaired in-task, or always needs a separate task.",
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "src/lib/local/lane-gate-repair.ts:40 The gate-repair turn lets the same agent rewrite the failing check, so a subsequent green result does not prove repair against an unchanged oracle.",
+          "evaluatedAt": "2026-10-12T20:14:34.132Z",
+          "worker": "c0e336bf-9635-4704-9e50-dad080f0240c",
+          "reason": "replaced by aa74d47e-6e06-432a-9ca0-c436357e021b"
         }
       ]
     },
