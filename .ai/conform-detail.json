@@ -7049,6 +7049,109 @@
         }
       ],
       "registryProposal": "source-doc-mapping could name a 'target describes the matched file' check: a broad directory glob mapped to a doc that never names the matched path passes every membership and coverage test, yet couples the code to the wrong prose. A cheap probe is whether the target doc mentions the file path or its exported symbols."
+    },
+    "Repository Scanning & Scoring/CI Gate & Status Checks/hitl-approval": {
+      "context": "CI Gate & Status Checks",
+      "subject": "hitl-approval",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T05:04:45.414Z",
+      "worker": "da5bebc4-6413-4f08-a2c0-72c10ae6248f",
+      "techniques": [
+        {
+          "technique": "decision-records",
+          "verdict": "deviation",
+          "evidence": "src/app/api/org/gate-policy/route.ts:251 The record carries actor, policy, changes and previousPolicy, but it is not written in the same atomic step as the policy write, and a failed write is silently dropped."
+        },
+        {
+          "technique": "author-advisories-yield-to-the-users-mode",
+          "verdict": "conformant",
+          "evidence": "src/lib/scoring/gate.ts:14 Org, admission, repo-manifest and query-param layers fold strictest-wins, so a repo author's bar can only tighten the org's, never replace it."
+        },
+        {
+          "technique": "fail-loud-classification-default",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/org-gate.ts:23 A stored policy that is present but corrupt falls back to the default loudly; an absent one falls back quietly. This is the technique's configuration-read rule."
+        },
+        {
+          "technique": "fail-closed-profile-for-headless",
+          "verdict": "conformant",
+          "evidence": "src/lib/scoring/gate-comment.ts:116 With nobody to ask, a PR head that was not scored posts failure rather than neutral. GitHub counts neutral as satisfying a required check."
+        },
+        {
+          "technique": "gate-state-machines",
+          "verdict": "conformant",
+          "evidence": "src/lib/scoring/gate.ts:376 The admission bar reaches the gate only from an org-recorded row. Neither the gated repo's CI nor a query param can set it."
+        },
+        {
+          "technique": "resume-after-decision",
+          "verdict": "conformant",
+          "evidence": "src/lib/github/write.ts:31 The staged draft-PR write re-checks the world before acting: a base file changed since Ascent landed it is refused, not overwritten."
+        },
+        {
+          "technique": "truncated-verdict-space",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/gate/[owner]/[repo]/route.ts:355 The gate keeps a positive arm on purpose. A wrong pass lets a PR through a quality bar, which is recoverable, not standing granted at a trust boundary."
+        }
+      ]
+    },
+    "Onboarding, Shell & AI Standard/First-Run Onboarding Wizard/hitl-approval": {
+      "context": "First-Run Onboarding Wizard",
+      "subject": "hitl-approval",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T05:04:45.414Z",
+      "worker": "da5bebc4-6413-4f08-a2c0-72c10ae6248f",
+      "techniques": [
+        {
+          "technique": "consent-gates",
+          "verdict": "deviation",
+          "evidence": "src/components/onboarding/importScan.ts:111 A recurring spend is opt-out at the substrate. The opt-in checkbox defaults to false, but omitting the field enrols, so the gate is not closed by default where the action executes."
+        },
+        {
+          "technique": "resume-after-decision",
+          "verdict": "conformant",
+          "evidence": "src/components/onboarding/useOnboardingFlow.ts:603 A retry or re-attach reads the consent recorded on the run snapshot, not the module stores, which a reload resets to their defaults."
+        },
+        {
+          "technique": "fail-closed-profile-for-headless",
+          "verdict": "conformant",
+          "evidence": "src/components/onboarding/importScan.ts:123 An unspecified run defaults to the free preview. Only a positively requested real scan draws credits. This is the opposite polarity from the watch default nine lines above."
+        }
+      ]
+    },
+    "Reporting & Visualization/AI-Native Passports/hitl-approval": {
+      "context": "AI-Native Passports",
+      "subject": "hitl-approval",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T05:04:45.414Z",
+      "worker": "da5bebc4-6413-4f08-a2c0-72c10ae6248f",
+      "techniques": [
+        {
+          "technique": "decision-records",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/org-decisions.ts:235 The header states that re-deciding edits the row rather than appending. The record is not bound to a version, and the audit row stores only the status, not the rationale."
+        },
+        {
+          "technique": "gate-state-machines",
+          "verdict": "conformant",
+          "evidence": "src/app/api/report/passport/overrides/route.ts:64 The decision's author comes from the session. A request body naming one is refused, so the requester cannot assert who decided."
+        },
+        {
+          "technique": "consent-gates",
+          "verdict": "conformant",
+          "evidence": "src/components/github/CreateIssueModal.tsx:6 Before the externally visible write, the person sees and edits the exact title, body and targets that will be posted."
+        },
+        {
+          "technique": "resume-after-decision",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/issue/route.ts:9 A duplicate file action finds the work already done (reused:true) rather than filing again."
+        }
+      ]
     }
   }
 }

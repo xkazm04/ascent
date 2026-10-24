@@ -923,7 +923,11 @@
           "revision": 22,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/app/api/org/gate-policy/route.ts:251 The owner's change to the merge-blocking bar is committed by setOrgGatePolicy first, and the audit record is written afterwards in a separate step whose failure is swallowed, so the bar can be loosened with no record of it, which is the 'opening with no witness' defect decision-records forbids.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:52d7f3cfb87a79d9",
+          "evaluatedRevision": 22
         },
         {
           "subject": "model-routing",
@@ -3137,7 +3141,11 @@
           "revision": 22,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/components/onboarding/importScan.ts:111 The wizard's own import helper still enrols repos in the recurring billable weekly watch by default on the App path whenever a caller leaves out `watch`, and the server defaults it to true as well, so the spend consent lives only in a client module store and in each caller remembering to pass the field; this default has already re-subscribed declined repos once.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:52d7f3cfb87a79d9",
+          "evaluatedRevision": 22
         },
         {
           "subject": "fleet-orchestration",
@@ -8382,7 +8390,11 @@
           "revision": 22,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/db/org-decisions.ts:235 A human decision on a passport blocker (or another finding) is upserted in place on (org, module, itemKey), keyed to the finding's identity with no version or fingerprint, and rationale is optional even on a dismissal, so a re-decision overwrites the earlier verdict instead of superseding it and a dismissal keeps applying however the finding changes.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:52d7f3cfb87a79d9",
+          "evaluatedRevision": 22
         },
         {
           "subject": "eval-harness",
