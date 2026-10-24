@@ -7448,6 +7448,57 @@
           "evidence": "src/components/report/useReportScan.ts:223 The report surface is read-only and holds no user work that a half-run operation could mutate. A failed re-test simply keeps the prior report mounted."
         }
       ]
+    },
+    "Org Planning & Execution/Live War Room/concurrency-guards": {
+      "context": "Live War Room",
+      "subject": "concurrency-guards",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T22:28:10.235Z",
+      "worker": "dd51ca5f-248e-4a31-a0eb-a76fa720251b",
+      "techniques": [
+        {
+          "technique": "attempt-attribution",
+          "verdict": "deviation",
+          "evidence": "src/features/inflight/live/useShipLoop.ts:50 Nothing is checked at the write site. The refresh poll and act() both call setState(d.state), so the last response to arrive wins and a stale poll can roll back a newer action result."
+        },
+        {
+          "technique": "single-flight-primitives",
+          "verdict": "deviation",
+          "evidence": "src/features/inflight/live/liveWarRoomLaunch.ts:36 Each guard is hand-rolled: abortRef null-check for scans, a busy map for triage, share.busy for links. The scan refusal returns nothing, so an auto-verify rescan is dropped without telling anyone (useLiveWarRoom.ts:118 says so). The refresh poll has no in-flight guard at all."
+        },
+        {
+          "technique": "guard-key-design",
+          "verdict": "conformant",
+          "evidence": "src/features/inflight/live/useShipLoop.ts:72 The triage busy guard is keyed per recommendationId, the narrowest identity that still catches a double accept/reject. Unrelated rows are not serialized behind it."
+        },
+        {
+          "technique": "release-guarantees",
+          "verdict": "conformant",
+          "evidence": "src/features/inflight/live/useShipLoop.ts:91 The busy entry is released in finally, so it is cleared on success, on a non-ok response and on a network error. Caveat: runLiveScan's finally (liveWarRoomLaunch.ts:96) clears abortRef without checking that it still owns it."
+        },
+        {
+          "technique": "critical-section-across-a-suspension",
+          "verdict": "conformant",
+          "evidence": "src/features/inflight/live/useLiveWarRoom.ts:64 The scan guard is held across the fetch and SSE awaits, and the unmount cleanup names what releases it if the unit is destroyed at that suspension."
+        },
+        {
+          "technique": "preparation-is-the-staleness-window",
+          "verdict": "deviation",
+          "evidence": "src/features/inflight/live/liveWakeLock.ts:17 acquireWakeLock stores the sentinel after awaiting wakeLock.request without re-reading wakeHeld. If the wall exits (releaseWakeLock) while the request is pending, the late sentinel is kept and the screen lock leaks with no listener left to release it."
+        }
+      ]
+    },
+    "Marketing Site & Design System/Design System: UI Primitives & Deck/concurrency-guards": {
+      "context": "Design System: UI Primitives & Deck",
+      "subject": "concurrency-guards",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T22:28:10.235Z",
+      "worker": "dd51ca5f-248e-4a31-a0eb-a76fa720251b",
+      "techniques": []
     }
   }
 }

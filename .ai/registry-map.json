@@ -5358,7 +5358,11 @@
           "revision": 16,
           "changedAt": "2026-10-15",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/features/inflight/live/useShipLoop.ts:50 The 90s monitor refresh and the accept/reject actions both overwrite the ship-loop state with whatever response lands last and carry no generation or attempt id, so a refresh that started before an accept and lands after it brings the accepted triage row back until the next tick.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:ccc991958e998a93",
+          "evaluatedRevision": 16
         },
         {
           "subject": "quality-gates",
@@ -9820,7 +9824,11 @@
           "revision": 16,
           "changedAt": "2026-10-15",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/components/ui/format.ts:2 These are synchronous presentational primitives (formatters, an IntersectionObserver reveal, an html-class scroll-snap toggle); searching src/components/deck and src/components/ui for AbortController, inFlight, mutex, idempot and fetch( found no hits in source, so no operation here can be reached twice concurrently or needs a guard.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:ccc991958e998a93",
+          "evaluatedRevision": 16
         },
         {
           "subject": "async-ui-states",

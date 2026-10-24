@@ -1,0 +1,98 @@
+{
+ "schema": "conform-run/1",
+ "worker": "dd51ca5f-248e-4a31-a0eb-a76fa720251b",
+ "subject": "concurrency-guards",
+ "evaluatedAt": "2026-10-24T22:28:10.235151+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Live War Room",
+   "subject": "concurrency-guards",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/features/inflight/live/useShipLoop.ts:50 The 90s monitor refresh and the accept/reject actions both overwrite the ship-loop state with whatever response lands last and carry no generation or attempt id, so a refresh that started before an accept and lands after it brings the accepted triage row back until the next tick.",
+   "techniques": [
+    {
+     "technique": "attempt-attribution",
+     "verdict": "deviation",
+     "evidence": "src/features/inflight/live/useShipLoop.ts:50 Nothing is checked at the write site. The refresh poll and act() both call setState(d.state), so the last response to arrive wins and a stale poll can roll back a newer action result."
+    },
+    {
+     "technique": "single-flight-primitives",
+     "verdict": "deviation",
+     "evidence": "src/features/inflight/live/liveWarRoomLaunch.ts:36 Each guard is hand-rolled: abortRef null-check for scans, a busy map for triage, share.busy for links. The scan refusal returns nothing, so an auto-verify rescan is dropped without telling anyone (useLiveWarRoom.ts:118 says so). The refresh poll has no in-flight guard at all."
+    },
+    {
+     "technique": "guard-key-design",
+     "verdict": "conformant",
+     "evidence": "src/features/inflight/live/useShipLoop.ts:72 The triage busy guard is keyed per recommendationId, the narrowest identity that still catches a double accept/reject. Unrelated rows are not serialized behind it."
+    },
+    {
+     "technique": "release-guarantees",
+     "verdict": "conformant",
+     "evidence": "src/features/inflight/live/useShipLoop.ts:91 The busy entry is released in finally, so it is cleared on success, on a non-ok response and on a network error. Caveat: runLiveScan's finally (liveWarRoomLaunch.ts:96) clears abortRef without checking that it still owns it."
+    },
+    {
+     "technique": "critical-section-across-a-suspension",
+     "verdict": "conformant",
+     "evidence": "src/features/inflight/live/useLiveWarRoom.ts:64 The scan guard is held across the fetch and SSE awaits, and the unmount cleanup names what releases it if the unit is destroyed at that suspension."
+    },
+    {
+     "technique": "preparation-is-the-staleness-window",
+     "verdict": "deviation",
+     "evidence": "src/features/inflight/live/liveWakeLock.ts:17 acquireWakeLock stores the sentinel after awaiting wakeLock.request without re-reading wakeHeld. If the wall exits (releaseWakeLock) while the request is pending, the late sentinel is kept and the screen lock leaks with no listener left to release it."
+    }
+   ]
+  },
+  {
+   "context": "Design System: UI Primitives & Deck",
+   "subject": "concurrency-guards",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/components/ui/format.ts:2 These are synchronous presentational primitives (formatters, an IntersectionObserver reveal, an html-class scroll-snap toggle); searching src/components/deck and src/components/ui for AbortController, inFlight, mutex, idempot and fetch( found no hits in source, so no operation here can be reached twice concurrently or needs a guard.",
+   "techniques": [],
+   "absenceTerms": [
+    "AbortController",
+    "inFlight",
+    "mutex",
+    "idempot",
+    "fetch("
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-24T22:28:10.235151+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "concurrency-guards"
+   ],
+   "techniques": [
+    "attempt-attribution",
+    "critical-section-across-a-suspension",
+    "guard-key-design",
+    "preparation-is-the-staleness-window",
+    "release-guarantees",
+    "single-flight-primitives"
+   ],
+   "deviations": 1,
+   "context": "Live War Room",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-10-24T22:28:10.235151+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "concurrency-guards"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Design System: UI Primitives & Deck",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
