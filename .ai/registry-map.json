@@ -6815,7 +6815,11 @@
           "revision": 26,
           "changedAt": "2026-10-06",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/org/registry-view.fleet.test.ts:8 The test name claims a property of the live view, but the test only drives the unmeasuredFleet helper; getRegistryView's adoption of it, including the later fleetPointing spread at registry-view.ts:321-322, is pinned by no test, so a loader regression that writes a 0 stays green.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:c96e1ee699a88119",
+          "evaluatedRevision": 27
         },
         {
           "subject": "agent-memory",

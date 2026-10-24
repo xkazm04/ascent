@@ -6364,6 +6364,27 @@
         "at": "2026-10-24T00:58:33.270387+00:00",
         "reason": "reviewer (sonnet): The anchor developer-view.ts:240 is only a sharing-ledger row saying 'Prompts, diffs, file contents: never collected'. It doesn't show that the route calls no model. OrgShell.tsx, which is in the context, mentions hosting the Athena companion conversation, and I did not trace that, so the absence cl"
       }
+    },
+    "Org Knowledge & Skills/AI Registry Repo (Onboarding & Index)/test-harness": {
+      "context": "AI Registry Repo (Onboarding & Index)",
+      "subject": "test-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T01:43:09.066Z",
+      "worker": "b5c4481d-30f4-42f1-bb36-d1df263a0bc4",
+      "techniques": [
+        {
+          "technique": "unreached-decisions-pin-nothing",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/registry-view.ts:321 The predicate is tested but its adoption is not, which is the 'lift creates the gap' case. Every other test mocks getRegistryView wholesale, so the composition is never reached."
+        },
+        {
+          "technique": "fixture-economics",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/registry-view.fixture.ts:108 The hand-built view that five panel tests share carries states the loader never produces. Adoption is non-zero although registry-view.ts:114 says a live view sends zeros, and reposPointing appears without unswept/roster. Nothing checks the seed against the loader's invariants."
+        }
+      ]
     }
   }
 }

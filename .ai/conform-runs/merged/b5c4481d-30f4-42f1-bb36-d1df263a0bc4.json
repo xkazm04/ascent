@@ -1,0 +1,121 @@
+{
+ "schema": "conform-run/1",
+ "worker": "b5c4481d-30f4-42f1-bb36-d1df263a0bc4",
+ "subject": "test-harness",
+ "evaluatedAt": "2026-10-24T01:43:09.066512+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Local Autopilot & Loop Engine",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/org/loop/[id]/route.ts:10 The structural pin that polices this [id] route strips comments and strings and then looks for the bare gate name, so this import line on its own satisfies it: delete the actual call at line 21 and the guard stays green, which is the name-not-call failure the technique describes.",
+   "techniques": [
+    {
+     "technique": "pin-the-call-not-the-name",
+     "verdict": "deviation",
+     "evidence": "src/app/api/org/id-routes-gated.test.ts:159 The needle is a bare identifier, and the import line is code that survives the stripper, so the pin checks that the gate is mentioned, not that it is called. The fix is a call-shaped needle such as `requireOrgAccess(` with an argument behind it."
+    },
+    {
+     "technique": "assert-through-the-reader",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/local/drive/route.reader.test.ts:1 The composed client payload is POSTed to the real handler instead of having its shape pinned, after a shape-only test stayed green while arms were silently dropped."
+    },
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/loop/route.test.ts:68 The mock keeps the instanceof decision reachable. The pure gate vocabulary (line 92) and the real proposeLaneKind (propose test line 4) are left unmocked for the same reason."
+    },
+    {
+     "technique": "isolation-lanes",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/loop/propose/route.test.ts:75 Each test gets a throwaway checkout, reaped after the test. The loop e2e config adds workers:1 and reuseExistingServer:false, so it never inherits the operator's server."
+    },
+    {
+     "technique": "live-app-harness",
+     "verdict": "conformant",
+     "evidence": "e2e/loop/cockpit-loop.spec.ts:8 The loop journey drives the real dev server, the real loop engine and a real git worktree, serially. Only the agent session is not real."
+    },
+    {
+     "technique": "fixture-economics",
+     "verdict": "conformant",
+     "evidence": "e2e/loop/fixture.ts:8 The fixture is built once per run, and the comment states which invariant the seeded repo carries (no manifest, so a foundation lane) and why."
+    }
+   ]
+  },
+  {
+   "context": "AI Registry Repo (Onboarding & Index)",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/org/registry-view.fleet.test.ts:8 The test name claims a property of the live view, but the test only drives the unmeasuredFleet helper; getRegistryView's adoption of it, including the later fleetPointing spread at registry-view.ts:321-322, is pinned by no test, so a loader regression that writes a 0 stays green.",
+   "techniques": [
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "deviation",
+     "evidence": "src/lib/org/registry-view.ts:321 The predicate is tested but its adoption is not, which is the 'lift creates the gap' case. Every other test mocks getRegistryView wholesale, so the composition is never reached."
+    },
+    {
+     "technique": "fixture-economics",
+     "verdict": "deviation",
+     "evidence": "src/lib/org/registry-view.fixture.ts:108 The hand-built view that five panel tests share carries states the loader never produces. Adoption is non-zero although registry-view.ts:114 says a live view sends zeros, and reposPointing appears without unswept/roster. Nothing checks the seed against the loader's invariants."
+    }
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "test-harness",
+   "context": "Repo Report Shell & Tabs",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "test-harness",
+   "context": "Scan Pipeline & Ingestion",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "test-harness",
+   "context": "Org Memory",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-10-24T01:43:09.066512+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "assert-through-the-reader",
+    "fixture-economics",
+    "isolation-lanes",
+    "live-app-harness",
+    "pin-the-call-not-the-name",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "Local Autopilot & Loop Engine",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-10-24T01:43:09.066512+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "fixture-economics",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "AI Registry Repo (Onboarding & Index)",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
