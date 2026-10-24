@@ -1,0 +1,37 @@
+{
+ "schema": "conform-run/1",
+ "worker": "d95b9394-42be-4c7d-962c-7d7eb2f98f1d",
+ "subject": "concurrent-vcs",
+ "evaluatedAt": "2026-10-21T21:12:04.115736+00:00",
+ "provider": "agy",
+ "model": "gemini-3.8-flash-high",
+ "pairs": [],
+ "declined": [
+  {
+   "subject": "concurrent-vcs",
+   "context": "AI Registry Repo (Onboarding & Index)",
+   "reason": "The concurrent-vcs subject governs concurrent multi-session operations in a shared Git checkout (intent ledgers, physical worktrees, private index commits, commit verification); this context provides Next.js read models and dashboard UI components for viewing customer-owned AI registry repositories and does not manage or execute local version-control workspace operations."
+  },
+  {
+   "subject": "concurrent-vcs",
+   "context": "Checkout & Plans (Polar)",
+   "reason": "The concurrent-vcs subject governs concurrent version-control workspace operations (worktree isolation, commit gating, staging index isolation); this context implements commercial billing checkouts, webhooks, and subscription tier upgrades via the Polar SDK and has no version-control workspace functionality."
+  },
+  {
+   "subject": "concurrent-vcs",
+   "context": "Org Import, Scan & Watchlist",
+   "reason": "The concurrent-vcs subject governs concurrent working copy version-control operations; this context implements HTTP API routes and database jobs for importing and scanning GitHub repositories via GitHub App API tokens and PostgreSQL queues without local checkout or Git VCS staging/commit workflows."
+  },
+  {
+   "subject": "concurrent-vcs",
+   "context": "GitHub OAuth & Session",
+   "reason": "The concurrent-vcs subject governs concurrent Git checkout and commit operations; this context implements user authentication, OAuth callbacks, session cookie issuance, and Supabase auth token validation, with no version-control workspace operations."
+  },
+  {
+   "subject": "concurrent-vcs",
+   "context": "Landing Page Prototypes",
+   "reason": "The concurrent-vcs subject governs concurrent version-control checkout, staging, and commit operations; this context comprises marketing landing page React presentation components and prototypes, containing no version-control operations."
+  }
+ ],
+ "consults": []
+}

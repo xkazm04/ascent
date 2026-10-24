@@ -1,0 +1,218 @@
+{
+ "schema": "conform-run/1",
+ "worker": "60cf5a00-7c7a-413b-915a-d2cded4b3fb8",
+ "subject": "translation-quality-measurement",
+ "evaluatedAt": "2026-10-24T03:03:39.563010+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Maturity Model & Scoring Engine",
+   "subject": "translation-quality-measurement",
+   "bundle": "localization",
+   "state": "not-applicable",
+   "evidence": "src/lib/maturity/model.ts:1 This module is a rubric for scoring engineering maturity, not a store of machine-translated text. A case-insensitive search of src/lib, src/components and src/app found no hits for pretranslat, termbase, i18next, next-intl or machine translation, and package.json has no i18n dependency, so there is no derived translation store for the subject to measure.",
+   "techniques": [
+    {
+     "technique": "reference-free-quality-estimation",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/maturity/model.ts:1 There is no machine-translated segment to score. The rubric scores repositories."
+    },
+    {
+     "technique": "deterministic-checks-before-estimates",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/maturity/model.ts:1 There is no translated store or termbase for a check suite to verify."
+    }
+   ],
+   "absenceTerms": [
+    "pretranslat",
+    "termbase",
+    "i18next",
+    "next-intl",
+    "machine translation"
+   ]
+  },
+  {
+   "context": "Score Charts & Visuals",
+   "subject": "translation-quality-measurement",
+   "bundle": "localization",
+   "state": "not-applicable",
+   "evidence": "src/components/report/PostureQuadrant.tsx:3 These are SVG charts of maturity scores. The only 'translate' hits in the context are CSS transforms (PostureQuadrant.tsx:168, chartHover.tsx:121). The searched terms had zero hits repo-wide, so no translation output exists for these files to measure or chart.",
+   "techniques": [
+    {
+     "technique": "error-typology-over-a-single-score",
+     "verdict": "not-applicable",
+     "evidence": "src/components/report/PostureQuadrant.tsx:3 The charts show engineering dimension scores, not translation quality scores."
+    },
+    {
+     "technique": "per-pair-engine-selection",
+     "verdict": "not-applicable",
+     "evidence": "src/components/report/PostureQuadrant.tsx:3 There is no MT engine and no language pair."
+    }
+   ],
+   "absenceTerms": [
+    "pretranslat",
+    "termbase",
+    "i18next",
+    "next-intl",
+    "machine translation"
+   ]
+  },
+  {
+   "context": "Repositories & Segments",
+   "subject": "translation-quality-measurement",
+   "bundle": "localization",
+   "state": "not-applicable",
+   "evidence": "src/lib/db/segments.ts:1 Segments are org-scoped tags that group repositories, not translated units. A search of src/lib/db, src/app and src/features/standing found none of the subject's terms, so no technique's precondition holds.",
+   "techniques": [
+    {
+     "technique": "human-review-sampling-under-a-budget",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/segments.ts:1 There is no translated corpus to sample for review."
+    },
+    {
+     "technique": "language-scoped-check-exemptions",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/segments.ts:1 There are no target languages and no check suite."
+    }
+   ],
+   "absenceTerms": [
+    "pretranslat",
+    "termbase",
+    "i18next",
+    "next-intl",
+    "machine translation"
+   ]
+  },
+  {
+   "context": "Repo Report Shell & Tabs",
+   "subject": "translation-quality-measurement",
+   "bundle": "localization",
+   "state": "not-applicable",
+   "evidence": "src/app/report/page.tsx:8 The report shell runs and presents repository maturity scans in English only (the root layout sets lang=\"en\"). The searched terms had zero hits under src/app and src/components, so no derived translation store or regeneration pipeline exists for regression detection or estimation.",
+   "techniques": [
+    {
+     "technique": "regression-detection-under-a-moving-engine",
+     "verdict": "not-applicable",
+     "evidence": "src/app/report/page.tsx:8 The LLM here scores code. It does not translate text, so there is no rebuilt store to re-prove."
+    },
+    {
+     "technique": "cost-and-licence-of-measurement",
+     "verdict": "not-applicable",
+     "evidence": "src/app/report/page.tsx:8 There is no translation quality gate to budget for."
+    }
+   ],
+   "absenceTerms": [
+    "pretranslat",
+    "termbase",
+    "i18next",
+    "next-intl",
+    "machine translation"
+   ]
+  },
+  {
+   "context": "Org Overview & Standing",
+   "subject": "translation-quality-measurement",
+   "bundle": "localization",
+   "state": "not-applicable",
+   "evidence": "src/lib/db/personal.ts:1 This module reads personal-workspace scan histories and backlog over the public corpus. A search of src/lib, src/app and src/components found none of the subject's terms, so there are no machine pretranslations or reviewer corrections to measure.",
+   "techniques": [
+    {
+     "technique": "engine-quality-from-reviewer-corrections",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/personal.ts:1 There is no pretranslation approve/correct flow. The backlog holds engineering recommendations."
+    },
+    {
+     "technique": "context-sufficiency-signals",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/personal.ts:1 There are no source strings being sent for translation."
+    }
+   ],
+   "absenceTerms": [
+    "pretranslat",
+    "termbase",
+    "i18next",
+    "next-intl",
+    "machine translation"
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-24T03:03:39.563010+00:00",
+   "bundle": "localization",
+   "subjects": [
+    "translation-quality-measurement"
+   ],
+   "techniques": [
+    "deterministic-checks-before-estimates",
+    "reference-free-quality-estimation"
+   ],
+   "deviations": 0,
+   "context": "Maturity Model & Scoring Engine",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-10-24T03:03:39.563010+00:00",
+   "bundle": "localization",
+   "subjects": [
+    "translation-quality-measurement"
+   ],
+   "techniques": [
+    "error-typology-over-a-single-score",
+    "per-pair-engine-selection"
+   ],
+   "deviations": 0,
+   "context": "Score Charts & Visuals",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-10-24T03:03:39.563010+00:00",
+   "bundle": "localization",
+   "subjects": [
+    "translation-quality-measurement"
+   ],
+   "techniques": [
+    "human-review-sampling-under-a-budget",
+    "language-scoped-check-exemptions"
+   ],
+   "deviations": 0,
+   "context": "Repositories & Segments",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-10-24T03:03:39.563010+00:00",
+   "bundle": "localization",
+   "subjects": [
+    "translation-quality-measurement"
+   ],
+   "techniques": [
+    "cost-and-licence-of-measurement",
+    "regression-detection-under-a-moving-engine"
+   ],
+   "deviations": 0,
+   "context": "Repo Report Shell & Tabs",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-10-24T03:03:39.563010+00:00",
+   "bundle": "localization",
+   "subjects": [
+    "translation-quality-measurement"
+   ],
+   "techniques": [
+    "context-sufficiency-signals",
+    "engine-quality-from-reviewer-corrections"
+   ],
+   "deviations": 0,
+   "context": "Org Overview & Standing",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

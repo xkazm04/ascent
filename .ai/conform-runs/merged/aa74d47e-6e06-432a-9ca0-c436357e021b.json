@@ -1,0 +1,134 @@
+{
+ "schema": "conform-run/1",
+ "worker": "aa74d47e-6e06-432a-9ca0-c436357e021b",
+ "subject": "quality-gates",
+ "evaluatedAt": "2026-10-24T00:36:47.786235+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "CI Gate & Status Checks",
+   "subject": "quality-gates",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/db/org-gate.ts:23 A stored gate policy that cannot be parsed turns into null, so both the public gate route and the App check run use the weaker archetype default instead of refusing to give a verdict; the route's own 503 fail-closed path (it assumes null only ever means unset) never fires, and org-gate.test.ts:78 locks this behaviour in.",
+   "techniques": [
+    {
+     "technique": "unmeasurable-criteria",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/org-gate.ts:23 The configured bar can't be read because the gate's own instrument is broken. That should REFUSE or fail closed, but it quietly swaps in a weaker default and only logs. The rest of the technique is followed well: non-finite scores fail closed, skips are named, and an explicitly requested unmeasured bar returns 503."
+    },
+    {
+     "technique": "severity-by-construction",
+     "verdict": "conformant",
+     "evidence": "src/app/api/gate/[owner]/[repo]/route.ts:2 Each verdict maps to its own exit status, so `curl --fail` actually trips on a fail or a could-not-run."
+    },
+    {
+     "technique": "vacuous-by-evaluation",
+     "verdict": "conformant",
+     "evidence": "src/lib/scoring/gate.ts:424 A floor that can never fail is dropped instead of being kept as a bar that looks configured."
+    },
+    {
+     "technique": "gate-liveness",
+     "verdict": "conformant",
+     "evidence": "src/lib/scoring/gate.ts:119 'Measured nothing' is derived from the data, not only read from a flag, and gate.ts:763 turns it into a failure rather than a green."
+    },
+    {
+     "technique": "policy-projection",
+     "verdict": "conformant",
+     "evidence": "src/lib/scoring/gate-comment.ts:260 The PR footer is a map over the one shared enumeration, and skipped conditions are marked as not measured."
+    },
+    {
+     "technique": "enforcement-binding",
+     "verdict": "conformant",
+     "evidence": "src/lib/scoring/gate-comment.ts:46 The skip asymmetry is handled: an unscored PR posts failure, not neutral. Line 135 keeps the check name stable because branch-protection lists match it by exact name."
+    },
+    {
+     "technique": "refusal-names-a-reachable-remedy",
+     "verdict": "conformant",
+     "evidence": "src/app/api/gate/[owner]/[repo]/route.ts:406 The refusal names both a remedy the caller can act on and the surface that does enforce the bar."
+    }
+   ]
+  },
+  {
+   "context": "Local Autopilot & Loop Engine",
+   "subject": "quality-gates",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/local/lane-gate-repair.ts:40 The gate-repair turn resumes the same agent and tells it to edit the gate's own scripts and config until they pass, and the only thing stopping it from weakening them is an instruction; so a later green, even after the gate-diff re-judge, comes from a check written and fitted by the fixer, not from an oracle frozen before the fix.",
+   "techniques": [
+    {
+     "technique": "oracle-frozen-during-repair",
+     "verdict": "deviation",
+     "evidence": "src/lib/local/lane-gate-repair.ts:40 The freeze is only an instruction, and the fixer is invited to write to the oracle. The integrity guard (lane-gate-diff.ts:10) is the weaker review-time form, and for an added bootstrap gate it clears edits the lane itself made."
+    },
+    {
+     "technique": "gate-liveness",
+     "verdict": "conformant",
+     "evidence": "src/lib/local/lane-gate-diff.ts:27 An added test is cleared only after its text has been read for run short-circuits, so it can't produce a 'green with nothing run'."
+    },
+    {
+     "technique": "refusal-names-a-reachable-remedy",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/local/autopilot/route.ts:84 The refusal names a remedy the operator can reach inside the product."
+    }
+   ],
+   "registryProposal": "oracle-frozen-during-repair assumes the oracle already exists before the repair. A bootstrap case, where the fixer's own lane created the gate and the repair is about that new gate, isn't covered: the technique should say whether a self-authored first gate can ever be repaired in-task, or always needs a separate task."
+  }
+ ],
+ "declined": [
+  {
+   "subject": "quality-gates",
+   "context": "Athena Companion",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "quality-gates",
+   "context": "AI Registry Repo (Onboarding & Index)",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "quality-gates",
+   "context": "Scan Pipeline & Ingestion",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-10-24T00:36:47.786235+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "quality-gates"
+   ],
+   "techniques": [
+    "enforcement-binding",
+    "gate-liveness",
+    "policy-projection",
+    "refusal-names-a-reachable-remedy",
+    "severity-by-construction",
+    "unmeasurable-criteria",
+    "vacuous-by-evaluation"
+   ],
+   "deviations": 1,
+   "context": "CI Gate & Status Checks",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-10-24T00:36:47.786235+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "quality-gates"
+   ],
+   "techniques": [
+    "gate-liveness",
+    "oracle-frozen-during-repair",
+    "refusal-names-a-reachable-remedy"
+   ],
+   "deviations": 1,
+   "context": "Local Autopilot & Loop Engine",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

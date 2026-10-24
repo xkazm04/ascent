@@ -1,0 +1,17 @@
+{
+ "schema": "conform-run/1",
+ "worker": "dce93351-3af4-4ce7-82bb-fb68a7a4e24f",
+ "subject": "usage-event-ingestion",
+ "evaluatedAt": "2026-10-19T21:05:56.290518+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [],
+ "declined": [
+  {
+   "subject": "usage-event-ingestion",
+   "context": "Usage Metering",
+   "reason": "absence contradicted: src/lib/db/agent-sessions.temporality.test.ts:8 contains 'aggregationTemporality' (3 hit(s) in the context's directories)"
+  }
+ ],
+ "consults": []
+}

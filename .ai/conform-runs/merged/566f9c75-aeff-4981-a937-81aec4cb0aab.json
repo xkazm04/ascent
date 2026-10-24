@@ -1,0 +1,93 @@
+{
+ "schema": "conform-run/1",
+ "worker": "566f9c75-aeff-4981-a937-81aec4cb0aab",
+ "subject": "codebase-scanning",
+ "evaluatedAt": "2026-10-24T03:58:44.593881+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "LLM Provider Abstraction",
+   "subject": "codebase-scanning",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/llm/provider.ts:311 validateAssessment drops a malformed model claim (unknown facet, a dimension that is not scored, missing path or quote) with a bare `continue` and never counts it. The same happens to roadmap entries and discrepancies, so a reply where most claims cite rules that don't exist looks like a quiet, smaller reply instead of a degraded one, which llm-assisted-scanning names as its failure.",
+   "techniques": [
+    {
+     "technique": "llm-assisted-scanning",
+     "verdict": "deviation",
+     "evidence": "src/lib/llm/provider.ts:311 The technique says malformed lines are counted and reported, and a finding that cites a rule missing from the shipped ruleset counts as malformed. Here such claims are dropped silently, and grep found no dropped or malformed counter anywhere in src/lib/llm. The parts that conform: ProviderParseError on total failure (json.ts:159), closed-vocabulary clamping to a conservative default (provider.ts:153), and claims passed on as candidates for the engine to verify."
+    },
+    {
+     "technique": "sensor-pipeline",
+     "verdict": "conformant",
+     "evidence": "src/lib/llm/json.ts:159 When no JSON can be recovered, the parser throws a typed error with a snippet. That surfaces as a failed sensor that scan.ts degrades with accounting, not as an empty assessment."
+    },
+    {
+     "technique": "verify-after-generate",
+     "verdict": "conformant",
+     "evidence": "src/lib/llm/provider.ts:387 Before a model-generated assessment is trusted, it is checked against a coverage invariant (at least 50% of the requested dimensions, counting only finite numeric scores). A reply that parses but says nothing is treated as a model failure, not shown as a score."
+    }
+   ]
+  },
+  {
+   "context": "Org Memory",
+   "subject": "codebase-scanning",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/app/api/org/memory/check/route.ts:4 These files are a CRUD, recall, check and reflect surface over the org's stored memories, not a scanner of a codebase. A case-insensitive grep of src/app/api/org/memory, src/app/org/[slug]/memory and src/features/shared/memory for detector, sensor, deadCode and ruleset returned nothing. 'finding' appears only in UI copy describing memory kinds, so the subject's precondition (detecting defects in a code tree) does not hold.",
+   "techniques": [
+    {
+     "technique": "llm-assisted-scanning",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/org/memory/reflect/route.ts:13 Echoes the 'unavailable is not empty' discipline (llmUnavailable vs clusterCount 0, comparedCount), but the model judges memory text, not code."
+    }
+   ],
+   "absenceTerms": [
+    "detector",
+    "sensor",
+    "deadCode",
+    "ruleset"
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "codebase-scanning",
+   "context": "Org Import, Scan & Watchlist",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-10-24T03:58:44.593881+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "codebase-scanning"
+   ],
+   "techniques": [
+    "llm-assisted-scanning",
+    "sensor-pipeline",
+    "verify-after-generate"
+   ],
+   "deviations": 1,
+   "context": "LLM Provider Abstraction",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-10-24T03:58:44.593881+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "codebase-scanning"
+   ],
+   "techniques": [
+    "llm-assisted-scanning"
+   ],
+   "deviations": 0,
+   "context": "Org Memory",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

@@ -1,0 +1,71 @@
+{
+ "schema": "conform-run/1",
+ "worker": "8f184be6-be2b-4047-9fa8-f646952ffd15",
+ "subject": "trust-base",
+ "evaluatedAt": "2026-10-21T22:31:50.476471+00:00",
+ "provider": "codex",
+ "model": "gpt-6.1-sol",
+ "pairs": [
+  {
+   "context": "Members & Access Control",
+   "subject": "trust-base",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/org/invites/accept/route.ts:49 The accept route asserts a shape on an unchecked JSON result without validation through unknown, and the configured lint does not inventory this unsafe flow.",
+   "techniques": [
+    {
+     "technique": "assumptions-are-build-errors",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/members.ts:234 The membership invariant uses an explicit database isolation setting; no proof or type-level argument assuming platform width, endianness, or another environmental fact was identified."
+    },
+    {
+     "technique": "census-counts-unmarked-members",
+     "verdict": "deviation",
+     "evidence": "src/app/api/org/members/route.ts:58 Unchecked decoder results occur here and in both invite POST handlers; their asserted shapes bypass validation through unknown, and the resolved ESLint configuration enables none of the five unsafe-flow rules required for this census."
+    },
+    {
+     "technique": "leaf-spec-states-what-callers-read",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/members.ts:29 The explicit type predicate checks the complete OrgRole vocabulary; it has no deliberately weaker contract or omitted result property of the kind this technique addresses."
+    },
+    {
+     "technique": "marker-impl-names-its-exclusion",
+     "verdict": "not-applicable",
+     "evidence": "src/components/OrgSwitcher.tsx:38 The switcher uses browser event callbacks; inspection and searches found no manual thread-transfer or shared-access assertion in the supplied context."
+    },
+    {
+     "technique": "trusted-leaf-gets-an-outside-test",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/org/invites/accept/route.public.test.ts:74 This is an ordinary executable regression test of the real accept implementation; no body marked trusted for downstream proofs was identified in the context."
+    },
+    {
+     "technique": "verifier-footprint-stays-contained",
+     "verdict": "not-applicable",
+     "evidence": "package.json:4 The package is a private application, matching the technique's unpublished-application exception, and its manifest declares no prover or specification tooling."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-21T22:31:50.476471+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "trust-base"
+   ],
+   "techniques": [
+    "assumptions-are-build-errors",
+    "census-counts-unmarked-members",
+    "leaf-spec-states-what-callers-read",
+    "marker-impl-names-its-exclusion",
+    "trusted-leaf-gets-an-outside-test",
+    "verifier-footprint-stays-contained"
+   ],
+   "deviations": 1,
+   "context": "Members & Access Control",
+   "via": "curator-multi:codex",
+   "model": "gpt-6.1-sol"
+  }
+ ]
+}

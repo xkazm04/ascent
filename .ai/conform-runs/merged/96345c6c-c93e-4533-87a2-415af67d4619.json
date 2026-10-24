@@ -1,0 +1,113 @@
+{
+ "schema": "conform-run/1",
+ "worker": "96345c6c-c93e-4533-87a2-415af67d4619",
+ "subject": "concurrent-vcs",
+ "evaluatedAt": "2026-10-24T04:30:29.752386+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "AI Registry Repo (Onboarding & Index)",
+   "subject": "concurrent-vcs",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/org/registry-view.ts:280 This context's only contact with version control is this fire-and-forget refresh, and its callee (src/lib/registry/local-registry.ts) only runs read-only `git rev-parse HEAD` / `ls-tree HEAD` on the paired registry checkout. Nothing in the context stages, commits, stashes, rebases or creates worktrees, so the subject's precondition (sessions editing and committing in a shared checkout) does not hold here. A ripgrep of src/lib/org and src/features/shared/registry found no read-tree, git stash or GIT_INDEX_FILE.",
+   "techniques": [],
+   "absenceTerms": [
+    "read-tree",
+    "git stash",
+    "GIT_INDEX_FILE"
+   ]
+  },
+  {
+   "context": "Checkout & Plans (Polar)",
+   "subject": "concurrent-vcs",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/app/api/billing/webhook/route.ts:5 The concurrency this context handles is webhook redelivery, made idempotent on the Polar order id; it performs no VCS operation at all. A ripgrep of src/app/api/billing, src/app/api/org/plan, src/app/pricing, src/features/admin/settings and src/lib found no read-tree, git stash or update-index, so the shared-checkout commit techniques have no surface here.",
+   "techniques": [],
+   "absenceTerms": [
+    "read-tree",
+    "git stash",
+    "update-index"
+   ]
+  },
+  {
+   "context": "Org Import, Scan & Watchlist",
+   "subject": "concurrent-vcs",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/app/api/org/import/route.ts:33 The \"claim\" in this context is a database ScanJob row that dedups concurrent scans of one repo, not a session's claim on paths in a shared git checkout. The routes scan via the GitHub API and persist to the DB; they never stage, commit, stash or create worktrees. A ripgrep of the import/repos/scan/watch/schedule/active/cron-rescan route dirs and src/lib/db found no read-tree, git stash or GIT_INDEX_FILE.",
+   "techniques": [],
+   "absenceTerms": [
+    "read-tree",
+    "git stash",
+    "GIT_INDEX_FILE"
+   ]
+  },
+  {
+   "context": "GitHub OAuth & Session",
+   "subject": "concurrent-vcs",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/db/sessions.ts:2 \"Session\" here means a signed login cookie with a revocation version, not a working session in a shared checkout. The OAuth and session code performs no VCS operations. A ripgrep of src/app/api/auth, src/app/auth, src/lib/supabase, src/lib/db and src/lib found no read-tree, git stash or update-index.",
+   "techniques": [],
+   "absenceTerms": [
+    "read-tree",
+    "git stash",
+    "update-index"
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-24T04:30:29.752386+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "concurrent-vcs"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "AI Registry Repo (Onboarding & Index)",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-10-24T04:30:29.752386+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "concurrent-vcs"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Checkout & Plans (Polar)",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-10-24T04:30:29.752386+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "concurrent-vcs"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Org Import, Scan & Watchlist",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-10-24T04:30:29.752386+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "concurrent-vcs"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "GitHub OAuth & Session",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
