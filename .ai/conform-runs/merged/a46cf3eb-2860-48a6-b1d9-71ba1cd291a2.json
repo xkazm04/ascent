@@ -1,0 +1,38 @@
+{
+  "schema": "conform-run/1",
+  "worker": "a46cf3eb-2860-48a6-b1d9-71ba1cd291a2",
+  "subject": "usage-pricing-models",
+  "evaluatedAt": "2026-10-24T23:28:10.486334+00:00",
+  "provider": "claude",
+  "model": "claude-opus-5-5",
+  "pairs": [],
+  "declined": [
+    {
+      "subject": "usage-pricing-models",
+      "context": "Checkout & Plans (Polar)",
+      "reason": "conformant with fewer than two techniques shown realized"
+    },
+    {
+      "subject": "usage-pricing-models",
+      "context": "Usage Metering",
+      "reason": "withdrawn after review: reviewer (sonnet): The anchor at usage.ts:150 documents the payer-side LLM cost estimate. It doesn't show that no seller-side usage pricing is present, because the same file and context meter the seller's billable unit. usage.ts:1-3 says pricing is usage-based per private scan, usage.ts:133 defines `privateScans` as t"
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-10-24T23:28:10.486334+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "usage-pricing-models"
+      ],
+      "techniques": [
+        "exact-money-with-one-rounding-boundary",
+        "grouping-key-reruns-the-ladder"
+      ],
+      "deviations": 0,
+      "context": "Usage Metering",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    }
+  ]
+}
