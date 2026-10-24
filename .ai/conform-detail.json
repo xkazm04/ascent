@@ -7496,6 +7496,48 @@
       "evaluatedTs": "2026-10-24T22:28:10.235Z",
       "worker": "dd51ca5f-248e-4a31-a0eb-a76fa720251b",
       "techniques": []
+    },
+    "Org Scanning & Fleet Rollups/Org Import, Scan & Watchlist/runner-fleet": {
+      "context": "Org Import, Scan & Watchlist",
+      "subject": "runner-fleet",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T22:59:18.845Z",
+      "worker": "115a45aa-f713-429d-9262-53059dfd6638",
+      "techniques": [
+        {
+          "technique": "queue-depth-elasticity",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/cron/rescan/route.ts:120 The queue depth read here belongs to the app's ScanJob table and is reported as a remainder. It does not drive the size of any runner fleet, so the technique's precondition (elastic runner capacity) does not hold."
+        },
+        {
+          "technique": "shared-resource-serialization",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/import/route.ts:503 This is a per-repo lease claim at the application level, which is concurrency-guards/job-coordination territory. It is not a delivery-system exclusion over deploys or migrations."
+        },
+        {
+          "technique": "capability-typed-queues",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/import/route.ts:516 One in-process drain with a fixed concurrency. It has no runner types and no capability matching."
+        }
+      ]
+    },
+    "Org Dashboard & Analytics/Repositories & Segments/runner-fleet": {
+      "context": "Repositories & Segments",
+      "subject": "runner-fleet",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T22:59:18.845Z",
+      "worker": "115a45aa-f713-429d-9262-53059dfd6638",
+      "techniques": [
+        {
+          "technique": "shared-resource-serialization",
+          "verdict": "not-applicable",
+          "evidence": "src/features/standing/repositories/useRepoSegmentsPanel.ts:124 The only concurrency here is a client-state update between UI edits, not a serialized delivery lane."
+        }
+      ]
     }
   }
 }

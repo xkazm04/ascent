@@ -3639,7 +3639,11 @@
           "revision": 2,
           "changedAt": "2026-08-31",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/cron/rescan/route.ts:3 These routes run scan work as an application-level durable ScanJob queue, drained inside a Vercel serverless invocation with a fixed SCAN_CONCURRENCY. They do not provision, type, scale or isolate CI runners. The golden path hands application concurrency and job coordination to concurrency-guards and job-coordination. A search of the context's directories for runs-on, actions-runner, autoscal and hashFiles found nothing. The words 'queue', 'fleet' and 'runner' do appear, but they name the scan queue, the repo fleet and the standing-runner drive rows.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:8119510164547576",
+          "evaluatedRevision": 3
         },
         {
           "subject": "codebase-scanning",
@@ -4117,7 +4121,11 @@
           "revision": 2,
           "changedAt": "2026-08-31",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/db/segments.ts:2 This context is CRUD for org-scoped repo segment tags: db functions, API routes, a client hook and a selector. It executes no delivery work and has no runners, pools, build caches or deploy lanes. A search of its directories for runs-on, actions-runner, autoscal and hashFiles found nothing. The 'fleet' in segments.ts means the org's set of repositories, and 'concurrent' means concurrent UI edits.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:8119510164547576",
+          "evaluatedRevision": 3
         },
         {
           "subject": "modal-stack",
