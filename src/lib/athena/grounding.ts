@@ -47,6 +47,7 @@
 // NOT fenced, because ascent authored it.
 
 import type { AthenaTool, ToolCall } from "@/lib/llm/leg";
+import type { SkillTokenScope } from "@/lib/db";
 import { MCP_TOOLS, type McpToolDef } from "@/lib/mcp/tools";
 import { toolResultText, type RunToolOptions, type ToolResult } from "@/lib/mcp/handlers";
 import { MCP_TOOL_BINDINGS } from "@/lib/mcp/tool-registry";
@@ -129,6 +130,10 @@ const DEFAULT_REGISTRY: AthenaToolRegistry = { tools: MCP_TOOLS, bindings: MCP_T
  * but it reads only rows a named holder holds and this runner has no principal to be one, so every
  * call would be a refusal. A name with no binding at all is withheld too (dispatch would answer
  * "Unknown tool"), which is the fail-closed reading of a registry that drifted.
+ *
+ * Two admissions apply together and either one refuses: the scope GRANT below (`ATHENA_SCOPES`, the
+ * MCP door's own rule - a tool needs every scope it declares) and the binding rule above. A door may
+ * subtract from the shared admission and never widen it, so the result is their intersection.
  */
 export function athenaToolCatalog(opts: {
   memoryAllowed: boolean;
@@ -137,12 +142,33 @@ export function athenaToolCatalog(opts: {
 }): AthenaTool[] {
   const open = { memory: opts.memoryAllowed, skills: Boolean(opts.skillsAllowed) };
   const { tools, bindings } = opts.registry ?? DEFAULT_REGISTRY;
+  const held = new Set<SkillTokenScope>(ATHENA_SCOPES);
   return tools
+    .filter((t) => t.scopes.every((s) => held.has(s)))
     .filter((t) => !t.mutates)
     .filter((t) => Object.prototype.hasOwnProperty.call(bindings, t.name) && bindings[t.name]?.holder === false)
     .filter((t) => !t.planGate || open[t.planGate])
     .map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));
 }
+
+/**
+ * WHAT SHE MAY REACH, stated as a GRANT and not as a list of exclusions. Athena is admitted to the
+ * catalog by the MCP door's own admission (`admitTools`), holding these scopes: the door, and the two
+ * read resources. Everything else follows from the catalog's own markers, with no list kept here:
+ *
+ *   • no WRITE tool — every one needs `telemetry:write` (asserted in write-gate.test.ts), which she
+ *     does not hold;
+ *   • no WORK-QUEUE tool — `get_fix_brief` reads, but only rows a named holder holds, and this runner
+ *     has no principal to be one; `followups:write` is the catalog's marker for "needs a holder", and
+ *     she does not hold it either;
+ *   • no FUTURE scoped read — a tool a later lane puts behind a new resource scope is not hers until
+ *     that scope is written here, exactly as it is not a token's until an operator grants it.
+ *
+ * This used to be the reverse: the whole catalog minus `mutates`, minus `followups:write`. That held
+ * for every tool that existed and admitted every tool that did not — a read behind a scope no token
+ * of hers carries would have been offered to any member who can read the org.
+ */
+export const ATHENA_SCOPES: readonly SkillTokenScope[] = ["mcp:read", "memory:read", "skills:read"];
 
 /** The catalog by name, built once: `execute` asks it per call instead of re-scanning the list. */
 const TOOL_BY_NAME: ReadonlyMap<string, McpToolDef> = new Map(MCP_TOOLS.map((t) => [t.name, t]));
