@@ -2720,44 +2720,47 @@
       "context": "Repo Report Shell & Tabs",
       "subject": "browser-credential-boundary",
       "bundle": "software-engineering",
-      "state": "deviation",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T12:43:57.977Z",
+      "state": "conformant",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T05:36:54.040Z",
+      "worker": "6aeacfd2-bf5e-49c9-aa40-6fc74d148091",
       "techniques": [
         {
-          "technique": "aggregate-view-not-base-table",
-          "verdict": "not-applicable",
-          "evidence": "src/app/report/[owner]/[repo]/page.tsx:56 The report is read server-side; this feature does not give a browser-facing database role access to identifying rows to calculate counts."
-        },
-        {
-          "technique": "allowlisted-operator-stream",
-          "verdict": "not-applicable",
-          "evidence": "src/components/report/ReportClientStatus.tsx:192 The stream drives product progress text, rather than an operator inspector exposing credential-bearing request records."
+          "technique": "opaque-upstream-errors",
+          "verdict": "conformant",
+          "evidence": "src/components/report/useReportScan.ts:421 The client branches on the closed GitHubError code, and the message it renders now comes from fixed sentences. src/lib/github/source.ts:307-313 now logs the raw fetch error with console.warn and throws \"Couldn't reach GitHub. Please try again.\" instead of interpolating String(e). GraphQL error bodies, which graphql.ts:124-143 copies into messages, are caught and set to null at scan-ingest.ts:157-162, so they never reach the stream."
         },
         {
           "technique": "broker-proxy-attaches-secret",
-          "verdict": "deviation",
-          "evidence": "src/lib/github/host.ts:31 The same-origin scan route obtains credentials server-side, but its configured GitHub base passes through envHost without absolute-URL or scheme validation."
+          "verdict": "conformant",
+          "evidence": "src/components/report/useReportScan.ts:273 The browser sends only its intent (url, ref, subPath, fresh) to a same-origin route. The GitHub token or installation token is attached on the server, and the body carries no credential."
         },
         {
           "technique": "default-deny-plus-defaulted-owner",
           "verdict": "not-applicable",
-          "evidence": "src/components/report/useReportScan.ts:262 The browser calls an application route; it does not write owned rows directly through a database role."
+          "evidence": "src/app/report/[owner]/[repo]/page.tsx:259 Read access is decided in app code on the server (canReadOrg), not by store row policies that a browser-held key reaches. This is the technique's 'your code is the only client' exclusion."
         },
         {
           "technique": "omit-the-column-not-the-value",
           "verdict": "not-applicable",
-          "evidence": "src/app/report/[owner]/[repo]/page.tsx:185 The server supplies a report projection as props; this context does not design a table readable through a public database grant."
+          "evidence": "src/app/report/[owner]/[repo]/page.tsx:49 Scan rows are read by a server component through @/lib/db. No public role can compose its own query against the table, so this context has no regime-one table shape to judge."
         },
         {
-          "technique": "opaque-upstream-errors",
-          "verdict": "deviation",
-          "evidence": "src/components/report/useReportScan.ts:402 GitHub REST failures interpolate res.status into their messages at src/lib/github/source.ts:341; src/app/api/scan/stream/route.ts:321 forwards those messages and this consumer displays them without a closed error mapping."
+          "technique": "aggregate-view-not-base-table",
+          "verdict": "not-applicable",
+          "evidence": "src/app/report/[owner]/[repo]/opengraph-image.tsx:34 The share card reads on the server under a resolved readable org. The browser has no grant on a base table, so no aggregate view is needed."
+        },
+        {
+          "technique": "allowlisted-operator-stream",
+          "verdict": "not-applicable",
+          "evidence": "src/components/report/ReportClientStatus.tsx:192 The stream drives product progress text, rather than an operator inspector exposing credential-bearing request records.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "outbound-fetch-destination-validation",
           "verdict": "deviation",
-          "evidence": "src/lib/github/host.ts:103 The report scanner's ghFetch supplies no redirect policy, so fetch automatically follows upstream redirects without validating each new destination or binding an approved address to the connection."
+          "evidence": "src/lib/github/host.ts:103 The report scanner's ghFetch supplies no redirect policy, so fetch automatically follows upstream redirects without validating each new destination or binding an approved address to the connection.",
+          "carriedFrom": "2026-10-13"
         }
       ],
       "superseded": [
@@ -2768,13 +2771,7 @@
           "worker": null,
           "reason": "replaced by 00de936c-9e69-450e-8a18-7a6e03f71d45"
         }
-      ],
-      "withdrawn": {
-        "worker": "00de936c-9e69-450e-8a18-7a6e03f71d45",
-        "state": "deviation",
-        "at": "2026-10-13T12:46:14.694335+00:00",
-        "reason": "reviewer (sonnet): The anchor src/lib/github/host.ts is not one of this context's files. It only trims operator-set env vars (GITHUB_API_URL and similar), so the claim that this validation gap is a browser-credential-boundary deviation for the report shell is about a shared library, not this context's code. I did not "
-      }
+      ]
     },
     "Billing, Credits & Metering/Credits & Entitlements/plan-entitlements": {
       "context": "Credits & Entitlements",

@@ -8246,10 +8246,11 @@
           "revision": 3,
           "changedAt": "2026-09-03",
           "confidence": "probable",
-          "state": "deviation",
-          "evidence": "github/source.ts:375-377 interpolates raw String(e) into a GitHubError relayed verbatim (stream/route.ts:367 -> useReportScan.ts:292); on a GHES base a malformed URL publishes the internal API host.",
-          "evaluatedAt": "2026-08-23",
-          "stale": true
+          "state": "conformant",
+          "evidence": "src/components/report/useReportScan.ts:421 The report client renders only the server's own error sentence and branches on its closed code (NOT_FOUND), and the GitHub-side network error that used to put the internal GHES host into that sentence is now logged on the server and replaced with a fixed message, so the earlier deviation is fixed.",
+          "evaluatedAt": "2026-10-24",
+          "evaluatedAgainst": "sha256-b2:d3eef10e9ed8459f",
+          "evaluatedRevision": 3
         },
         {
           "subject": "eval-harness",
