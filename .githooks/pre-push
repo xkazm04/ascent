@@ -1,7 +1,7 @@
 #!/bin/sh
 # Delivery-contract gate (docs/DEPLOY.md "Delivery contract").
-# A push to master IS the release: Vercel's Git integration builds and ships it regardless of CI's
-# verdict, so the blocking gate has to run BEFORE the push leaves this machine. This hook runs
+# Ascent runs locally only (the Vercel deployment was retired 2026-10-24), so a push to master no longer
+# ships anything. The gate still runs BEFORE the push leaves this machine, so master stays green. This hook runs
 # `npm run verify` (lint, typecheck, tests+coverage, build — CI's blocking set; keep the two in
 # lockstep, see .github/workflows/ci.yml) before any push that updates refs/heads/master. Other
 # branches push freely; CI covers them.
@@ -22,7 +22,7 @@ if [ "$ASCENT_SKIP_GATE" = "1" ]; then
   echo "=====================================================================" >&2
   echo "pre-push: ASCENT_SKIP_GATE=1 — the master gate is being SKIPPED." >&2
   echo "pre-push: npm run verify (lint, typecheck, tests+coverage, build) was" >&2
-  echo "pre-push: NOT run. Vercel will ship this push regardless of CI." >&2
+  echo "pre-push: NOT run. CI is the only remaining check on this push." >&2
   echo "pre-push: RECORD THE REASON (commit message or docs/DEPLOY.md) NOW." >&2
   echo "=====================================================================" >&2
   exit 0
@@ -49,7 +49,7 @@ fi
 echo "pre-push: push targets master — running the gate: npm run verify (lint, typecheck, tests+coverage, build)..." >&2
 
 npm run verify || {
-  echo "pre-push: verify failed — push to master blocked (Vercel would have shipped it anyway)." >&2
+  echo "pre-push: verify failed — push to master blocked (master must stay green)." >&2
   echo "pre-push: fix the failure, or in a genuine emergency: ASCENT_SKIP_GATE=1 git push (record why)." >&2
   exit 1
 }

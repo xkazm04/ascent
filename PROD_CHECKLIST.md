@@ -1,5 +1,8 @@
 # Production Checklist: milestone of record
 
+> **Note 2026-10-24:** the hosted Vercel deployment this checklist targeted is retired; Ascent runs
+> locally only (see [`docs/DEPLOY.md`](docs/DEPLOY.md)). Items below are the historical record.
+
 | | |
 |---|---|
 | **Milestone** | First market release |

@@ -1,13 +1,22 @@
 # Deploying Ascent Cloud (Vercel)
 
+> **Retired 2026-10-24.** Ascent operates locally only; the hosted Vercel deployment is retired.
+> A push to `master` no longer deploys anything. [`vercel.json`](../vercel.json) sets
+> `git.deploymentEnabled: false` and an `ignoreCommand` that exits 0, so Vercel skips every build
+> even while the project's Git integration is still connected. Disconnecting that integration (Vercel
+> dashboard, Project, Settings, Git, Disconnect) is an owner action and is what stops Vercel from
+> attempting a deployment at all. The rest of this page is kept as the runbook for the retired
+> hosted setup, and for anyone who re-enables it (remove those two keys first). To run Ascent
+> yourself, use [`SELF-HOSTING.md`](./SELF-HOSTING.md).
+
 This page is the operator's runbook for the **hosted** deployment. Self-hosting is a different
 document: [`SELF-HOSTING.md`](./SELF-HOSTING.md) (Docker image, plain `npm start`, cron, upgrades).
 The two run the same code and compute the same scores; what differs is who operates it.
 
 ## Delivery contract
 
-Direct-push-to-master **is** the delivery topology: the push is the release act. There is no PR
-queue or merge gate in front of production, so the full blocking gate is `npm run verify`
+(Historical, while the hosted deployment was live.) Direct-push-to-master was the delivery topology:
+the push was the release act. There is no PR queue or merge gate, so the full blocking gate is `npm run verify`
 (lint → typecheck → tests+coverage → build), enforced **before** the push by
 [`.githooks/pre-push`](../.githooks/pre-push) on any push updating `refs/heads/master`
 (wired via `core.hooksPath`, set by the `prepare` script on `npm install`). On Windows the hook
@@ -18,7 +27,7 @@ exec `C:/nvm4w/nodejs/npm`. The escape hatch is
 or a note here). A red `master` is an **outage**: fix it before the next feature. After every
 master push, run `gh run watch --exit-status` and follow CI to its verdict.
 
-**The race.** Vercel's Git integration builds and ships every push to `master` **regardless of
+**The race (historical).** Vercel's Git integration built and ships every push to `master` **regardless of
 CI's verdict** — CI is a scoreboard, not a gate. The compensation is the pre-push gate above: the
 gate moves ahead of the push, so the only thing Vercel can ship is a commit that already passed
 CI's blocking set locally. Keep local `verify` equal to CI's blocking set whenever either changes
@@ -77,8 +86,9 @@ The hosted deployment targets **Vercel**:
 
 ## Deploy & rollback
 
-- **Deploys:** the Vercel Git integration owns deploys: every push to `master` builds and promotes
-  to production. There is no manual deploy step.
+- **Deploys:** none. Retired 2026-10-24: `vercel.json` disables Git deployments and skips builds, so a
+  push to `master` does not deploy. Before retirement the Vercel Git integration built and promoted
+  every push to `master`.
 - **Canonical prod host:** `https://ascent-red.vercel.app` (also the value of `ASCENT_PUBLIC_URL`).
 - **Migrations run at build time:** [`vercel.json`](../vercel.json) sets
   `"buildCommand": "npm run db:deploy && npm run build"`, so committed Prisma migrations
@@ -87,8 +97,9 @@ The hosted deployment targets **Vercel**:
 - **Rollback:** Vercel dashboard → project → **Deployments** → pick the previous good deployment →
   **Promote to Production** (instant, no rebuild). CLI equivalent: `vercel rollback`. Note:
   rollback restores the code, not the database, since migrations are forward-only.
-- **Post-deploy smoke:** [`.github/workflows/smoke.yml`](../.github/workflows/smoke.yml) runs the
-  `@smoke`-tagged Playwright specs against the deployed host after each production deploy.
+- **Smoke:** [`.github/workflows/smoke.yml`](../.github/workflows/smoke.yml) runs the `@smoke`-tagged
+  Playwright specs against a URL you give it, by hand (`workflow_dispatch`). It no longer fires on
+  deployments.
 - **Required prod env:** `ASCENT_PUBLIC_URL` plus the variables documented in
   [`.env.example`](../.env.example) (LLM provider + keys, `DATABASE_URL`, GitHub App set, OAuth
   `AUTH_SECRET`, Supabase pair, `CRON_SECRET`). Set them in the Vercel project; never commit values.

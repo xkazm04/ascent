@@ -1,5 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": false
+  },
+  "ignoreCommand": "exit 0",
   "buildCommand": "npm run db:deploy && npm run build",
   "crons": [
     {
