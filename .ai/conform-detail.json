@@ -4460,60 +4460,62 @@
       "subject": "rate-limiting",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-15",
-      "evaluatedTs": "2026-10-15T04:33:09.679Z",
+      "evaluatedAt": "2026-10-24",
+      "evaluatedTs": "2026-10-24T06:35:50.118Z",
+      "worker": "43fd76b0-2928-49ea-bd22-88c1542fa575",
       "techniques": [
         {
           "technique": "algorithm-selection",
           "verdict": "conformant",
-          "evidence": "src/lib/rate-limit-window.ts:162 Sliding window checks the cap before recording so refused attempts consume no allowance, and computes retry-after directly from the oldest in-window timestamp."
+          "evidence": "src/lib/public-scan-quota.ts:200 Both limiters are sliding-window logs and record only admitted hits. A denied monthly decision returns the trimmed window without `now`, and the burst window does the same (QUOTA #2 in rate-limit-window.ts checkWindow). The 30-day budget is durable (Prisma) because the in-memory window would reset on restart. Minor gap: elapsed-time math uses Date.now() (wall clock), not a monotonic source."
         },
         {
           "technique": "key-design",
           "verdict": "conformant",
-          "evidence": "src/lib/public-scan-quota.ts:148 Disjoint key namespaces ('ip:' vs 'u:') separate actor boundaries, and the unknown-key policy scales to the horizon by failing open on unidentifiable callers in the monthly quota while burst limits fail closed."
+          "evidence": "src/lib/public-scan-quota.ts:148 bucketContext is the single derivation for consume, peek and refund. Signed-in callers get a per-user key in a separate namespace. The horizon rule is realized: the monthly gate treats the 'unknown' sentinel as unenforceable (fail open), while the burst limiter pools it. MCP is keyed on the verified token id. The in-memory map has a reaper that evicts only fully-aged keys, but no hard size cap."
         },
         {
           "technique": "limit-derivation",
           "verdict": "conformant",
-          "evidence": "src/lib/rate-limit.ts:397 Every limit is deploy-time overridable via env, read-only amplification vectors are explicitly budgeted, and uncomputed limits are honestly labelled as inherited rather than dressed up as derived."
+          "evidence": "src/lib/rate-limit.ts:69 Every config must declare a basis. Each entry has a cost justification, a CLEARS cadence check and an honest 'NOT DERIVED' label, and is env-overridable. There is one budget per operation class. The monthly quota is labelled a friction nudge, not a security control (public-scan-quota.ts:17)."
         },
         {
           "technique": "limit-observability",
           "verdict": "conformant",
-          "evidence": "src/lib/public-scan-quota.ts:324 Provides passive, non-consuming usage snapshots for the client meter, near-limit warnings before refusal, predicate-tagged abuse counters by scope, and observable reaper stats."
+          "evidence": "src/lib/public-scan-quota.ts:341 The /api/quota peek reads without consuming and uses the same windowState arithmetic as decideQuota, so the meter and the refusal speak one truth. QuotaMeter shows standing (with a low-allowance warn state) before the first refusal. Refusal series are named by limiter and layer, and rateLimiterStats exposes reaper metrics. Gaps: no admitted/demand series, and no limit-change event record."
         },
         {
           "technique": "limiter-topology",
-          "verdict": "conformant",
-          "evidence": "src/lib/rate-limit.ts:174 Consumes atomically across layered windows (check per-IP first, charge global, commit per-IP only on admit), names the refusing layer in the scope, and fails closed in front of shared store spend."
+          "verdict": "deviation",
+          "evidence": "src/lib/rate-limit.ts:1 The mechanics are right: one charge pipeline reserves, then commits or releases across layers (QUOTA #1/#3); a shared store fails closed in front of spend; fail-open is an opt-in bound. But the door list is stale. The header names 3 doors, while the limiter now covers gate, mcp, quota, peek, contact, org-repos, branding and ingest. The scan route comment says 'these two are the only routes on the shared scan budget', yet gate/[owner]/[repo]/route.ts:104 also charges SCAN_RATE_LIMIT. The doors are therefore not enumerated."
         },
         {
           "technique": "metered-step-selection",
           "verdict": "conformant",
-          "evidence": "src/lib/public-scan-quota.ts:379 Meters production cost on completion rather than attempt by refunding consumed monthly slots for invalid, aborted, or degraded scans, while unbilled cache probes use their own rate limit."
+          "evidence": "src/lib/public-scan-quota.ts:364 The monthly quota charges the costly step (an LLM-backed scan that actually delivered) and refunds the exact charged slot when nothing chargeable was produced. Cache-hit hydration and peek are kept off the scan budget."
         },
         {
           "technique": "refusal-contract",
           "verdict": "conformant",
-          "evidence": "src/lib/rate-limit.ts:304 Emits standard 429 with computed Retry-After header and machine-readable payload naming the refusing limiter namespace and scope, echoing caller limits while withholding global ceiling headroom."
+          "evidence": "src/lib/rate-limit.ts:93 A refusal names its layer, limiter, limit and window (per-IP only; the global ceiling is withheld on purpose). retry-after is computed from the oldest in-window hit. The could-not-evaluate path is spelled distinctly (rate_limit_unavailable, evaluated:false, breaker-derived retry). Standard 429 + Retry-After are used. Minor: the verdict is a boolean plus optional fields, not a closed union."
         },
         {
           "technique": "storm-hygiene",
-          "verdict": "conformant",
-          "evidence": "src/lib/rate-limit-window.ts:119 Refusal path is hot and O(1) in-memory without per-rejection log flooding, backed by an incremental, pressure-throttled periodic reaper with bounded sweeps and observable metrics."
+          "verdict": "deviation",
+          "evidence": "src/lib/db/quota-events.ts:41 countRefusal in rate-limit-charge.ts calls recordQuotaEvent on every refusal, which is a DB upsert on one hot (kind, scope) row per rejection. That is a remote, per-request-billed write (the repo notes Aurora DSQL bills per request) on the refusal path at storm rate, instead of an in-process counter flushed periodically. The reaper itself is conformant: cadenced, bounded, observable."
         },
         {
           "technique": "unattributable-client-bucketing",
           "verdict": "deviation",
-          "evidence": "src/lib/rate-limit.ts:36 Unidentifiable callers are collapsed into a single shared 'unknown' bucket without coarse fingerprint spreading, locking out legitimate traffic under a shared allowance on unconfigured or self-hosted deploys."
+          "evidence": "src/lib/rate-limit.ts:35 Unattributable callers are pooled into one 'unknown' bucket by default (hops=0 is the unwitnessed default), with no coarse fingerprint spread. A global ceiling exists above it, but only half the spread-then-cap pair ships. The MCP comment (rate-limit.ts:392-394) admits this made every agent share one 60/min budget."
         },
         {
           "technique": "untrusted-key-derivation",
           "verdict": "deviation",
-          "evidence": "src/lib/rate-limit.ts:38 While runtime witness (VERCEL) and depth-aware proxy indexing are implemented, trusted IPs are not canonicalized (no port stripping or IP validation) and clientIp returns a bare string rather than the derivation rung."
+          "evidence": "src/lib/rate-limit.ts:37 Earlier finding resolved: hops now defaults to 0 unless the VERCEL witness is present, the operator opt-in carries a depth, and chains are read from the right. Negative tests exist (rate-limit.test.ts:177). Still missing: the accepted header text becomes a map key after only a trim, with no IP parse, single canonical form or length cap. The rung is not returned with the value. And hops=1 on an operator opt-in also trusts x-real-ip, which the declared proxy may not overwrite."
         }
       ],
+      "registryProposal": "key-design ('pool and refuse at burst horizons') and unattributable-client-bucketing ('never pool by default') give opposite defaults for a burst-window limiter whose default deployment makes ALL traffic unattributable. The standard could state outright that the key-design pooling allowance holds only when unattributable traffic is a small minority.",
       "superseded": [
         {
           "state": "deviation",
@@ -4522,13 +4524,7 @@
           "worker": null,
           "reason": "replaced by a8b9f462-e263-4bae-8dca-9ff21e5ca8f0"
         }
-      ],
-      "withdrawn": {
-        "worker": "a8b9f462-e263-4bae-8dca-9ff21e5ca8f0",
-        "state": "deviation",
-        "at": "2026-10-15T04:33:26.785086+00:00",
-        "reason": "reviewer (sonnet): The pooled 'unknown' bucket is deliberate and documented (rate-limit.ts:31-33, public-scan-quota.ts:138-146): it is the fail-closed burst choice, and the monthly quota explicitly fails open on unidentifiable callers, so the claimed 'accidental' lockout is contradicted and I found no code or standard"
-      }
+      ]
     },
     "Org Planning & Execution/Follow-ups Ledger/remediation-handoff": {
       "context": "Follow-ups Ledger",
