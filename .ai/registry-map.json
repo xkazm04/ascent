@@ -7720,7 +7720,11 @@
           "revision": 4,
           "changedAt": "2026-09-29",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "conformant",
+          "evidence": "src/app/api/recommendations/route.ts:53 Each recommendation's figure comes with its basis (sample count and instrument), and when there is no measured basis it is null rather than a fabricated +0; the tracker and sandbox show sign-correct deltas and disclose truncated history, so none of the techniques that apply is broken here, though this is an interactive, account-gated planning surface where the subject only partly applies.",
+          "evaluatedAt": "2026-10-25",
+          "evaluatedAgainst": "sha256-b2:a43eabdaa650ed07",
+          "evaluatedRevision": 4
         },
         {
           "subject": "agent-memory",

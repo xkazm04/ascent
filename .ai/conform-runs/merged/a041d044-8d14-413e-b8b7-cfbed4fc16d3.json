@@ -1,0 +1,71 @@
+{
+ "schema": "conform-run/1",
+ "worker": "a041d044-8d14-413e-b8b7-cfbed4fc16d3",
+ "subject": "executive-reporting",
+ "evaluatedAt": "2026-10-25T23:25:14.804432+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Roadmap & Recommendation Tracking",
+   "subject": "executive-reporting",
+   "bundle": "software-engineering",
+   "state": "conformant",
+   "evidence": "src/app/api/recommendations/route.ts:53 Each recommendation's figure comes with its basis (sample count and instrument), and when there is no measured basis it is null rather than a fabricated +0; the tracker and sandbox show sign-correct deltas and disclose truncated history, so none of the techniques that apply is broken here, though this is an interactive, account-gated planning surface where the subject only partly applies.",
+   "techniques": [
+    {
+     "technique": "denominator-naming",
+     "verdict": "conformant",
+     "evidence": "src/app/api/recommendations/route.ts:53 expectedLiftClause (src/lib/outcomes/expected-lift.ts:37-45) builds the median, IQR, n measured closes and instrument into one string, and returns null below OUTCOME_MIN_SAMPLES. That is a quotability floor with the basis printed inline. The tracker's progress count also leaves dismissed items out of the denominator on purpose (RecommendationTracker.tsx:69)."
+    },
+    {
+     "technique": "provenance-caveats",
+     "verdict": "conformant",
+     "evidence": "src/app/api/recommendations/[id]/events/route.ts:34 Partial coverage of the history is reported as truncated plus its limit, so the client can say 'the 200 most recent' instead of presenting it as the whole record. The 'measured' sort is also only honored when something was actually measured (route.ts:61)."
+    },
+    {
+     "technique": "bad-news-labelling",
+     "verdict": "conformant",
+     "evidence": "src/components/report/RoadmapSandboxParts.tsx:106 A level drop is detected from the ladder order and shown as 'demoted' in red, not under a neutral or positive label. DeltaTag/DeltaPill pick red or green from the sign, and every maturity score here is higher-is-better, so the sign alone gives the valence."
+    },
+    {
+     "technique": "single-ranked-next-move",
+     "verdict": "not-applicable",
+     "evidence": "src/components/report/RecommendationTracker.tsx:88 This is a remediation backlog that people work through, not an executive summary's single call to action. The technique excludes remediation backlogs explicitly. The list is still ordered by one deterministic ranking source."
+    },
+    {
+     "technique": "expiring-share-links",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/recommendations/route.ts:46 Readers come in through normal org authorization (canReadOrg / requireOrgAccess / requireOrgRead). Grepping the context files for share|expir|token found no share-link capability."
+    },
+    {
+     "technique": "grounded-narrative-generation",
+     "verdict": "not-applicable",
+     "evidence": "src/components/report/RoadmapSandbox.tsx:50 Every projected figure comes from deterministic engine math. Grepping the context files for narrative|summary|generat found no model-written prose over computed numbers."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-25T23:25:14.804432+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "executive-reporting"
+   ],
+   "techniques": [
+    "bad-news-labelling",
+    "denominator-naming",
+    "expiring-share-links",
+    "grounded-narrative-generation",
+    "provenance-caveats",
+    "single-ranked-next-move"
+   ],
+   "deviations": 0,
+   "context": "Roadmap & Recommendation Tracking",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
