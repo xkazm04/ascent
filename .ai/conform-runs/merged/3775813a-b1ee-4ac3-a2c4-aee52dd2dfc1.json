@@ -1,0 +1,53 @@
+{
+ "schema": "conform-run/1",
+ "worker": "3775813a-b1ee-4ac3-a2c4-aee52dd2dfc1",
+ "subject": "delivery-analytics",
+ "evaluatedAt": "2026-10-25T22:51:51.779839+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Practices, Governance & Adoption",
+   "subject": "delivery-analytics",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/org/adoption.ts:271 The adoption overview takes the fleet's total analyzed-PR volume as the sample size for every delivery rate and drops `rateBasis`, so the brief prints \"72% reviewed \u00b7 88% merged \u00b7 40% AI-involved PRs (320 PRs)\" and \"% of AI PRs human-reviewed\" beside a number that its producer (org-signals.ts:34-40) states is the denominator of none of them, and no window is stated.",
+   "techniques": [
+    {
+     "technique": "delivery-metric-denominators",
+     "verdict": "deviation",
+     "evidence": "src/lib/org/adoption.ts:271 totalPrs is fleet volume, not the denominator of reviewedRate (human-merged PRs) or aiGovernedRate (AI-involved PRs). The per-rate population and repo count in pr.rateBasis are dropped, and the brief at :321 states no window. orgCommits (:222, null not 0) and governance `assessed` (governance.ts:203) do carry their denominators correctly."
+    },
+    {
+     "technique": "attribution-channels",
+     "verdict": "deviation",
+     "evidence": "src/lib/org/adoption.ts:80 Trailer and body-phrase channels are merged into a single {name,count} list with no record of which channel fired. The heavy/partial/none spread (:67) also puts unattributed contributors in a 'none' bucket instead of separating human-by-evidence from unattributed. The brief's prose at :344 admits the blind spot, but the data shape cannot show it."
+    },
+    {
+     "technique": "review-coverage-rate",
+     "verdict": "conformant",
+     "evidence": "src/lib/org/governance.ts:175 Fleet governance keeps unreadable branch protection separate from unprotected: unreadable repos are skipped rather than failed, and the measured-on count is published. This context labels the setting 'unprotected branch', not review coverage, so it does not present protection as approval."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-25T22:51:51.779839+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "delivery-analytics"
+   ],
+   "techniques": [
+    "attribution-channels",
+    "delivery-metric-denominators",
+    "review-coverage-rate"
+   ],
+   "deviations": 1,
+   "context": "Practices, Governance & Adoption",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

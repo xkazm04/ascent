@@ -4105,32 +4105,27 @@
       "context": "Practices, Governance & Adoption",
       "subject": "delivery-analytics",
       "bundle": "software-engineering",
-      "state": "unknown",
-      "evaluatedAt": "2026-10-15",
-      "evaluatedTs": "2026-10-15T03:13:29.088Z",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-25",
+      "evaluatedTs": "2026-10-25T22:51:51.779Z",
+      "worker": "3775813a-b1ee-4ac3-a2c4-aee52dd2dfc1",
       "techniques": [
-        {
-          "technique": "attribution-channels",
-          "verdict": "deviation",
-          "evidence": "src/lib/org/adoption.ts:344 The published definition is trailers plus tool markers, with no precedence and no separate unattributed bucket. A tool that left no mark sits in the none share. Unknown-author commits are dropped from the human view rather than reported."
-        },
         {
           "technique": "delivery-metric-denominators",
           "verdict": "deviation",
-          "evidence": "src/lib/org/adoption.ts:321 One totalPrs figure is attached to reviewed, merged, and AI-involved, which do not share a population. Org AI commit share does name its commit total when that total is available."
+          "evidence": "src/lib/org/adoption.ts:271 totalPrs is fleet volume, not the denominator of reviewedRate (human-merged PRs) or aiGovernedRate (AI-involved PRs). The per-rate population and repo count in pr.rateBasis are dropped, and the brief at :321 states no window. orgCommits (:222, null not 0) and governance `assessed` (governance.ts:203) do carry their denominators correctly."
+        },
+        {
+          "technique": "attribution-channels",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/adoption.ts:80 Trailer and body-phrase channels are merged into a single {name,count} list with no record of which channel fired. The heavy/partial/none spread (:67) also puts unattributed contributors in a 'none' bucket instead of separating human-by-evidence from unattributed. The brief's prose at :344 admits the blind spot, but the data shape cannot show it."
         },
         {
           "technique": "review-coverage-rate",
-          "verdict": "deviation",
-          "evidence": "src/features/standing/adoption/DeliveryStrip.tsx:43 The strip labels the passed-through fleet rate Reviewed and does not state approving second party, self-approval, or enforced versus observed."
+          "verdict": "conformant",
+          "evidence": "src/lib/org/governance.ts:175 Fleet governance keeps unreadable branch protection separate from unprotected: unreadable repos are skipped rather than failed, and the measured-on count is published. This context labels the setting 'unprotected branch', not review coverage, so it does not present protection as approval."
         }
-      ],
-      "withdrawn": {
-        "worker": "16a68f5e-5ab0-4098-a197-1f6ae4409903",
-        "state": "deviation",
-        "at": "2026-10-15T03:14:59.439107+00:00",
-        "reason": "reviewer (sonnet): The anchor src/lib/org/adoption.ts:344 is enablement prose and shows no attribution definition, and I could not find any trailer/marker definition, precedence rule, or unknown-author dropping in adoption.ts, which only consumes pooled aggregates; the 'no precedence' claim also conflicts with the aut"
-      }
+      ]
     },
     "Org Dashboard & Analytics/Repositories & Segments/delivery-analytics": {
       "context": "Repositories & Segments",

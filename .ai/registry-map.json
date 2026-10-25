@@ -4293,7 +4293,11 @@
           "revision": 5,
           "changedAt": "2026-09-17",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/org/adoption.ts:271 The adoption overview takes the fleet's total analyzed-PR volume as the sample size for every delivery rate and drops `rateBasis`, so the brief prints \"72% reviewed · 88% merged · 40% AI-involved PRs (320 PRs)\" and \"% of AI PRs human-reviewed\" beside a number that its producer (org-signals.ts:34-40) states is the denominator of none of them, and no window is stated.",
+          "evaluatedAt": "2026-10-25",
+          "evaluatedAgainst": "sha256-b2:e43700f2d197398b",
+          "evaluatedRevision": 5
         },
         {
           "subject": "codebase-scanning",
