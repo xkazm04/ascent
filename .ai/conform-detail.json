@@ -5421,50 +5421,55 @@
       "subject": "async-ui-states",
       "bundle": "software-engineering",
       "state": "unknown",
-      "evaluatedAt": "2026-10-18",
-      "evaluatedTs": "2026-10-18T21:40:41.570Z",
+      "evaluatedAt": "2026-10-25",
+      "evaluatedTs": "2026-10-25T22:10:04.386Z",
       "techniques": [
         {
-          "technique": "action-busy-states",
+          "technique": "placeholder-design",
           "verdict": "deviation",
-          "evidence": "src/components/ui/RouteError.tsx:64 Retry starts router.refresh() and reset(), but has no synchronous duplicate-press guard, disabled state, spinner, or busy announcement."
-        },
-        {
-          "technique": "arrival-choreography",
-          "verdict": "not-applicable",
-          "evidence": "src/components/deck/Reveal.tsx:65 This implements viewport-driven deck motion rather than asynchronous content arrival; inspected landing usages wrap already-provided content."
-        },
-        {
-          "technique": "empty-state-design",
-          "verdict": "not-applicable",
-          "evidence": "src/components/ui/Stat.tsx:95 The inspected primitives conditionally render supplied presentation fields; they do not assert that a requested dataset is empty."
+          "evidence": "src/components/ui/PageSkeleton.tsx:7 It is aria-hidden and calm, which is correct. But it has no delay (it does not use the repo's own 150ms .reveal-quiet window), it ghosts the chrome along with the content, and it is one generic body silhouette shared by four different pages, which breaks 'only promise geometry you actually know'."
         },
         {
           "technique": "failure-states",
           "verdict": "conformant",
-          "evidence": "src/components/ui/RouteError.tsx:59 The boundary explicitly identifies failure, provides retry through refresh/reset, and reports the error through console.error; retry busy feedback is judged separately."
+          "evidence": "src/components/ui/RouteError.tsx:110 The error-boundary card is its own state, separate from empty. Its retry really retries: it refreshes server data before reset(). After two failed attempts it escalates to a report action (routeErrorModel)."
         },
         {
-          "technique": "placeholder-design",
+          "technique": "arrival-choreography",
+          "verdict": "not-applicable",
+          "evidence": "src/components/deck/Reveal.tsx:65 Reveal is a scroll entrance on static deck sections, not a load-cycle arrival, so the precondition (content landing on a loading surface) does not hold. It does replay deliberately on every scroll-back (once:false), which is the replay the technique warns against. See registryProposal."
+        },
+        {
+          "technique": "action-busy-states",
           "verdict": "deviation",
-          "evidence": "src/components/ui/PageSkeleton.tsx:9 The placeholder ghosts the heading as well as content, and the component has no delayed appearance mechanism."
+          "evidence": "src/components/ui/RouteError.tsx:64 Retry starts router.refresh() and reset(), but has no synchronous duplicate-press guard, disabled state, spinner, or busy announcement.",
+          "carriedFrom": "2026-10-18"
+        },
+        {
+          "technique": "empty-state-design",
+          "verdict": "not-applicable",
+          "evidence": "src/components/ui/Stat.tsx:95 The inspected primitives conditionally render supplied presentation fields; they do not assert that a requested dataset is empty.",
+          "carriedFrom": "2026-10-18"
         },
         {
           "technique": "state-model",
           "verdict": "not-applicable",
-          "evidence": "src/components/ui/Surface.tsx:33 These primitives render supplied content or framework-selected fallbacks; they do not own request machinery from which to derive the content state model."
+          "evidence": "src/components/ui/Surface.tsx:33 These primitives render supplied content or framework-selected fallbacks; they do not own request machinery from which to derive the content state model.",
+          "carriedFrom": "2026-10-18"
         },
         {
           "technique": "windowing-vs-identifying-keys",
           "verdict": "not-applicable",
-          "evidence": "src/components/deck/DeckNav.tsx:22 This key controls observation of document sections, not a compound data request; the inspected primitives own no paging or identifying query coordinates."
+          "evidence": "src/components/deck/DeckNav.tsx:22 This key controls observation of document sections, not a compound data request; the inspected primitives own no paging or identifying query coordinates.",
+          "carriedFrom": "2026-10-18"
         }
       ],
+      "registryProposal": "arrival-choreography scopes itself to load-cycle arrival, yet its use_when trigger 'entrance replays on every scroll-back' and its skip test ('a user who has seen the surface fifty times still sees the animation') describe scroll-reveal entrances on static marketing sections just as well. The technique should say whether a scroll-coupled reveal on non-async content (like a deck that re-reveals on snap-back) is governed by it, or belongs to the motion subject.",
       "withdrawn": {
-        "worker": "3fddf8f2-7021-40ab-822e-9336ebcf6540",
+        "worker": "c201b644-17ea-4b84-957d-b820e54e8bc7",
         "state": "deviation",
-        "at": "2026-10-18T21:41:02.724915+00:00",
-        "reason": "reviewer (sonnet): The deviation anchor PageSkeleton.tsx and the RouteError.tsx retry claim are not among this context's listed files and are not exported by ui/index.ts, so the verdict is about a different context, even though the lines themselves match what the evidence says."
+        "at": "2026-10-25T22:10:31.201031+00:00",
+        "reason": "reviewer (sonnet): The deviation rests on PageSkeleton.tsx (no delay, generic shape, shared by four loading.tsx files). I confirmed that in the code, but PageSkeleton.tsx and RouteError.tsx are not among this context's files and index.ts doesn't export them. The only in-context anchor, Reveal.tsx, is a scroll entrance"
       }
     },
     "Org Knowledge & Skills/Org Memory/bounded-enumeration": {
