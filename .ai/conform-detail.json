@@ -4964,57 +4964,58 @@
       "context": "Score Charts & Visuals",
       "subject": "conversation-orchestration",
       "bundle": "software-engineering",
-      "state": "unknown",
-      "evaluatedAt": "2026-10-16",
-      "evaluatedTs": "2026-10-16T00:49:56.027Z",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-25",
+      "evaluatedTs": "2026-10-25T22:24:06.194Z",
+      "worker": "614b89b6-bf8a-4856-b4a7-4e5b96fe2e60",
       "techniques": [
         {
-          "technique": "layered-avatar-state-machine",
+          "technique": "structured-visual-replies",
           "verdict": "not-applicable",
-          "evidence": "src/components/report/ScoreRing.tsx:102 The animation depicts a score arc, not a permanently visible companion's conversational state."
-        },
-        {
-          "technique": "model-proposed-quick-replies",
-          "verdict": "not-applicable",
-          "evidence": "src/components/report/RadarChart.tsx:144 The interaction selects a report dimension; it does not submit a model-proposed next message."
-        },
-        {
-          "technique": "narration-promote-on-finish",
-          "verdict": "not-applicable",
-          "evidence": "src/components/report/DimLine.tsx:89 The retained trajectory consists of scan values, without ephemeral conversational narration requiring promotion."
+          "evidence": "src/components/report/RadarChart.tsx:28 The chart is drawn from authoritative scan data the engine computed, not a table or chart a model composed in a reply. The technique itself excludes authoritative data ('link to the view that owns it'); this context IS that owning view."
         },
         {
           "technique": "progress-beat-grammar",
           "verdict": "not-applicable",
-          "evidence": "src/components/report/DimensionExplorer.tsx:34 The explorer derives its display from supplied report data rather than orchestrating a running model turn."
+          "evidence": "src/components/report/Charts.tsx:1 Static report chart components. No model turn streams through them, so there is no live tail to sieve."
+        },
+        {
+          "technique": "layered-avatar-state-machine",
+          "verdict": "not-applicable",
+          "evidence": "src/components/report/ScoreRing.tsx:102 The animation depicts a score arc, not a permanently visible companion's conversational state.",
+          "carriedFrom": "2026-10-16"
+        },
+        {
+          "technique": "model-proposed-quick-replies",
+          "verdict": "not-applicable",
+          "evidence": "src/components/report/RadarChart.tsx:144 The interaction selects a report dimension; it does not submit a model-proposed next message.",
+          "carriedFrom": "2026-10-16"
+        },
+        {
+          "technique": "narration-promote-on-finish",
+          "verdict": "not-applicable",
+          "evidence": "src/components/report/DimLine.tsx:89 The retained trajectory consists of scan values, without ephemeral conversational narration requiring promotion.",
+          "carriedFrom": "2026-10-16"
         },
         {
           "technique": "recall-transparency",
           "verdict": "not-applicable",
-          "evidence": "src/lib/scoring/provenance.ts:58 This provenance describes score production, not persistent user memories recalled into a companion's answer."
+          "evidence": "src/lib/scoring/provenance.ts:58 This provenance describes score production, not persistent user memories recalled into a companion's answer.",
+          "carriedFrom": "2026-10-16"
         },
         {
           "technique": "show-dont-tell-walkthrough",
           "verdict": "not-applicable",
-          "evidence": "src/components/report/chartHover.tsx:121 The overlay positions a chart tooltip; it is not a companion-invoked guide to application controls."
-        },
-        {
-          "technique": "structured-visual-replies",
-          "verdict": "not-applicable",
-          "evidence": "src/components/report/ScoreWaterfall.tsx:34 The chart derives from the report's scoring model, not a visual block authored within a conversational completion."
+          "evidence": "src/components/report/chartHover.tsx:121 The overlay positions a chart tooltip; it is not a companion-invoked guide to application controls.",
+          "carriedFrom": "2026-10-16"
         },
         {
           "technique": "two-surface-doctrine",
           "verdict": "not-applicable",
-          "evidence": "src/components/report/PosturePanel.tsx:27 The panel presents report metrics and their quadrant, without conversation-versus-ambient companion routing."
+          "evidence": "src/components/report/PosturePanel.tsx:27 The panel presents report metrics and their quadrant, without conversation-versus-ambient companion routing.",
+          "carriedFrom": "2026-10-16"
         }
-      ],
-      "withdrawn": {
-        "worker": "3e6a7f9d-1c91-45eb-a82d-ce3d7aaabf80",
-        "state": "not-applicable",
-        "at": "2026-10-16T00:50:18.583503+00:00",
-        "reason": "reviewer (sonnet): The evidence anchor src/components/report/ScoringTab.tsx:66 is only a comment and render line for ScoreWaterfall, and ScoringTab.tsx is not among the context's listed files, so it doesn't show that orchestration is absent in this context."
-      }
+      ]
     },
     "Data & Persistence/Data Retention & Purge/data-retention": {
       "context": "Data Retention & Purge",

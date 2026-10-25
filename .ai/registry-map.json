@@ -8038,7 +8038,11 @@
           "revision": 6,
           "changedAt": "2026-09-29",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/components/report/RadarChart.tsx:28 These charts are deterministic SVG renderers of stored scan results (DimensionResult and provenance derived from engine constants), not a companion conversation, so the subject's precondition does not hold. A search of src/components/report and src/lib/scoring for athena/transcript/quickReplies/walkthrough/avatar found nothing. The only 'companion' hits there are product-voice copy (recommendationRowUi.tsx:101, prompt.ts:417), not a companion runtime.",
+          "evaluatedAt": "2026-10-25",
+          "evaluatedAgainst": "sha256-b2:f3ecee1630629b34",
+          "evaluatedRevision": 6
         },
         {
           "subject": "fleet-orchestration",
