@@ -7546,6 +7546,47 @@
           "evidence": "src/features/standing/repositories/useRepoSegmentsPanel.ts:124 The only concurrency here is a client-state update between UI edits, not a serialized delivery lane."
         }
       ]
+    },
+    "Marketing Site & Design System/Design System: UI Primitives & Deck/data-viz": {
+      "context": "Design System: UI Primitives & Deck",
+      "subject": "data-viz",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-25",
+      "evaluatedTs": "2026-10-25T22:40:18.664Z",
+      "worker": "7cada6ea-693b-4984-8309-bd8c718106be",
+      "techniques": [
+        {
+          "technique": "metric-identity",
+          "verdict": "deviation",
+          "evidence": "src/components/ui/format.ts:4 The generic formatter imports the score metric's resolution band and applies it to every delta. Polarity and resolution are not inputs, so callers outside the score metric decide them locally: CockpitDrivePanel.tsx:142-143 flips the sign, DeliveryTrendPanelFoot passes toneValue, and DeliveryActivityMomentum.tsx:40-41 draws a hand-rolled arrow under a score-band hue."
+        },
+        {
+          "technique": "encoding-vocabulary",
+          "verdict": "conformant",
+          "evidence": "src/components/ui/format.ts:16 One authority for the direction arrow, colour and label, paired with the --color-tone-* CSS tokens. A delta within the band gets ≈ and slate rather than a muted arrow, so the direction vocabulary is withheld. Caveat: colour follows sign, not favourability, which is the polarity gap recorded under metric-identity."
+        },
+        {
+          "technique": "empty-and-degraded-chart-states",
+          "verdict": "conformant",
+          "evidence": "src/components/ui/format.ts:52 A non-finite delta (no baseline, or divide-by-zero) renders as a neutral dash, and toneFor maps it to flat. Absence is never drawn as a confident decline. Pinned in format.test.ts."
+        },
+        {
+          "technique": "chart-loading-economics",
+          "verdict": "not-applicable",
+          "evidence": "src/components/ui/index.ts:1 The barrel exports typography, nav, modal and form primitives. None of them imports a chart engine. recharts is in package.json but is not used in this context."
+        },
+        {
+          "technique": "scale-and-axis-design",
+          "verdict": "not-applicable",
+          "evidence": "src/components/ui/Stat.tsx:71 Stat prints the number as text. No primitive here projects values onto a scale or draws an axis."
+        },
+        {
+          "technique": "micro-visualizations",
+          "verdict": "not-applicable",
+          "evidence": "src/components/ui/Stat.tsx:1 A number tile, not a glyph. The only small marks in this context are the DeckNav section-progress dots, which are navigation, not data."
+        }
+      ]
     }
   }
 }

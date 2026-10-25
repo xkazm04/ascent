@@ -9824,7 +9824,11 @@
           "revision": 6,
           "changedAt": "2026-09-20",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/components/ui/format.ts:32 The one shared delta classifier hardcodes the maturity-score noise band (SCORE_NOISE_BAND=2 points) and a rising-is-good polarity, with no way to pass either per metric. So callers showing other metrics work around it at the call site: CockpitDrivePanel colours deltaHex(debtDrop) but prints signedDelta(-debtDrop), DeliveryTrendPanelFoot passes a separate toneValue to get the colour right, and DeliveryActivityMomentum applies the 2-point score band to a percentage while drawing its own ▲/▼ arrow. That is exactly the per-call-site polarity and resolution fork that metric-identity warns about.",
+          "evaluatedAt": "2026-10-25",
+          "evaluatedAgainst": "sha256-b2:0a15845e9dc44963",
+          "evaluatedRevision": 6
         },
         {
           "subject": "concurrency-guards",

@@ -1,0 +1,71 @@
+{
+ "schema": "conform-run/1",
+ "worker": "7cada6ea-693b-4984-8309-bd8c718106be",
+ "subject": "data-viz",
+ "evaluatedAt": "2026-10-25T22:40:18.664817+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Design System: UI Primitives & Deck",
+   "subject": "data-viz",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/components/ui/format.ts:32 The one shared delta classifier hardcodes the maturity-score noise band (SCORE_NOISE_BAND=2 points) and a rising-is-good polarity, with no way to pass either per metric. So callers showing other metrics work around it at the call site: CockpitDrivePanel colours deltaHex(debtDrop) but prints signedDelta(-debtDrop), DeliveryTrendPanelFoot passes a separate toneValue to get the colour right, and DeliveryActivityMomentum applies the 2-point score band to a percentage while drawing its own \u25b2/\u25bc arrow. That is exactly the per-call-site polarity and resolution fork that metric-identity warns about.",
+   "techniques": [
+    {
+     "technique": "metric-identity",
+     "verdict": "deviation",
+     "evidence": "src/components/ui/format.ts:4 The generic formatter imports the score metric's resolution band and applies it to every delta. Polarity and resolution are not inputs, so callers outside the score metric decide them locally: CockpitDrivePanel.tsx:142-143 flips the sign, DeliveryTrendPanelFoot passes toneValue, and DeliveryActivityMomentum.tsx:40-41 draws a hand-rolled arrow under a score-band hue."
+    },
+    {
+     "technique": "encoding-vocabulary",
+     "verdict": "conformant",
+     "evidence": "src/components/ui/format.ts:16 One authority for the direction arrow, colour and label, paired with the --color-tone-* CSS tokens. A delta within the band gets \u2248 and slate rather than a muted arrow, so the direction vocabulary is withheld. Caveat: colour follows sign, not favourability, which is the polarity gap recorded under metric-identity."
+    },
+    {
+     "technique": "empty-and-degraded-chart-states",
+     "verdict": "conformant",
+     "evidence": "src/components/ui/format.ts:52 A non-finite delta (no baseline, or divide-by-zero) renders as a neutral dash, and toneFor maps it to flat. Absence is never drawn as a confident decline. Pinned in format.test.ts."
+    },
+    {
+     "technique": "chart-loading-economics",
+     "verdict": "not-applicable",
+     "evidence": "src/components/ui/index.ts:1 The barrel exports typography, nav, modal and form primitives. None of them imports a chart engine. recharts is in package.json but is not used in this context."
+    },
+    {
+     "technique": "scale-and-axis-design",
+     "verdict": "not-applicable",
+     "evidence": "src/components/ui/Stat.tsx:71 Stat prints the number as text. No primitive here projects values onto a scale or draws an axis."
+    },
+    {
+     "technique": "micro-visualizations",
+     "verdict": "not-applicable",
+     "evidence": "src/components/ui/Stat.tsx:1 A number tile, not a glyph. The only small marks in this context are the DeckNav section-progress dots, which are navigation, not data."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-25T22:40:18.664817+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "data-viz"
+   ],
+   "techniques": [
+    "chart-loading-economics",
+    "empty-and-degraded-chart-states",
+    "encoding-vocabulary",
+    "metric-identity",
+    "micro-visualizations",
+    "scale-and-axis-design"
+   ],
+   "deviations": 1,
+   "context": "Design System: UI Primitives & Deck",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
