@@ -5661,62 +5661,64 @@
       "context": "People & Delivery Analytics",
       "subject": "delivery-guarantees",
       "bundle": "software-engineering",
-      "state": "unknown",
-      "evaluatedAt": "2026-10-18",
-      "evaluatedTs": "2026-10-18T23:20:14.717Z",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-25",
+      "evaluatedTs": "2026-10-25T23:02:01.226Z",
+      "worker": "9b89df22-8598-4736-9195-b5b80721623a",
       "techniques": [
-        {
-          "technique": "atomic-claiming",
-          "verdict": "not-applicable",
-          "evidence": "src/features/bought/teams/TeamsMatrix.tsx:57 This state tracks expanded table rows, not durable work claims; the inspected context has no pending-to-processing consumer."
-        },
-        {
-          "technique": "co-transactional-consume",
-          "verdict": "not-applicable",
-          "evidence": "src/features/bought/delivery/DeliveryPriorities.tsx:21 Priorities are derived from supplied analytics; there is no queue row whose consumption and effects require a transaction."
-        },
-        {
-          "technique": "dead-letter-design",
-          "verdict": "not-applicable",
-          "evidence": "src/features/bought/delivery/PrSignalsBand.tsx:79 The delivery surface presents PR metrics, not terminal processing failures requiring redrive or discard."
-        },
         {
           "technique": "guarantee-selection",
           "verdict": "not-applicable",
-          "evidence": "src/features/bought/delivery/DeliveryCorePanel.tsx:41 The loader queries existing PR analytics; it does not accept an event class requiring a duplicate-versus-loss posture."
+          "evidence": "src/app/org/[slug]/delivery/page.tsx:11 The route is a permanent redirect into the tab shell. It handles no event class, so there is no delivery posture to choose."
         },
         {
           "technique": "marker-certifies-what-was-done",
           "verdict": "not-applicable",
-          "evidence": "src/features/bought/delivery/PrRepoTable.tsx:158 The presentation cap retains remaining rows for the folded table; it advances no consumption marker."
+          "evidence": "src/features/bought/teams/teamsShared.ts:29 Freshness comes from the scan pipeline upstream. This view writes no watermark or done marker."
+        },
+        {
+          "technique": "atomic-claiming",
+          "verdict": "not-applicable",
+          "evidence": "src/features/bought/teams/TeamsMatrix.tsx:57 This state tracks expanded table rows, not durable work claims; the inspected context has no pending-to-processing consumer.",
+          "carriedFrom": "2026-10-18"
+        },
+        {
+          "technique": "co-transactional-consume",
+          "verdict": "not-applicable",
+          "evidence": "src/features/bought/delivery/DeliveryPriorities.tsx:21 Priorities are derived from supplied analytics; there is no queue row whose consumption and effects require a transaction.",
+          "carriedFrom": "2026-10-18"
+        },
+        {
+          "technique": "dead-letter-design",
+          "verdict": "not-applicable",
+          "evidence": "src/features/bought/delivery/PrSignalsBand.tsx:79 The delivery surface presents PR metrics, not terminal processing failures requiring redrive or discard.",
+          "carriedFrom": "2026-10-18"
         },
         {
           "technique": "non-delivery-ledgers",
           "verdict": "not-applicable",
-          "evidence": "src/features/bought/teams/TeamsSignals.tsx:48 This suppresses an empty analytics section, rather than deciding not to process an accepted event."
+          "evidence": "src/features/bought/teams/TeamsSignals.tsx:48 This suppresses an empty analytics section, rather than deciding not to process an accepted event.",
+          "carriedFrom": "2026-10-18"
         },
         {
           "technique": "ordered-lane-blocking",
           "verdict": "not-applicable",
-          "evidence": "src/features/bought/teams/TeamsMatrix.tsx:61 Ordering is a user-selected table sort, with no stream lane or dependent queued successors."
+          "evidence": "src/features/bought/teams/TeamsMatrix.tsx:61 Ordering is a user-selected table sort, with no stream lane or dependent queued successors.",
+          "carriedFrom": "2026-10-18"
         },
         {
           "technique": "retry-escalation",
           "verdict": "not-applicable",
-          "evidence": "src/features/bought/contributors/ContributorsInsightsPanel.tsx:74 A failed analytics read asks the viewer to refresh; there is no accepted work item consuming a persisted retry budget."
+          "evidence": "src/features/bought/contributors/ContributorsInsightsPanel.tsx:74 A failed analytics read asks the viewer to refresh; there is no accepted work item consuming a persisted retry budget.",
+          "carriedFrom": "2026-10-18"
         },
         {
           "technique": "stuck-reaping",
           "verdict": "not-applicable",
-          "evidence": "src/features/bought/teams/TeamsRollupPanel.tsx:58 The panel reads snapshot provenance alongside its rollup, rather than maintaining worker claims that can become orphaned."
+          "evidence": "src/features/bought/teams/TeamsRollupPanel.tsx:58 The panel reads snapshot provenance alongside its rollup, rather than maintaining worker claims that can become orphaned.",
+          "carriedFrom": "2026-10-18"
         }
-      ],
-      "withdrawn": {
-        "worker": "7428e43d-843a-467d-b287-df9f617b307f",
-        "state": "not-applicable",
-        "at": "2026-10-18T23:20:44.124552+00:00",
-        "reason": "reviewer (sonnet): The main anchor, PrRepoTable.tsx:161, is just a table render and doesn't show that event processing is absent, so it is incidental. The DeliveryCorePanel.tsx:41 technique anchor is not in the context's file list, and the verdict's claim that repository searches 'located queue mechanisms elsewhere' w"
-      }
+      ]
     },
     "Marketing Site & Design System/Landing Page Prototypes/english": {
       "context": "Landing Page Prototypes",

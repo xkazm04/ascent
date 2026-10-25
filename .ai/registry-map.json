@@ -4422,7 +4422,11 @@
           "revision": 8,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/features/bought/delivery/DeliveryPriorities.tsx:8 This context only renders and redirects: every component gets precomputed PR, governance and CODEOWNERS signals and derives a display from them, so there are no accepted events, claims, retries or dead letters for the subject to govern. I searched src/features/bought/{teams,delivery} and the three app/org/[slug] route dirs for deadLetter, dead-letter, reaper, watermark, idempoten, lease, attemptCount, claimedAt and processing, with zero hits. The only matches for 'claim' and 'queue' are UI prose ('a claim the data never made', the 'review queue' PR metric), not work-item vocabulary.",
+          "evaluatedAt": "2026-10-25",
+          "evaluatedAgainst": "sha256-b2:1023ff3ecf23d679",
+          "evaluatedRevision": 8
         },
         {
           "subject": "agent-memory",
