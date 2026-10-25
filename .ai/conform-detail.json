@@ -7584,6 +7584,32 @@
           "evidence": "src/components/ui/Stat.tsx:1 A number tile, not a glyph. The only small marks in this context are the DeckNav section-progress dots, which are navigation, not data."
         }
       ]
+    },
+    "Repository Scanning & Scoring/Scan Pipeline & Ingestion/deterministic-prefix-caching": {
+      "context": "Scan Pipeline & Ingestion",
+      "subject": "deterministic-prefix-caching",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-25",
+      "evaluatedTs": "2026-10-25T23:16:15.061Z",
+      "worker": "a00e2884-9191-41ba-987d-831ac078de1c",
+      "techniques": [
+        {
+          "technique": "hash-inputs-and-pipeline",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/scan/stream/route.test.ts:123 The key covers the commit and the engine mode, and src/lib/scan-cache.ts also checks the rubric, provider and model. That is result caching, not keying the output of a transform head, so the technique's precondition is missing."
+        },
+        {
+          "technique": "capability-marker-boundary-scan",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/scan/stream/route.ts:250 The whole scan result is delivered as one cached value. No ordered chain of stages is walked to find a split between cached and live stages."
+        },
+        {
+          "technique": "atomic-write-then-move",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/scan/stream/route.ts:233 Concurrent misses are merged in memory (coalesceScan) and stored in the DB or in memory. There is no disk-file cache written by loader workers."
+        }
+      ]
     }
   }
 }

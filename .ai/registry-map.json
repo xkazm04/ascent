@@ -1622,7 +1622,11 @@
           "revision": 2,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/scan/route.ts:183 The only cache in this context stores the whole finished ScanReport for one commit (owner/repo@sha::mode), served on a re-request. There is no per-sample transform chain re-applied over training epochs, no deterministic head followed by a random augmentation tail, and no seam to find, so the subject's precondition does not hold. Searching src/app and src/components for randomizable, augmentation, dataloader and num_workers found nothing; the only 'cacheable prefix' hits are about LLM prompt caching, in src/lib/scoring and src/lib/llm, outside this context.",
+          "evaluatedAt": "2026-10-25",
+          "evaluatedAgainst": "sha256-b2:018e88a8c6d68b18",
+          "evaluatedRevision": 2
         }
       ],
       "governance": "governed"

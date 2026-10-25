@@ -1,0 +1,59 @@
+{
+ "schema": "conform-run/1",
+ "worker": "a00e2884-9191-41ba-987d-831ac078de1c",
+ "subject": "deterministic-prefix-caching",
+ "evaluatedAt": "2026-10-25T23:16:15.061820+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Scan Pipeline & Ingestion",
+   "subject": "deterministic-prefix-caching",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/app/api/scan/route.ts:183 The only cache in this context stores the whole finished ScanReport for one commit (owner/repo@sha::mode), served on a re-request. There is no per-sample transform chain re-applied over training epochs, no deterministic head followed by a random augmentation tail, and no seam to find, so the subject's precondition does not hold. Searching src/app and src/components for randomizable, augmentation, dataloader and num_workers found nothing; the only 'cacheable prefix' hits are about LLM prompt caching, in src/lib/scoring and src/lib/llm, outside this context.",
+   "techniques": [
+    {
+     "technique": "hash-inputs-and-pipeline",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/scan/stream/route.test.ts:123 The key covers the commit and the engine mode, and src/lib/scan-cache.ts also checks the rubric, provider and model. That is result caching, not keying the output of a transform head, so the technique's precondition is missing."
+    },
+    {
+     "technique": "capability-marker-boundary-scan",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/scan/stream/route.ts:250 The whole scan result is delivered as one cached value. No ordered chain of stages is walked to find a split between cached and live stages."
+    },
+    {
+     "technique": "atomic-write-then-move",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/scan/stream/route.ts:233 Concurrent misses are merged in memory (coalesceScan) and stored in the DB or in memory. There is no disk-file cache written by loader workers."
+    }
+   ],
+   "absenceTerms": [
+    "randomizable",
+    "augmentation",
+    "dataloader",
+    "num_workers"
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-25T23:16:15.061820+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "deterministic-prefix-caching"
+   ],
+   "techniques": [
+    "atomic-write-then-move",
+    "capability-marker-boundary-scan",
+    "hash-inputs-and-pipeline"
+   ],
+   "deviations": 0,
+   "context": "Scan Pipeline & Ingestion",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
