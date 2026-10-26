@@ -7651,6 +7651,48 @@
           "evidence": "src/components/report/RoadmapSandbox.tsx:50 Every projected figure comes from deterministic engine math. Grepping the context files for narrative|summary|generat found no model-written prose over computed numbers."
         }
       ]
+    },
+    "Reporting & Visualization/Score Charts & Visuals/public-claim-provenance": {
+      "context": "Score Charts & Visuals",
+      "subject": "public-claim-provenance",
+      "bundle": "software-engineering",
+      "state": "conformant",
+      "evaluatedAt": "2026-10-26",
+      "evaluatedTs": "2026-10-26T22:02:48.454Z",
+      "worker": "c9ec8e93-fde3-4eb5-9700-530a32b0a1a5",
+      "techniques": [
+        {
+          "technique": "derived-numerator-authored-denominator",
+          "verdict": "conformant",
+          "evidence": "src/components/report/DimensionExplorer.tsx:63 The 'X/N at Integrated' count and the intro's dimension count come from facts.length rather than a typed 'nine'. Under the sorting question both halves are facts, not a commitment, so deriving both is correct, and the forbidden inversion (a typed numerator) is absent."
+        },
+        {
+          "technique": "presentation-invariants-on-derived-values",
+          "verdict": "conformant",
+          "evidence": "src/components/report/ScoreRing.tsx:38 A single clamped and NaN-guarded value (line 34, clamp01to100) drives the arc geometry, the numeral and the aria desc together, which is the lockstep rule. RadarChart.tsx:49 guards the empty denominator (`if (dimensions.length === 0)`) and renders 'No dimension data' with a matching aria-label instead of NaN vertices. Fixed 0..100 scale, so the target-at-or-above-live invariant has no hand-authored target to check."
+        },
+        {
+          "technique": "degraded-never-claims-live",
+          "verdict": "conformant",
+          "evidence": "src/components/report/ScoreWaterfall.tsx:51 This is an analogue rather than a request-time counter. The keyless mock-rubric state comes from the recorded engine identity, not from the value, through one closed vocabulary in chartEngine.ts (MOCK_ENGINE). Every snapshot chart (ring dash, hollow waterfall, radar and quadrant marks, DimLine points) drops the 'graded scan' look and appends MOCK_SR_SUFFIX to the accessible text. Mock values are never summed into live ones."
+        },
+        {
+          "technique": "no-data-source-labelled-inline",
+          "verdict": "conformant",
+          "evidence": "src/components/report/PrSignalsPanel.tsx:137 The rendered hand-authored figures (≤N lines, <N m, the elevated threshold, the sample floor) all read shared constants in src/lib/analyze/pr-thresholds.ts. Each declaration there carries its reason inline (for example lines 8-10: 'common review-ergonomics ceiling ... UI copy must quote the same number'). These are reasons for a policy value, not the full 'no instrument, what would change it' triple."
+        },
+        {
+          "technique": "build-time-derivation-off-the-client-bundle",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/scoring/provenance.ts:20 No heavy catalog sits behind these figures. The charts render one scan report's own fields per request, and the only shared module is a small pure helper meant for client import."
+        },
+        {
+          "technique": "promise-only-what-ships",
+          "verdict": "not-applicable",
+          "evidence": "src/components/report/ScoreWaterfall.tsx:78 The context's copy is descriptive and present-tense. A grep for we'll/will be/you'll/notify/email/soon/coming over the context's .tsx files found no forward-looking promise of a follow-up."
+        }
+      ],
+      "registryProposal": "The golden path assigns instrument-produced numbers to measurement-honesty, but a shareable public scan report is both an outward claim surface and a measurement surface. The subject could say explicitly which of its techniques bind a public page made of measured values: degraded-never-claims-live and presentation-invariants clearly do here, while derived-numerator-authored-denominator mostly collapses to 'derive both, since both halves are facts'."
     }
   }
 }

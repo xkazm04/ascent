@@ -8143,7 +8143,11 @@
           "revision": 3,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "conformant",
+          "evidence": "src/components/report/DimensionExplorer.tsx:68 The public report's headline fraction counts both halves from the scan's own scored dimensions, so neither half is a typed number. The mock-engine state, the NaN and empty guards, and the labelled shared thresholds cover four more techniques, and none of the context's techniques is a deviation.",
+          "evaluatedAt": "2026-10-26",
+          "evaluatedAgainst": "sha256-b2:60eb54ef03f44a69",
+          "evaluatedRevision": 3
         }
       ],
       "governance": "governed"
