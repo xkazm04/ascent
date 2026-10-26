@@ -7693,6 +7693,37 @@
         }
       ],
       "registryProposal": "The golden path assigns instrument-produced numbers to measurement-honesty, but a shareable public scan report is both an outward claim surface and a measurement surface. The subject could say explicitly which of its techniques bind a public page made of measured values: degraded-never-claims-live and presentation-invariants clearly do here, while derived-numerator-authored-denominator mostly collapses to 'derive both, since both halves are facts'."
+    },
+    "Reporting & Visualization/Score Charts & Visuals/scoring-rubrics": {
+      "context": "Score Charts & Visuals",
+      "subject": "scoring-rubrics",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-10-26",
+      "evaluatedTs": "2026-10-26T22:11:06.195Z",
+      "worker": "5292bdd2-834c-4b07-87ac-38663d4a582d",
+      "techniques": [
+        {
+          "technique": "score-explanation",
+          "verdict": "deviation",
+          "evidence": "src/components/report/RadarChart.tsx:244 The radar tooltip and SR table band a per-dimension score with levelForScore, whose docstring (model.ts:573) says it maps an overall score; the explorer's 'at Integrated or above' count, the altimeter strata and scoreHex colouring do the same. The waterfall itself is good: it shows weight x score per row and the parts sum to the headline (ScoreWaterfall.tsx:79)."
+        },
+        {
+          "technique": "unmeasured-honesty",
+          "verdict": "conformant",
+          "evidence": "src/components/report/PrSignalsPanel.tsx:48 Below-floor or absent rates render 'n/a' uncoloured, never a fabricated 0. DimLine renders an absent dimension as a gap in the line, not as 0 (DimLine.tsx:49-51). The waterfall and ring print scoreIntegrity notes, which name the unmeasured dimensions."
+        },
+        {
+          "technique": "rubric-stability",
+          "verdict": "conformant",
+          "evidence": "src/lib/scoring/provenance.ts:30 The chart-side provenance list is pinned against the engine's producer by a structural test (provenance.test.ts:87 reads scan-score-input.ts). Shares come from one derivation, dimensionShares, which both the waterfall and the explorer read (DimensionExplorer.tsx:36)."
+        },
+        {
+          "technique": "gap-ranking",
+          "verdict": "deviation",
+          "evidence": "src/components/report/dimensionExplorerDerive.ts:82 The 'biggest lever' that DimensionExplorer renders as the next move is ranked by impact alone (share x headroom). It carries no effort term, and its tie-break is input order rather than stable dimension identity. In contrast, ScoreWaterfall.tsx:59 does tie-break on the dimension id, but it orders contributions, not gaps."
+        }
+      ]
     }
   }
 }
