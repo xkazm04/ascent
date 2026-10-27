@@ -6489,35 +6489,35 @@
       "subject": "usage-aggregation-semantics",
       "bundle": "software-engineering",
       "state": "unknown",
-      "evaluatedAt": "2026-10-19",
-      "evaluatedTs": "2026-10-19T12:35:54.490Z",
+      "evaluatedAt": "2026-10-27",
+      "evaluatedTs": "2026-10-27T22:03:30.910Z",
       "techniques": [
-        {
-          "technique": "high-water-mark-advance-billing",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/db/usage.ts:1058 Each billable scan contributes one event unit; this is not an advance charge against a decreasing capacity aggregate."
-        },
         {
           "technique": "level-valued-time-integral",
           "verdict": "not-applicable",
-          "evidence": "src/lib/db/usage.ts:506 Tokens measure consumption, so summing event quantities is appropriate and holding-duration integration does not apply."
+          "evidence": "src/lib/db/usage.ts:147 Tokens and scans are consumed flows, and their value between events is zero. A sum is the correct fold here, and no held level is billed."
         },
         {
           "technique": "replayed-state-machine-count",
           "verdict": "not-applicable",
-          "evidence": "src/lib/db/usage.ts:463 The repository count reports repositories scanned, not billable seats or provisioned units with add/remove lifecycles."
+          "evidence": "src/lib/db/usage.ts:141 The only distinct count is a display tile, and nothing bills it. Seats, licences and other held units are not metered in this context. Seat levels do exist in integrations.ts (vendor usage, PEAK seats), but that is outside this context."
+        },
+        {
+          "technique": "high-water-mark-advance-billing",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/usage.ts:109 Each billable scan is a unit of a flow that can only grow. The per-scan charge decision (decideScanCharge in plans.ts and credits.ts, outside this context) charges that unit itself. No decreasing aggregate exists, so a ratchet has nothing to do."
         },
         {
           "technique": "seeded-recurring-aggregate",
           "verdict": "not-applicable",
-          "evidence": "src/lib/db/usage.ts:453 Period scan usage counts events inside the window; earlier scans do not represent capacity still held and require no opening seed."
+          "evidence": "src/app/usage/AllotmentPanel.tsx:4 The month-to-date metered count is window-closed and resets each period. Nothing measured here persists across a period boundary, so nothing needs a seed."
         }
       ],
       "withdrawn": {
-        "worker": "ab8f54d0-76ef-4564-a0a5-74fd70e7781d",
+        "worker": "12414bc4-23ea-4b0b-81f5-6b1689adb097",
         "state": "not-applicable",
-        "at": "2026-10-19T12:36:14.536164+00:00",
-        "reason": "reviewer (sonnet): The not-applicable anchor (usageDashboard.tsx:58) is a copy line that doesn't show the precondition is absent, and the context itself has level-style state: usageDashboard.tsx:70-75 shows a credit balance, a 'low balance' notice and a monthly included allowance, and AllotmentPanel.test.ts and page.t"
+        "at": "2026-10-27T22:04:03.236872+00:00",
+        "reason": "reviewer (sonnet): The context does show a held, period-crossing level, so 'no held-unit or period-crossing metric' is contradicted: src/app/usage/page.tsx:164-181 reads the prepaid credit balance (Organization.scanCredits) and usageDashboard.tsx shows it. ALLOTMENT_CURRENCIES_NOTE at AllotmentPanel.tsx:55 says prepai"
       }
     },
     "Billing, Credits & Metering/Usage Metering/usage-analytics": {
