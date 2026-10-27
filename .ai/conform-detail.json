@@ -6524,47 +6524,44 @@
       "context": "Usage Metering",
       "subject": "usage-analytics",
       "bundle": "software-engineering",
-      "state": "unknown",
-      "evaluatedAt": "2026-10-19",
-      "evaluatedTs": "2026-10-19T12:40:11.975Z",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-10-27",
+      "evaluatedTs": "2026-10-27T22:11:55.139Z",
+      "worker": "72b9747e-01e7-4eec-8a5c-ea3266ddd573",
       "techniques": [
         {
-          "technique": "activation-and-funnel-honesty",
+          "technique": "event-taxonomy",
           "verdict": "not-applicable",
-          "evidence": "src/app/usage/usageDashboard.tsx:102 The dashboard labels computed scan counts, without defining activation or presenting a conversion funnel."
+          "evidence": "src/lib/db/usage.ts:1 The metered unit is a persisted Scan row, not an emitted analytics event, so there is no event vocabulary to govern."
         },
         {
           "technique": "batching-and-quota",
           "verdict": "not-applicable",
-          "evidence": "src/lib/db/usage.ts:462 This counts persisted billable scans; it does not transmit browser interactions or session summaries."
+          "evidence": "src/lib/db/usage.ts:104 Counts are server-side predicates over stored billing rows. No client telemetry is flushed per click or per session."
         },
         {
           "technique": "coverage-from-registries",
           "verdict": "not-applicable",
-          "evidence": "src/lib/db/usage.ts:487 The measurement frame groups incurred inference usage by repository and model, rather than tracking navigable product surfaces."
+          "evidence": "src/app/api/usage/route.ts:1 The route reports scan and LLM spend per org, lane and team. It does not report surface visits against a nav registry."
         },
         {
-          "technique": "event-taxonomy",
+          "technique": "activation-and-funnel-honesty",
           "verdict": "not-applicable",
-          "evidence": "src/lib/db/usage.ts:490 This aggregates resource consumption from scan records rather than admitting named behavioral events."
+          "evidence": "src/lib/db/usage.ts:361 This is honest about its window (it is clamped to the first scan), but it is a billing series, not an activation or funnel metric."
         },
         {
           "technique": "privacy-scrubbing",
           "verdict": "not-applicable",
-          "evidence": "src/app/api/usage/route.ts:118 The endpoint authorizes access to an organization's billing summary; it is not a device telemetry collection endpoint."
+          "evidence": "src/app/api/usage/route.ts:118 The endpoint authorizes access to an organization's billing summary; it is not a device telemetry collection endpoint.",
+          "carriedFrom": "2026-10-19"
         },
         {
           "technique": "sink-abstraction",
           "verdict": "not-applicable",
-          "evidence": "src/app/api/usage/route.ts:134 The route reads an existing metering summary rather than emitting measurements to an analytics destination."
+          "evidence": "src/app/api/usage/route.ts:134 The route reads an existing metering summary rather than emitting measurements to an analytics destination.",
+          "carriedFrom": "2026-10-19"
         }
-      ],
-      "withdrawn": {
-        "worker": "eaa77e83-f9fe-47c8-a726-08c519685fde",
-        "state": "not-applicable",
-        "at": "2026-10-19T12:40:32.638065+00:00",
-        "reason": "reviewer (sonnet): The not-applicable rests on an incidental anchor (page.tsx:14 is only the page metadata description) plus a search for three standard-specific event names (section_visited, session_summary, trackEvent). That does not show that no product-behavior instrumentation or usage-analytics precondition exist"
-      }
+      ]
     },
     "Marketing Site & Design System/Marketing About Page/talking-avatar": {
       "context": "Marketing About Page",

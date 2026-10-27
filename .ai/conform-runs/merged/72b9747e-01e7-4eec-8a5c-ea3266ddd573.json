@@ -1,0 +1,66 @@
+{
+ "schema": "conform-run/1",
+ "worker": "72b9747e-01e7-4eec-8a5c-ea3266ddd573",
+ "subject": "usage-analytics",
+ "evaluatedAt": "2026-10-27T22:11:55.139043+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Usage Metering",
+   "subject": "usage-analytics",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/db/kpi-metrics.ts:7 The Usage Metering context is billing metering (Scan rows and LLM-ledger calls aggregated per org and period for credits, showback and CSV reconciliation), not product-surface usage analytics; I searched the context's directories (src/app/usage, src/app/api/usage, src/lib/db, src/components/usage) for section_visited, sendBeacon, visibilitychange, NullSink and trackEvent and got zero hits, and a repo-wide search found no analytics vendor or emit door, consistent with this line, so the subject's precondition (an event vocabulary, session summaries and sinks measuring which surfaces users visit) does not hold here.",
+   "techniques": [
+    {
+     "technique": "event-taxonomy",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/usage.ts:1 The metered unit is a persisted Scan row, not an emitted analytics event, so there is no event vocabulary to govern."
+    },
+    {
+     "technique": "batching-and-quota",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/usage.ts:104 Counts are server-side predicates over stored billing rows. No client telemetry is flushed per click or per session."
+    },
+    {
+     "technique": "coverage-from-registries",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/usage/route.ts:1 The route reports scan and LLM spend per org, lane and team. It does not report surface visits against a nav registry."
+    },
+    {
+     "technique": "activation-and-funnel-honesty",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/usage.ts:361 This is honest about its window (it is clamped to the first scan), but it is a billing series, not an activation or funnel metric."
+    }
+   ],
+   "absenceTerms": [
+    "section_visited",
+    "sendBeacon",
+    "visibilitychange",
+    "NullSink",
+    "trackEvent"
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-10-27T22:11:55.139043+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "usage-analytics"
+   ],
+   "techniques": [
+    "activation-and-funnel-honesty",
+    "batching-and-quota",
+    "coverage-from-registries",
+    "event-taxonomy"
+   ],
+   "deviations": 0,
+   "context": "Usage Metering",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

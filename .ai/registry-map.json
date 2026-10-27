@@ -9264,7 +9264,11 @@
           "revision": 4,
           "changedAt": "2026-09-26",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/db/kpi-metrics.ts:7 The Usage Metering context is billing metering (Scan rows and LLM-ledger calls aggregated per org and period for credits, showback and CSV reconciliation), not product-surface usage analytics; I searched the context's directories (src/app/usage, src/app/api/usage, src/lib/db, src/components/usage) for section_visited, sendBeacon, visibilitychange, NullSink and trackEvent and got zero hits, and a repo-wide search found no analytics vendor or emit door, consistent with this line, so the subject's precondition (an event vocabulary, session summaries and sinks measuring which surfaces users visit) does not hold here.",
+          "evaluatedAt": "2026-10-27",
+          "evaluatedAgainst": "sha256-b2:83367bcb68dbb99a",
+          "evaluatedRevision": 4
         },
         {
           "subject": "eval-harness",
