@@ -7901,6 +7901,57 @@
           "evidence": "src/lib/org/followups.ts:296 The freeze on tests, fixtures, CI and gate configs is mechanical: an integrity guard diffs the lane's work and voids the cycle (lane-gate-diff.ts). It is not merely requested in the brief."
         }
       ]
+    },
+    "Org Knowledge & Skills/Athena Companion/quality-gates": {
+      "context": "Athena Companion",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-03",
+      "evaluatedTs": "2026-11-03T22:25:44.550Z",
+      "worker": "a808d59d-3095-45bb-8ede-fec01d1099d9",
+      "techniques": [
+        {
+          "technique": "match-the-resolved-artifact",
+          "verdict": "deviation",
+          "evidence": "src/app/api/cron/athena/deps.test.ts:102 Prose satisfies the matcher: the positive control is met by the comment at deps.ts:106, because comments are never stripped."
+        },
+        {
+          "technique": "unparseable-form-is-a-finding",
+          "verdict": "deviation",
+          "evidence": "src/app/api/cron/athena/deps.test.ts:103 The absence check recognises only an inline array literal. Passing tools through a variable, spread or other form evades it silently, and nothing reports the unrecognised form."
+        },
+        {
+          "technique": "prose-rule-drift",
+          "verdict": "deviation",
+          "evidence": "src/app/api/cron/athena/deps.test.ts:99 AGENTS.md says a source-scanning gate must strip comments and seed a violation. This scan reads raw text and has no seeded case, so the prose rule is not mechanised and its violation looks like compliance."
+        },
+        {
+          "technique": "gate-liveness",
+          "verdict": "conformant",
+          "evidence": "src/app/api/cron/athena/route.ts:183 Degraded is not green: errors, truncation or no engine return 207 instead of 200, so a cycle that did nothing is never reported as success."
+        },
+        {
+          "technique": "item-liveness",
+          "verdict": "conformant",
+          "evidence": "src/app/api/cron/athena/route.ts:107 A scheduled reaper closes stale proposals as expired or interrupted before each cycle. Each closure gets its own audit row (deps.ts:62-85)."
+        },
+        {
+          "technique": "unmeasurable-criteria",
+          "verdict": "conformant",
+          "evidence": "src/app/api/cron/athena/route.ts:86 Skips are counted per reason and returned in the response body (route.ts:167-170), so a skip is never silent."
+        },
+        {
+          "technique": "refusal-names-a-reachable-remedy",
+          "verdict": "conformant",
+          "evidence": "src/app/api/athena/proposals/[id]/resolve/route.ts:185 The refusal names an action the reader can take (sign in)."
+        },
+        {
+          "technique": "self-reported-gate-inputs",
+          "verdict": "conformant",
+          "evidence": "src/app/api/athena/proposals/[id]/resolve/route.ts:143 The model-authored proposal payload is re-validated against the current catalog at accept time instead of being trusted as stored."
+        }
+      ]
     }
   }
 }

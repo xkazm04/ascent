@@ -7476,7 +7476,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/app/api/cron/athena/deps.test.ts:102 The source-scan guard that keeps the hosted cycle tool-less matches raw file text, and the comment at deps.ts:106 (\"keeps `tools: []`\") already satisfies its positive control. Replace `tools: []` at deps.ts:154 with an identifier such as `tools: ATHENA_TOOLS` and the test stays green: the comment satisfies line 102, and line 103's bracket-only pattern never sees the identifier.",
+          "evaluatedAt": "2026-11-03",
+          "evaluatedAgainst": "sha256-b2:0d8378dd13155e59",
+          "evaluatedRevision": 54
         },
         {
           "subject": "companion-runtime",
