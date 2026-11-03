@@ -298,32 +298,33 @@
       "subject": "agent-memory",
       "bundle": "software-engineering",
       "state": "not-applicable",
-      "evaluatedAt": "2026-10-12",
-      "evaluatedTs": "2026-10-12T21:25:33.075Z",
-      "worker": "734e5899-6f25-4bee-bb68-6bd8ded3612f",
+      "evaluatedAt": "2026-11-03",
+      "evaluatedTs": "2026-11-03T09:59:19.855Z",
       "techniques": [
+        {
+          "technique": "procedure-promotion",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/skills/promote/route.ts:3 The promoted source is a scan report rendered as a skill, not a procedure distilled from memory or counted recurrence, so the memory-to-capability boundary is not exercised here."
+        },
         {
           "technique": "working-memory",
           "verdict": "not-applicable",
-          "evidence": "src/app/api/org/skills/promote/route.ts:3 Skill catalog, not a session store."
+          "evidence": "src/app/api/org/skills/promote/route.ts:3 Skill catalog, not a session store.",
+          "carriedFrom": "2026-10-12"
         },
         {
           "technique": "episodic-capture",
           "verdict": "not-applicable",
-          "evidence": "src/app/api/org/tokens/route.ts:3 Token minting has no episode boundary."
+          "evidence": "src/app/api/org/tokens/route.ts:3 Token minting has no episode boundary.",
+          "carriedFrom": "2026-10-12"
         },
         {
           "technique": "consolidation",
           "verdict": "not-applicable",
-          "evidence": "src/app/api/org/skills/promote/route.ts:4 Promotion copies a scan artifact into the library. It does not distill episodes into beliefs."
-        },
-        {
-          "technique": "procedure-promotion",
-          "verdict": "not-applicable",
-          "evidence": "src/app/api/org/skills/promote/route.ts:39 This promote is an entitlement gate on filing a generated SKILL.md, not a remembered procedure becoming invocable from episodes."
+          "evidence": "src/app/api/org/skills/promote/route.ts:4 Promotion copies a scan artifact into the library. It does not distill episodes into beliefs.",
+          "carriedFrom": "2026-10-12"
         }
       ],
-      "registryProposal": "Pairing agent-memory to this context looks like a name collision on skills. The thirty use_when clauses describe recall, decay, and belief stores. They do not describe a versioned skill catalog or an API token.",
       "superseded": [
         {
           "state": "not-applicable",
@@ -331,8 +332,21 @@
           "evaluatedAt": "2026-08-31",
           "worker": null,
           "reason": "replaced by 734e5899-6f25-4bee-bb68-6bd8ded3612f"
+        },
+        {
+          "state": "not-applicable",
+          "evidence": "src/app/api/org/skills/promote/route.ts:3 These routes file a generated SKILL.md into a versioned library and mint API tokens for that library. Nothing here recalls, decays, or consolidates knowledge across agent turns.",
+          "evaluatedAt": "2026-10-12T21:25:33.075Z",
+          "worker": "734e5899-6f25-4bee-bb68-6bd8ded3612f",
+          "reason": "replaced by cc4c6ef2-4b84-4e54-b015-dbb2cac25c96"
         }
-      ]
+      ],
+      "withdrawn": {
+        "worker": "cc4c6ef2-4b84-4e54-b015-dbb2cac25c96",
+        "state": "not-applicable",
+        "at": "2026-11-03T10:00:19.518552+00:00",
+        "reason": "reviewer (sonnet): The anchor (promote/route.ts:3) only describes what promote does and doesn't show that no memory lifecycle exists here; skills/events/route.ts runs usage telemetry with 'dormancy' semantics, which the search terms (recall, decay, memory, consolidat) could not match, so I couldn't confirm absence."
+      }
     },
     "Org Dashboard & Analytics/Developer home (UC3 individual care)/browser-credential-boundary": {
       "context": "Developer home (UC3 individual care)",
@@ -631,96 +645,112 @@
       "subject": "agent-memory",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-12",
-      "evaluatedTs": "2026-10-12T21:25:33.075Z",
-      "worker": "734e5899-6f25-4bee-bb68-6bd8ded3612f",
+      "evaluatedAt": "2026-11-03",
+      "evaluatedTs": "2026-11-03T09:59:19.855Z",
+      "worker": "cc4c6ef2-4b84-4e54-b015-dbb2cac25c96",
       "techniques": [
-        {
-          "technique": "working-memory",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/org/memory-kinds.ts:11 This store's kinds are durable layers. There is no session operative-state record here."
-        },
-        {
-          "technique": "episodic-capture",
-          "verdict": "conformant",
-          "evidence": "src/lib/memory/scan-feed.ts:171 A scan event closes one episodic row: one outcome sentence, not a transcript slice."
-        },
-        {
-          "technique": "consolidation",
-          "verdict": "conformant",
-          "evidence": "src/lib/memory/consolidation.ts:132 Duplicate shortlisting uses overlap over the shorter side, so a short correction still ranks against the long memory it fixes, and supersede stamps the old row in the same transaction."
-        },
         {
           "technique": "decay-and-forgetting",
           "verdict": "deviation",
-          "evidence": "src/lib/memory/decay.ts:100 Forget imports memoryValue and archives instead of deleting, but age is days since updatedAt, which every access bump moves, so a delivered row is spared by the 60-day grace forever."
-        },
-        {
-          "technique": "recall-injection",
-          "verdict": "deviation",
-          "evidence": "src/lib/memory/recall.ts:330 Packing skips an oversized item and does not cut a body, and the route separates budget omissions from ineligible rows, but one character budget is spent on one ranked pool. There is no separate always-include, relevance, or recency allocation. Per-kind lanes only decide which rows are loaded."
-        },
-        {
-          "technique": "memory-governance",
-          "verdict": "deviation",
-          "evidence": "src/app/api/org/memory/route.ts:135 A memory:write token commits any caller-chosen kind straight into the live shared table. Reflection apply is a second human call, but claims about a person have no proposal lane."
+          "evidence": "src/lib/db/org-memory-lifecycle.ts:88 The delivery bump also moves updatedAt (@updatedAt), and decayVerdict/decayPopulationWhere use updatedAt for age > 60 days and for the decay factor. Each delivery therefore restarts the grace period, and a low-confidence row that keeps being served never meets the conjunction."
         },
         {
           "technique": "memory-value-model",
           "verdict": "deviation",
-          "evidence": "src/lib/memory/recall.ts:220 One function multiplies confidence, a per-kind half-life, and a capped log of deliveries, and decay.ts imports it. The half-life input is updatedAt, and the delivery bump moves that column, so the cap cannot force a low-trust item under the floor."
+          "evidence": "src/lib/memory/recall.ts:207 The technique names 'score it as brand new' as the wrong default for an unparseable instant: age 0 is maximum freshness and makes such rows immortal to the sweep. Separately, age is measured from updatedAt, which deliveries rewrite, not from the last confirmation, so the cap's arithmetic never terminates."
         },
         {
           "technique": "rollup-compaction",
-          "verdict": "conformant",
-          "evidence": "src/lib/memory/reflection.ts:97 Families use symmetric Jaccard, pairs are refused as rollups, and a missing model returns no proposals rather than a mechanical summary. Apply supersedes members in one transaction."
-        },
-        {
-          "technique": "coverage-instrumentation",
-          "verdict": "conformant",
-          "evidence": "src/lib/memory/coverage.ts:87 The denominator is every tracked repo, an empty fleet is 0, and never-covered repos stay in the result. Freshness is a 30-day updatedAt window, not the value-model score."
-        },
-        {
-          "technique": "owner-and-counterpart-scope",
-          "verdict": "conformant",
-          "evidence": "src/lib/db/org-memory.ts:185 The org owns the row. Private scratch is a per-author view: a viewer sees shared rows plus their own, and an anonymous caller sees shared only."
-        },
-        {
-          "technique": "read-set-bounded-links",
-          "verdict": "conformant",
-          "evidence": "src/lib/memory/reflection.ts:332 A rollup proposal that names an id outside the cluster it was shown is rejected whole. supersededBy is written by code beside the body."
-        },
-        {
-          "technique": "pending-beliefs-live-apart",
-          "verdict": "not-applicable",
-          "evidence": "src/app/api/org/memory/route.ts:157 This door commits a live OrgMemory row. It does not hold an unconfirmed proposal."
-        },
-        {
-          "technique": "loss-site-inventory",
-          "verdict": "conformant",
-          "evidence": "src/app/api/org/memory/recall/route.ts:127 The recall response names budget-omitted rows, ineligible rows with a reason, and how many eligible rows the population cap never loaded."
+          "verdict": "deviation",
+          "evidence": "src/lib/db/org-memory-lifecycle.ts:198 The proposal pass in reflection.ts caps rollup confidence at the members' maximum, but the apply door (a second client call) takes the client's confidence clamped only to 0..1, and it never selects the members' confidence. Three 0.3 hunches can therefore be applied as a 1.0 summary."
         },
         {
           "technique": "scope-before-similarity",
           "verdict": "conformant",
-          "evidence": "src/lib/memory/reflection.ts:179 Clustering unions only inside one namespace plus visibility plus private author, and applyReflection throws if the member list spans more than one scope."
+          "evidence": "src/lib/db/org-memory-lifecycle.ts:177 The merge door recomputes reflectionScopeKey (namespace, visibility, private author) and refuses a mixed-scope member list. The rollup inherits its members' scope."
+        },
+        {
+          "technique": "filter-at-the-id-door",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/org-memory-lifecycle.ts:169 Member ids that arrive from a client or from an LLM proposal are reloaded at the write door with archived:false, supersededBy:null, orgId and the viewer's visibility scope. A count mismatch rolls back the whole transaction."
+        },
+        {
+          "technique": "recall-injection",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/memory/recall/route.ts:93 Recall packs whole items under a character budget and returns 'omitted' (lost the budget race) separately from 'ineligible' (superseded/expired/filtered), each with its reason."
+        },
+        {
+          "technique": "loss-site-inventory",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/memory/recall/route.ts:127 The population cap's loss is reported in-band as a count of eligible rows that were never scored, beside consideredCount and omittedCount."
+        },
+        {
+          "technique": "probe-without-write-back",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/memory/recall/route.ts:91 The bump is an explicit write limited to the packed set. A search for callers of the recall route and recallMemories found no scheduled probe or eval replaying a fixed question set. The machine side-reads (Athena gate, lane brief) do not bump."
+        },
+        {
+          "technique": "working-memory",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/org/memory-kinds.ts:11 This store's kinds are durable layers. There is no session operative-state record here.",
+          "carriedFrom": "2026-10-12"
+        },
+        {
+          "technique": "episodic-capture",
+          "verdict": "conformant",
+          "evidence": "src/lib/memory/scan-feed.ts:171 A scan event closes one episodic row: one outcome sentence, not a transcript slice.",
+          "carriedFrom": "2026-10-12"
+        },
+        {
+          "technique": "consolidation",
+          "verdict": "conformant",
+          "evidence": "src/lib/memory/consolidation.ts:132 Duplicate shortlisting uses overlap over the shorter side, so a short correction still ranks against the long memory it fixes, and supersede stamps the old row in the same transaction.",
+          "carriedFrom": "2026-10-12"
+        },
+        {
+          "technique": "memory-governance",
+          "verdict": "deviation",
+          "evidence": "src/app/api/org/memory/route.ts:135 A memory:write token commits any caller-chosen kind straight into the live shared table. Reflection apply is a second human call, but claims about a person have no proposal lane.",
+          "carriedFrom": "2026-10-12"
+        },
+        {
+          "technique": "coverage-instrumentation",
+          "verdict": "conformant",
+          "evidence": "src/lib/memory/coverage.ts:87 The denominator is every tracked repo, an empty fleet is 0, and never-covered repos stay in the result. Freshness is a 30-day updatedAt window, not the value-model score.",
+          "carriedFrom": "2026-10-12"
+        },
+        {
+          "technique": "owner-and-counterpart-scope",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/org-memory.ts:185 The org owns the row. Private scratch is a per-author view: a viewer sees shared rows plus their own, and an anonymous caller sees shared only.",
+          "carriedFrom": "2026-10-12"
+        },
+        {
+          "technique": "read-set-bounded-links",
+          "verdict": "conformant",
+          "evidence": "src/lib/memory/reflection.ts:332 A rollup proposal that names an id outside the cluster it was shown is rejected whole. supersededBy is written by code beside the body.",
+          "carriedFrom": "2026-10-12"
+        },
+        {
+          "technique": "pending-beliefs-live-apart",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/memory/route.ts:157 This door commits a live OrgMemory row. It does not hold an unconfirmed proposal.",
+          "carriedFrom": "2026-10-12"
         },
         {
           "technique": "addresses-before-compression",
           "verdict": "conformant",
-          "evidence": "src/lib/db/org-memory-lifecycle.ts:208 A rollup retires members from default recall by link. The rows stay in the table, and the prompt tells the model to preserve every distinct fact."
+          "evidence": "src/lib/db/org-memory-lifecycle.ts:208 A rollup retires members from default recall by link. The rows stay in the table, and the prompt tells the model to preserve every distinct fact.",
+          "carriedFrom": "2026-10-12"
         },
         {
           "technique": "stale-served-versus-stale-answered",
           "verdict": "conformant",
-          "evidence": "src/lib/memory/recall.ts:245 Recall drops a superseded row, so the packed set serves the successor. The lineage read still walks the chain."
-        },
-        {
-          "technique": "filter-at-the-id-door",
-          "verdict": "deviation",
-          "evidence": "src/lib/db/org-memory.ts:328 List and recall omit superseded, archived, and expired rows. Load-by-id does not, and GET /api/org/memory/:id returns that row after the visibility check."
+          "evidence": "src/lib/memory/recall.ts:245 Recall drops a superseded row, so the packed set serves the successor. The lineage read still walks the chain.",
+          "carriedFrom": "2026-10-12"
         }
       ],
+      "registryProposal": "memory-value-model should say outright that the age axis must not be a column that ORM-managed 'last modified' semantics advance on counter writes. A delivery counter stored on the same row as an @updatedAt clock silently turns the bounded usage term back into an unbounded stay of execution, and the code comments here state the bound as if it held.",
       "superseded": [
         {
           "state": "conformant",
@@ -728,6 +758,13 @@
           "evaluatedAt": "2026-08-24",
           "worker": null,
           "reason": "replaced by 734e5899-6f25-4bee-bb68-6bd8ded3612f"
+        },
+        {
+          "state": "deviation",
+          "evidence": "src/lib/db/org-memory-lifecycle.ts:49 Recall and copy bumps rewrite updatedAt, and the value model treats that same column as the half-life clock, so a low-trust memory that keeps being delivered never reaches the forget floor.",
+          "evaluatedAt": "2026-10-12T21:25:33.075Z",
+          "worker": "734e5899-6f25-4bee-bb68-6bd8ded3612f",
+          "reason": "replaced by cc4c6ef2-4b84-4e54-b015-dbb2cac25c96"
         }
       ]
     },
@@ -736,72 +773,77 @@
       "subject": "agent-memory",
       "bundle": "software-engineering",
       "state": "unknown",
-      "evaluatedAt": "2026-10-12",
-      "evaluatedTs": "2026-10-12T21:25:33.075Z",
+      "evaluatedAt": "2026-11-03",
+      "evaluatedTs": "2026-11-03T09:59:19.855Z",
       "techniques": [
         {
           "technique": "working-memory",
           "verdict": "not-applicable",
-          "evidence": "src/features/inflight/live/LiveWarRoom.tsx:22 The wall surfaces failed scans, not operative task state."
+          "evidence": "src/features/inflight/live/LiveWarRoom.tsx:22 The wall surfaces failed scans, not operative task state.",
+          "carriedFrom": "2026-10-12"
         }
       ],
       "withdrawn": {
-        "worker": "734e5899-6f25-4bee-bb68-6bd8ded3612f",
+        "worker": "cc4c6ef2-4b84-4e54-b015-dbb2cac25c96",
         "state": "not-applicable",
-        "at": "2026-10-12T21:27:18.531109+00:00",
-        "reason": "reviewer (sonnet): The anchor fleetTimetable.ts:1 only shows the timetable aligner, and the context's own directory also has lesson-capture code (ledger/RunnerLessons.tsx and cockpit/loopClient.ts) that writes lessons into Org Memory, so 'does not capture agent memory' is not confirmed."
+        "at": "2026-11-03T10:00:19.573208+00:00",
+        "reason": "reviewer (sonnet): The anchor (fleetTimetable.ts:1) is a pure scan-history aligner, so it is incidental to the claim that nothing in the context touches agent memory; the zero-hit grep covers only the listed files, and the sibling live/cockpit and live/desk code (loop and brief handling) was never examined."
       }
     },
     "Org Knowledge & Skills/Athena Companion/agent-memory": {
       "context": "Athena Companion",
       "subject": "agent-memory",
       "bundle": "software-engineering",
-      "state": "unknown",
-      "evaluatedAt": "2026-10-12",
-      "evaluatedTs": "2026-10-12T21:25:33.075Z",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-03",
+      "evaluatedTs": "2026-11-03T09:59:19.855Z",
+      "worker": "cc4c6ef2-4b84-4e54-b015-dbb2cac25c96",
       "techniques": [
-        {
-          "technique": "working-memory",
-          "verdict": "deviation",
-          "evidence": "src/lib/athena/prompt.ts:152 A resumed thread replays the last eight turn excerpts. That is a truncated transcript, not a rewritten goal, constraints, and open-threads record."
-        },
-        {
-          "technique": "episodic-capture",
-          "verdict": "conformant",
-          "evidence": "src/lib/athena/turn.ts:304 One answered turn writes one episodic note, two sentences, confidence 0.5, tagged with the thread, into the org memory store."
-        },
-        {
-          "technique": "consolidation",
-          "verdict": "deviation",
-          "evidence": "src/lib/db/athena-episodes.ts:51 Each turn appends an episodic row. Nothing in this writer batches those rows, supersedes a prior episode, or distills them into a belief."
-        },
         {
           "technique": "recall-injection",
           "verdict": "deviation",
-          "evidence": "src/app/api/athena/gate.ts:158 A thrown prefetch and a true miss both become an empty list, and the prompt then omits the recall section. Bodies that do arrive are sliced at RECALL_EXCERPT."
-        },
-        {
-          "technique": "memory-governance",
-          "verdict": "conformant",
-          "evidence": "src/app/api/athena/proposals/[id]/resolve/route.ts:4 Actions she offers, including identity diffs, do not run until this resolve door. Episode writes are auto-commit observations at confidence 0.5 with source athena."
-        },
-        {
-          "technique": "probe-without-write-back",
-          "verdict": "conformant",
-          "evidence": "src/app/api/athena/gate.ts:145 Chat prefetch is a side read. It ranks with recallMemories and does not increment accessCount."
+          "evidence": "src/app/api/athena/gate.ts:158 The catch around lifecycleWorkingSet returns [], identical to the no-match path at line 164. Empty is not distinguished from broken."
         },
         {
           "technique": "loss-site-inventory",
           "verdict": "deviation",
-          "evidence": "src/lib/athena/prompt.ts:134 A cut memory is marked with an ellipsis that does not say how much was cut or why. Budget omissions from recallMemories are not passed into the prompt at all."
+          "evidence": "src/app/api/athena/gate.ts:156 The prefetch loads the 60 most recently updated rows and filters by keyword only after that cut. Older runbooks the cut drops are silently out of reach and no notice says so; org-memory-lifecycle.ts lists this as an open follow-up."
+        },
+        {
+          "technique": "memory-value-model",
+          "verdict": "conformant",
+          "evidence": "src/app/api/athena/gate.ts:140 Relevance chooses the candidates and the shared recallMemories value model orders them. No second ranking is invented."
+        },
+        {
+          "technique": "probe-without-write-back",
+          "verdict": "conformant",
+          "evidence": "src/app/api/athena/gate.ts:144 The machine side-read deliberately skips the delivery bump, and the reason is documented at the call site, as the technique requires."
+        },
+        {
+          "technique": "working-memory",
+          "verdict": "deviation",
+          "evidence": "src/lib/athena/prompt.ts:152 A resumed thread replays the last eight turn excerpts. That is a truncated transcript, not a rewritten goal, constraints, and open-threads record.",
+          "carriedFrom": "2026-10-12"
+        },
+        {
+          "technique": "episodic-capture",
+          "verdict": "conformant",
+          "evidence": "src/lib/athena/turn.ts:304 One answered turn writes one episodic note, two sentences, confidence 0.5, tagged with the thread, into the org memory store.",
+          "carriedFrom": "2026-10-12"
+        },
+        {
+          "technique": "consolidation",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/athena-episodes.ts:51 Each turn appends an episodic row. Nothing in this writer batches those rows, supersedes a prior episode, or distills them into a belief.",
+          "carriedFrom": "2026-10-12"
+        },
+        {
+          "technique": "memory-governance",
+          "verdict": "conformant",
+          "evidence": "src/app/api/athena/proposals/[id]/resolve/route.ts:4 Actions she offers, including identity diffs, do not run until this resolve door. Episode writes are auto-commit observations at confidence 0.5 with source athena.",
+          "carriedFrom": "2026-10-12"
         }
-      ],
-      "withdrawn": {
-        "worker": "734e5899-6f25-4bee-bb68-6bd8ded3612f",
-        "state": "deviation",
-        "at": "2026-10-12T21:27:18.479823+00:00",
-        "reason": "reviewer (sonnet): src/lib/athena/prompt.ts:133-134 appends a visible \" …[truncated]\" marker whenever a recalled memory is cut, which contradicts the claim that the model can read a clipped belief as the whole one, and the gate.ts:158 anchor does not itself slice at RECALL_EXCERPT."
-      }
+      ]
     },
     "Org Planning & Execution/Live War Room/test-harness": {
       "context": "Live War Room",
@@ -7719,6 +7761,27 @@
           "technique": "gap-ranking",
           "verdict": "deviation",
           "evidence": "src/components/report/dimensionExplorerDerive.ts:82 The 'biggest lever' that DimensionExplorer renders as the next move is ranked by impact alone (share x headroom). It carries no effort term, and its tie-break is input order rather than stable dimension identity. In contrast, ScoreWaterfall.tsx:59 does tie-break on the dimension id, but it orders contributions, not gaps."
+        }
+      ]
+    },
+    "Org Planning & Execution/Follow-ups Ledger/agent-memory": {
+      "context": "Follow-ups Ledger",
+      "subject": "agent-memory",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-03",
+      "evaluatedTs": "2026-11-03T09:59:19.855Z",
+      "worker": "cc4c6ef2-4b84-4e54-b015-dbb2cac25c96",
+      "techniques": [
+        {
+          "technique": "recall-injection",
+          "verdict": "deviation",
+          "evidence": "src/lib/mcp/work-tools.ts:296 Failed recall and empty recall produce the same output (section omitted). The technique requires the two to be spelled differently to the consuming agent."
+        },
+        {
+          "technique": "loss-site-inventory",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/followups.ts:682 The null standard drops the whole section without any in-band notice of kind, count or cause, and the same null also carries the read-failure path."
         }
       ]
     }

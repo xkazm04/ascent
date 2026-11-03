@@ -6415,7 +6415,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/mcp/work-tools.ts:296 The remote agent brief injects the org standard (procedural Org Memory included) through loadLaneBriefInput. A failed read collapses to null, which buildAgentBrief renders exactly like 'the org has published nothing', so an agent working without its org's memory cannot tell amnesia from novelty.",
+          "evaluatedAt": "2026-11-03",
+          "evaluatedAgainst": "sha256-b2:6c06fb6d8d6c900f",
+          "evaluatedRevision": 52
         },
         {
           "subject": "prompt-assembly",
@@ -6851,12 +6855,11 @@
           "changedAt": "2026-10-25",
           "confidence": "strong",
           "state": "deviation",
-          "evidence": "src/lib/db/org-memory-lifecycle.ts:49 Recall and copy bumps rewrite updatedAt, and the value model treats that same column as the half-life clock, so a low-trust memory that keeps being delivered never reaches the forget floor.",
-          "evaluatedAt": "2026-10-12",
-          "evaluatedAgainst": "sha256-b2:23599eae61aa7119",
-          "evaluatedRevision": 47,
-          "revisionsBehind": 5,
-          "stale": true
+          "evidence": "src/lib/db/org-memory-lifecycle.ts:49 Every recall/copy bump runs a Prisma update on the row, so the @updatedAt column moves, and the value model and forget pass both use that column as their age clock. A low-trust memory that keeps being delivered resets its own age and never reaches the 60-day grace boundary or the two-half-life floor that recall.ts and decay.ts say it must cross.",
+          "evaluatedAt": "2026-11-03",
+          "evaluatedAgainst": "sha256-b2:6c06fb6d8d6c900f",
+          "evaluatedRevision": 52,
+          "revisionsBehind": 5
         },
         {
           "subject": "test-harness",
@@ -7079,11 +7082,7 @@
           "confidence": "strong",
           "state": "not-applicable",
           "evidence": "src/app/api/org/skills/promote/route.ts:3 These routes file a generated SKILL.md into a versioned library and mint API tokens for that library. Nothing here recalls, decays, or consolidates knowledge across agent turns.",
-          "evaluatedAt": "2026-10-12",
-          "evaluatedAgainst": "sha256-b2:23599eae61aa7119",
-          "evaluatedRevision": 47,
-          "revisionsBehind": 5,
-          "stale": true
+          "evaluatedAt": "2026-10-12"
         },
         {
           "subject": "agent-instruction-files",
@@ -7400,7 +7399,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/app/api/athena/gate.ts:158 Athena's per-message memory prefetch returns the same empty list when the store read throws as when nothing matched. The companion then answers as if the org remembered nothing, rather than knowing it is operating without memory.",
+          "evaluatedAt": "2026-11-03",
+          "evaluatedAgainst": "sha256-b2:6c06fb6d8d6c900f",
+          "evaluatedRevision": 52
         },
         {
           "subject": "mcp-tools",

@@ -1,0 +1,201 @@
+{
+  "schema": "conform-run/1",
+  "worker": "cc4c6ef2-4b84-4e54-b015-dbb2cac25c96",
+  "subject": "agent-memory",
+  "evaluatedAt": "2026-11-03T09:59:19.855099+00:00",
+  "provider": "claude",
+  "model": "claude-opus-5-5",
+  "pairs": [
+    {
+      "context": "Org Memory",
+      "subject": "agent-memory",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/lib/db/org-memory-lifecycle.ts:49 Every recall/copy bump runs a Prisma update on the row, so the @updatedAt column moves, and the value model and forget pass both use that column as their age clock. A low-trust memory that keeps being delivered resets its own age and never reaches the 60-day grace boundary or the two-half-life floor that recall.ts and decay.ts say it must cross.",
+      "techniques": [
+        {
+          "technique": "decay-and-forgetting",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/org-memory-lifecycle.ts:88 The delivery bump also moves updatedAt (@updatedAt), and decayVerdict/decayPopulationWhere use updatedAt for age > 60 days and for the decay factor. Each delivery therefore restarts the grace period, and a low-confidence row that keeps being served never meets the conjunction."
+        },
+        {
+          "technique": "memory-value-model",
+          "verdict": "deviation",
+          "evidence": "src/lib/memory/recall.ts:207 The technique names 'score it as brand new' as the wrong default for an unparseable instant: age 0 is maximum freshness and makes such rows immortal to the sweep. Separately, age is measured from updatedAt, which deliveries rewrite, not from the last confirmation, so the cap's arithmetic never terminates."
+        },
+        {
+          "technique": "rollup-compaction",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/org-memory-lifecycle.ts:198 The proposal pass in reflection.ts caps rollup confidence at the members' maximum, but the apply door (a second client call) takes the client's confidence clamped only to 0..1, and it never selects the members' confidence. Three 0.3 hunches can therefore be applied as a 1.0 summary."
+        },
+        {
+          "technique": "scope-before-similarity",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/org-memory-lifecycle.ts:177 The merge door recomputes reflectionScopeKey (namespace, visibility, private author) and refuses a mixed-scope member list. The rollup inherits its members' scope."
+        },
+        {
+          "technique": "filter-at-the-id-door",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/org-memory-lifecycle.ts:169 Member ids that arrive from a client or from an LLM proposal are reloaded at the write door with archived:false, supersededBy:null, orgId and the viewer's visibility scope. A count mismatch rolls back the whole transaction."
+        },
+        {
+          "technique": "recall-injection",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/memory/recall/route.ts:93 Recall packs whole items under a character budget and returns 'omitted' (lost the budget race) separately from 'ineligible' (superseded/expired/filtered), each with its reason."
+        },
+        {
+          "technique": "loss-site-inventory",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/memory/recall/route.ts:127 The population cap's loss is reported in-band as a count of eligible rows that were never scored, beside consideredCount and omittedCount."
+        },
+        {
+          "technique": "probe-without-write-back",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/memory/recall/route.ts:91 The bump is an explicit write limited to the packed set. A search for callers of the recall route and recallMemories found no scheduled probe or eval replaying a fixed question set. The machine side-reads (Athena gate, lane brief) do not bump."
+        }
+      ],
+      "registryProposal": "memory-value-model should say outright that the age axis must not be a column that ORM-managed 'last modified' semantics advance on counter writes. A delivery counter stored on the same row as an @updatedAt clock silently turns the bounded usage term back into an unbounded stay of execution, and the code comments here state the bound as if it held."
+    },
+    {
+      "context": "Follow-ups Ledger",
+      "subject": "agent-memory",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/lib/mcp/work-tools.ts:296 The remote agent brief injects the org standard (procedural Org Memory included) through loadLaneBriefInput. A failed read collapses to null, which buildAgentBrief renders exactly like 'the org has published nothing', so an agent working without its org's memory cannot tell amnesia from novelty.",
+      "techniques": [
+        {
+          "technique": "recall-injection",
+          "verdict": "deviation",
+          "evidence": "src/lib/mcp/work-tools.ts:296 Failed recall and empty recall produce the same output (section omitted). The technique requires the two to be spelled differently to the consuming agent."
+        },
+        {
+          "technique": "loss-site-inventory",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/followups.ts:682 The null standard drops the whole section without any in-band notice of kind, count or cause, and the same null also carries the read-failure path."
+        }
+      ]
+    },
+    {
+      "context": "Athena Companion",
+      "subject": "agent-memory",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/app/api/athena/gate.ts:158 Athena's per-message memory prefetch returns the same empty list when the store read throws as when nothing matched. The companion then answers as if the org remembered nothing, rather than knowing it is operating without memory.",
+      "techniques": [
+        {
+          "technique": "recall-injection",
+          "verdict": "deviation",
+          "evidence": "src/app/api/athena/gate.ts:158 The catch around lifecycleWorkingSet returns [], identical to the no-match path at line 164. Empty is not distinguished from broken."
+        },
+        {
+          "technique": "loss-site-inventory",
+          "verdict": "deviation",
+          "evidence": "src/app/api/athena/gate.ts:156 The prefetch loads the 60 most recently updated rows and filters by keyword only after that cut. Older runbooks the cut drops are silently out of reach and no notice says so; org-memory-lifecycle.ts lists this as an open follow-up."
+        },
+        {
+          "technique": "memory-value-model",
+          "verdict": "conformant",
+          "evidence": "src/app/api/athena/gate.ts:140 Relevance chooses the candidates and the shared recallMemories value model orders them. No second ranking is invented."
+        },
+        {
+          "technique": "probe-without-write-back",
+          "verdict": "conformant",
+          "evidence": "src/app/api/athena/gate.ts:144 The machine side-read deliberately skips the delivery bump, and the reason is documented at the call site, as the technique requires."
+        }
+      ]
+    }
+  ],
+  "declined": [
+    {
+      "subject": "agent-memory",
+      "context": "Skills Registry & API Tokens",
+      "reason": "withdrawn after review: reviewer (sonnet): The anchor (promote/route.ts:3) only describes what promote does and doesn't show that no memory lifecycle exists here; skills/events/route.ts runs usage telemetry with 'dormancy' semantics, which the search terms (recall, decay, memory, consolidat) could not match, so I couldn't confirm absence."
+    },
+    {
+      "subject": "agent-memory",
+      "context": "Live War Room",
+      "reason": "withdrawn after review: reviewer (sonnet): The anchor (fleetTimetable.ts:1) is a pure scan-history aligner, so it is incidental to the claim that nothing in the context touches agent memory; the zero-hit grep covers only the listed files, and the sibling live/cockpit and live/desk code (loop and brief handling) was never examined."
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-11-03T09:59:19.855099+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "agent-memory"
+      ],
+      "techniques": [
+        "decay-and-forgetting",
+        "filter-at-the-id-door",
+        "loss-site-inventory",
+        "memory-value-model",
+        "probe-without-write-back",
+        "recall-injection",
+        "rollup-compaction",
+        "scope-before-similarity"
+      ],
+      "deviations": 1,
+      "context": "Org Memory",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-03T09:59:19.855099+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "agent-memory"
+      ],
+      "techniques": [
+        "procedure-promotion"
+      ],
+      "deviations": 0,
+      "context": "Skills Registry & API Tokens",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-03T09:59:19.855099+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "agent-memory"
+      ],
+      "techniques": [],
+      "deviations": 0,
+      "context": "Live War Room",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-03T09:59:19.855099+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "agent-memory"
+      ],
+      "techniques": [
+        "loss-site-inventory",
+        "recall-injection"
+      ],
+      "deviations": 1,
+      "context": "Follow-ups Ledger",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-03T09:59:19.855099+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "agent-memory"
+      ],
+      "techniques": [
+        "loss-site-inventory",
+        "memory-value-model",
+        "probe-without-write-back",
+        "recall-injection"
+      ],
+      "deviations": 1,
+      "context": "Athena Companion",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    }
+  ]
+}
