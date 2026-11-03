@@ -8084,6 +8084,33 @@
           "evidence": "src/app/api/org/decision/route.ts:51 A snooze must carry a future expiry, so a stood-down finding resurfaces instead of silently becoming permanent."
         }
       ]
+    },
+    "Identity & GitHub Connectivity/GitHub Repo Data Access/quality-gates": {
+      "context": "GitHub Repo Data Access",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-03",
+      "evaluatedTs": "2026-11-03T23:21:15.539Z",
+      "worker": "5c7f2fd1-7b14-4f1c-9a5f-19ff9ccf2bf5",
+      "techniques": [
+        {
+          "technique": "enforcement-binding",
+          "verdict": "deviation",
+          "evidence": "src/lib/github/governance.ts:96 The binding is read only as 'a rule exists'. The required check names (parameters.required_status_checks) are discarded, so the required-vs-emitted inventory the technique demands cannot be computed, and a requirement that matches nothing reads as enforced."
+        },
+        {
+          "technique": "unmeasurable-criteria",
+          "verdict": "conformant",
+          "evidence": "src/lib/github/governance.ts:80 An unreadable rulesets response becomes governance UNKNOWN (null), never 'zero active rules'. A hole in the instrument therefore cannot read as a measured 'no protection' (or as compliance) to the downstream gate."
+        },
+        {
+          "technique": "match-the-resolved-artifact",
+          "verdict": "conformant",
+          "evidence": "src/lib/github/codeowners.ts:24 CODEOWNERS is resolved in GitHub's own precedence order (the engine's resolution), not by the first file in the fetch array, so a stale lower-precedence copy is never read as the effective one."
+        }
+      ],
+      "registryProposal": "enforcement-binding is written for a repo auditing its own merge binding. A conformance scanner that ingests other repos' bindings meets the same failure one level up: flattening the required-check list to 'required: yes' at ingestion makes the rename failure undetectable for every consumer. The technique could say that a binding read for assessment must keep the required check names so the inventory diff stays possible."
     }
   }
 }

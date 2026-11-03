@@ -1685,7 +1685,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/github/governance.ts:96 The ingestion reduces the ruleset's required-status-checks rule to a boolean and drops the list of required check names. No downstream reader can then diff the checks the merge decision requires against the checks the pipeline emits, so a rule requiring a renamed or never-emitted check (a requirement nothing satisfies) is credited as enforcement. passport.ts:361 derives `enforced` from this boolean, and governance.test.ts:75 credits a rule that names no check.",
+          "evaluatedAt": "2026-11-03",
+          "evaluatedAgainst": "sha256-b2:0d8378dd13155e59",
+          "evaluatedRevision": 54
         },
         {
           "subject": "agent-instruction-files",

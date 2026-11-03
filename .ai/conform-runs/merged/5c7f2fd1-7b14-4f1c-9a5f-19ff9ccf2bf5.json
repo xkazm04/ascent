@@ -1,0 +1,75 @@
+{
+ "schema": "conform-run/1",
+ "worker": "5c7f2fd1-7b14-4f1c-9a5f-19ff9ccf2bf5",
+ "subject": "quality-gates",
+ "evaluatedAt": "2026-11-03T23:21:15.539868+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "GitHub Repo Data Access",
+   "subject": "quality-gates",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/github/governance.ts:96 The ingestion reduces the ruleset's required-status-checks rule to a boolean and drops the list of required check names. No downstream reader can then diff the checks the merge decision requires against the checks the pipeline emits, so a rule requiring a renamed or never-emitted check (a requirement nothing satisfies) is credited as enforcement. passport.ts:361 derives `enforced` from this boolean, and governance.test.ts:75 credits a rule that names no check.",
+   "techniques": [
+    {
+     "technique": "enforcement-binding",
+     "verdict": "deviation",
+     "evidence": "src/lib/github/governance.ts:96 The binding is read only as 'a rule exists'. The required check names (parameters.required_status_checks) are discarded, so the required-vs-emitted inventory the technique demands cannot be computed, and a requirement that matches nothing reads as enforced."
+    },
+    {
+     "technique": "unmeasurable-criteria",
+     "verdict": "conformant",
+     "evidence": "src/lib/github/governance.ts:80 An unreadable rulesets response becomes governance UNKNOWN (null), never 'zero active rules'. A hole in the instrument therefore cannot read as a measured 'no protection' (or as compliance) to the downstream gate."
+    },
+    {
+     "technique": "match-the-resolved-artifact",
+     "verdict": "conformant",
+     "evidence": "src/lib/github/codeowners.ts:24 CODEOWNERS is resolved in GitHub's own precedence order (the engine's resolution), not by the first file in the fetch array, so a stale lower-precedence copy is never read as the effective one."
+    }
+   ],
+   "registryProposal": "enforcement-binding is written for a repo auditing its own merge binding. A conformance scanner that ingests other repos' bindings meets the same failure one level up: flattening the required-check list to 'required: yes' at ingestion makes the rename failure undetectable for every consumer. The technique could say that a binding read for assessment must keep the required check names so the inventory diff stays possible."
+  }
+ ],
+ "declined": [
+  {
+   "subject": "quality-gates",
+   "context": "Scan Pipeline & Ingestion",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "quality-gates",
+   "context": "AI Registry Repo (Onboarding & Index)",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "quality-gates",
+   "context": "First-Run Onboarding Wizard",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "quality-gates",
+   "context": "Live War Room",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-03T23:21:15.539868+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "quality-gates"
+   ],
+   "techniques": [
+    "enforcement-binding",
+    "match-the-resolved-artifact",
+    "unmeasurable-criteria"
+   ],
+   "deviations": 1,
+   "context": "GitHub Repo Data Access",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
