@@ -1093,57 +1093,92 @@
       "subject": "prompt-assembly",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T00:24:42.892Z",
-      "worker": "c7c43841-8146-44ed-a006-052acaf3d426",
+      "evaluatedAt": "2026-11-03",
+      "evaluatedTs": "2026-11-03T23:38:33.168Z",
+      "worker": "f9b3a0d5-f84d-4a59-b4d8-cd1f0835be4d",
       "techniques": [
+        {
+          "technique": "task-envelope",
+          "verdict": "deviation",
+          "evidence": "src/lib/scoring/prompt.ts:91 The prompt opens with an expertise and competence claim. The rest of the line (never invent facts, JSON only) is a real constraint and the TASK block gives a done shape, but the competence priming is the pattern the technique says to remove."
+        },
         {
           "technique": "layered-composition",
           "verdict": "conformant",
-          "evidence": "src/lib/scoring/prompt.ts:464 One assembler takes the score input and returns a stable system prefix plus a per-repo user message."
+          "evidence": "src/lib/scoring/prompt.ts:458 Role, then rubric, then task contract, composed once as the stable SYSTEM. Per-repo data goes only in the user message. Callers (bedrock.ts, claude-cli.ts) pass typed LlmScoreInput, never prompt text."
+        },
+        {
+          "technique": "cache-breakpoint-allocation",
+          "verdict": "conformant",
+          "evidence": "src/lib/scoring/prompt.ts:546 One cut, between the byte-identical system prefix and the per-repo user message. Volatile blocks (decisions, craft ladder) are deliberately kept out of SYSTEM so they don't break the cache."
+        },
+        {
+          "technique": "fingerprinting-and-cache-keys",
+          "verdict": "conformant",
+          "evidence": "src/lib/maturity/model.ts:342 The rubric and prompt version is folded into the scan cache key (cache.ts makeCacheKey). model.test.ts pins a hash of the SYSTEM prompt, so a prompt change that skips the bump fails the test."
+        },
+        {
+          "technique": "context-budgeting",
+          "verdict": "conformant",
+          "evidence": "src/lib/scoring/prompt.ts:116 The file window has a per-file cap, a whole-window cap and a reserved workflow quota. Omitted files are named to the model (WINDOW COVERAGE) and truncation leaves a marker. The caps are counted in characters, not derived tokens."
         },
         {
           "technique": "variable-interpolation",
           "verdict": "conformant",
-          "evidence": "src/lib/scoring/prompt.ts:525 A missing description becomes the declared token \"(none)\", and repository text is neutralized before it enters the user message."
+          "evidence": "src/lib/scoring/prompt.ts:525 Absent values render a declared default. Repo-authored spans are neutralized and the bulk sits inside the UNTRUSTED fence."
         },
         {
           "technique": "house-vocabulary-layer",
           "verdict": "conformant",
-          "evidence": "src/lib/scoring/prompt.ts:101 Dimension names and criteria are rendered from DIMENSIONS, the rubric module, rather than restated by hand in the prompt."
+          "evidence": "src/lib/scoring/prompt.ts:103 The product's own level and dimension terms are rendered from the model.ts authority into the standing prefix."
         },
         {
-          "technique": "context-reachability",
-          "verdict": "deviation",
-          "evidence": "src/lib/scoring/prompt.ts:502 Omitted file excerpts are unreachable on this call (the only tool is the assessment schema) and are still the first thing cut."
+          "technique": "capability-documentation",
+          "verdict": "conformant",
+          "evidence": "src/lib/scoring/prompt.ts:428 The scorer has no tools. The claim-facet output contract is rendered from the claims.ts table rather than hand-written."
         },
         {
-          "technique": "context-budgeting",
-          "verdict": "deviation",
-          "evidence": "src/lib/scoring/prompt.ts:107 The window is a character slice that can end mid-span and labels the cut only \"truncated\", with no token total owned at assembly."
-        },
-        {
-          "technique": "task-envelope",
-          "verdict": "deviation",
-          "evidence": "src/lib/scoring/prompt.ts:91 The standing prompt opens with an expertise claim; the locate pointer, done shape and check come only later."
-        },
-        {
-          "technique": "fingerprinting-and-cache-keys",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/maturity/model.ts:342 r24 busts the score cache when the rubric or system prompt changes; this call is one-shot and has no resumed session to compare."
+          "technique": "consumer-coupled-decoration",
+          "verdict": "conformant",
+          "evidence": "src/lib/scoring/prompt.ts:516 The per-commit prefix is a shared constant imported from its consumer, the claims verifier, so the consumer can be named."
         },
         {
           "technique": "pinned-prompt-clock",
           "verdict": "not-applicable",
-          "evidence": "src/lib/scoring/prompt.ts:524 The only timestamp is repo.pushedAt from the input; a search of prompt.ts found no Date or clock read."
+          "evidence": "src/lib/scoring/prompt.ts:524 Assembly reads no clock. The only date is the repo's push time, passed in as data."
+        },
+        {
+          "technique": "history-compaction",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/scoring/prompt.ts:464 Single-shot system plus user call with no transcript and no tools, so the compaction, continuation and elision techniques do not apply."
+        },
+        {
+          "technique": "elision-to-a-refetch-pointer",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/scoring/prompt.ts:464 No tool loop or history to elide; the model can't refetch anyway. The earlier stale verdict counted character-slicing against this, but the window now names omitted files to the model."
+        },
+        {
+          "technique": "context-reachability",
+          "verdict": "deviation",
+          "evidence": "src/lib/scoring/prompt.ts:502 Omitted file excerpts are unreachable on this call (the only tool is the assessment schema) and are still the first thing cut.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "response-reservation-sizing",
           "verdict": "not-applicable",
-          "evidence": "src/lib/scoring/prompt.ts:546 The assembler returns the two texts and does not set an output ceiling; a search of prompt.ts and engine.ts found no maxTokens."
+          "evidence": "src/lib/scoring/prompt.ts:546 The assembler returns the two texts and does not set an output ceiling; a search of prompt.ts and engine.ts found no maxTokens.",
+          "carriedFrom": "2026-10-13"
         }
       ],
-      "registryProposal": "Say outright that a stateless single-call scorer is outside history-compaction, continuation, cache-affinity and the compaction schedules, so absence of a transcript is not left as an unread pile."
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "src/lib/scoring/prompt.ts:91 buildAssessmentPrompt is one pure assembler with a stable system prefix, but the standing text opens on an expertise claim and the file window is spent by character-slicing evidence the model cannot fetch back.",
+          "evaluatedAt": "2026-10-13T00:24:42.892Z",
+          "worker": "c7c43841-8146-44ed-a006-052acaf3d426",
+          "reason": "replaced by f9b3a0d5-f84d-4a59-b4d8-cd1f0835be4d"
+        }
+      ]
     },
     "Onboarding, Shell & AI Standard/First-Run Onboarding Wizard/prompt-assembly": {
       "context": "First-Run Onboarding Wizard",
@@ -1238,44 +1273,65 @@
       "subject": "prompt-assembly",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T00:24:42.892Z",
-      "worker": "c7c43841-8146-44ed-a006-052acaf3d426",
+      "evaluatedAt": "2026-11-03",
+      "evaluatedTs": "2026-11-03T23:38:33.168Z",
+      "worker": "f9b3a0d5-f84d-4a59-b4d8-cd1f0835be4d",
       "techniques": [
         {
           "technique": "layered-composition",
           "verdict": "deviation",
-          "evidence": "src/lib/org/followups.ts:688 The remote brief appends sections after buildFixPrompt returns, so those sections sit outside the assembler's budget and tests."
+          "evidence": "src/lib/org/followups.ts:688 Appends onto an already-assembled prompt string. The standard and perimeter (standing, policy-like) land after the volatile item list instead of leading it."
         },
         {
           "technique": "capability-documentation",
           "verdict": "deviation",
-          "evidence": "src/lib/org/followups.ts:287 The session's capability rules are hand-maintained prose, and this comment records them disagreeing with the guard that actually voids the cycle."
+          "evidence": "src/lib/org/followups.ts:273 The lane's capability and gate-surface rules are hand-written prose that copies the regexes in lane-gate-diff.ts. The comments record three measured drifts and no test ties the two together."
+        },
+        {
+          "technique": "variable-interpolation",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/followups.ts:638 Titles, rationale and explore questions are prior model output, so untrusted, but they are interpolated raw. Only failure output goes through neutralize, though the scoring prompt neutralizes the same craft titles for this exact threat. Absent perimeter values do get declared defaults."
+        },
+        {
+          "technique": "task-envelope",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/followups.ts:595 No expertise claim. Locate (read the repo's guidance) and Done (RESOLVED/SKIPPED lines) are present, but no explicit read-the-artifact check before reporting."
+        },
+        {
+          "technique": "house-vocabulary-layer",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/followups.ts:541 Defines the house terms gap and rung and marks each item with one."
+        },
+        {
+          "technique": "pinned-prompt-clock",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/followups.ts:652 The builder reads no clock; the date is a declared ctx input and goes in the tail."
+        },
+        {
+          "technique": "history-compaction",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/org/followups.ts:457 Produces one standalone brief and holds no transcript."
         },
         {
           "technique": "context-budgeting",
           "verdict": "deviation",
-          "evidence": "src/lib/org/followups.ts:644 Every selected item's rationale is inlined with no section cap, no total, and no notice of anything dropped."
-        },
-        {
-          "technique": "house-vocabulary-layer",
-          "verdict": "deviation",
-          "evidence": "src/lib/org/followups.ts:541 gap and rung are defined again inside this prompt instead of being cited from one house-term source."
-        },
-        {
-          "technique": "task-envelope",
-          "verdict": "conformant",
-          "evidence": "src/lib/org/followups.ts:594 The task states a machine-checkable done line per item and does not open with an expertise claim."
+          "evidence": "src/lib/org/followups.ts:644 Every selected item's rationale is inlined with no section cap, no total, and no notice of anything dropped.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "context-reachability",
           "verdict": "conformant",
-          "evidence": "src/lib/org/followups.ts:550 The repo is pointed at, not inlined, and the unreachable scan judgment is what the item text carries."
-        },
+          "evidence": "src/lib/org/followups.ts:550 The repo is pointed at, not inlined, and the unreachable scan judgment is what the item text carries.",
+          "carriedFrom": "2026-10-13"
+        }
+      ],
+      "superseded": [
         {
-          "technique": "variable-interpolation",
-          "verdict": "conformant",
-          "evidence": "src/lib/org/followups.ts:651 The date and scan note enter as declared arguments; the function does not read a clock."
+          "state": "deviation",
+          "evidence": "src/lib/org/followups.ts:688 buildFixPrompt is a pure batch assembler, but buildAgentBrief concatenates the org standard and working perimeter onto the returned string, and the lane capability rules are a hand-written list the file itself records as having drifted from the guard.",
+          "evaluatedAt": "2026-10-13T00:24:42.892Z",
+          "worker": "c7c43841-8146-44ed-a006-052acaf3d426",
+          "reason": "replaced by f9b3a0d5-f84d-4a59-b4d8-cd1f0835be4d"
         }
       ]
     },
@@ -6759,14 +6815,14 @@
       "subject": "prompt-assembly",
       "bundle": "software-engineering",
       "state": "unknown",
-      "evaluatedAt": "2026-10-24",
-      "evaluatedTs": "2026-10-24T00:58:11.587Z",
+      "evaluatedAt": "2026-11-03",
+      "evaluatedTs": "2026-11-03T23:38:33.168Z",
       "techniques": [],
       "withdrawn": {
-        "worker": "51d33515-65a2-49b4-b2bf-068a4f9ca363",
+        "worker": "f9b3a0d5-f84d-4a59-b4d8-cd1f0835be4d",
         "state": "not-applicable",
-        "at": "2026-10-24T00:58:33.270387+00:00",
-        "reason": "reviewer (sonnet): The anchor developer-view.ts:240 is only a sharing-ledger row saying 'Prompts, diffs, file contents: never collected'. It doesn't show that the route calls no model. OrgShell.tsx, which is in the context, mentions hosting the Athena companion conversation, and I did not trace that, so the absence cl"
+        "at": "2026-11-03T23:39:02.883200+00:00",
+        "reason": "reviewer (sonnet): The anchor developer-view-load.ts:11 is only a db import line, so it does not show that no prompt is assembled; the other evidence is a grep for four terms, and the copy-command UI (CareCopyAction) was not ruled out."
       }
     },
     "Org Knowledge & Skills/AI Registry Repo (Onboarding & Index)/test-harness": {
@@ -8111,6 +8167,21 @@
         }
       ],
       "registryProposal": "enforcement-binding is written for a repo auditing its own merge binding. A conformance scanner that ingests other repos' bindings meets the same failure one level up: flattening the required-check list to 'required: yes' at ingestion makes the rename failure undetectable for every consumer. The technique could say that a binding read for assessment must keep the required check names so the inventory diff stays possible."
+    },
+    "Reporting & Visualization/Trends & Comparison/prompt-assembly": {
+      "context": "Trends & Comparison",
+      "subject": "prompt-assembly",
+      "bundle": "software-engineering",
+      "state": "unknown",
+      "evaluatedAt": "2026-11-03",
+      "evaluatedTs": "2026-11-03T23:38:33.168Z",
+      "techniques": [],
+      "withdrawn": {
+        "worker": "f9b3a0d5-f84d-4a59-b4d8-cd1f0835be4d",
+        "state": "not-applicable",
+        "at": "2026-11-03T23:39:02.924683+00:00",
+        "reason": "reviewer (sonnet): The anchor compare.ts:308 is a function that attributes a score change to the LLM judgment, so it does not show that no prompt is built; src/lib/report also holds an LLM briefing composer (llm-markdown, briefing-scope), which the verdict does not account for."
+      }
     }
   }
 }

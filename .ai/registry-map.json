@@ -1269,12 +1269,11 @@
           "changedAt": "2026-10-14",
           "confidence": "strong",
           "state": "deviation",
-          "evidence": "src/lib/scoring/prompt.ts:91 buildAssessmentPrompt is one pure assembler with a stable system prefix, but the standing text opens on an expertise claim and the file window is spent by character-slicing evidence the model cannot fetch back.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:7436fd55a7cb2500",
-          "evaluatedRevision": 43,
-          "revisionsBehind": 1,
-          "stale": true
+          "evidence": "src/lib/scoring/prompt.ts:91 The scoring rubric in model.ts is rendered by one pure assembler with a byte-stable SYSTEM prefix, and its version is folded into the cache key, but the standing text opens on an expertise and competence claim ('an expert assessor', 'rigorous', 'don't be shy'), which is the priming task-envelope says to replace.",
+          "evaluatedAt": "2026-11-03",
+          "evaluatedAgainst": "sha256-b2:ad13b2ee69c25e8d",
+          "evaluatedRevision": 44,
+          "revisionsBehind": 1
         },
         {
           "subject": "translation-quality-measurement",
@@ -6442,12 +6441,11 @@
           "changedAt": "2026-10-14",
           "confidence": "probable",
           "state": "deviation",
-          "evidence": "src/lib/org/followups.ts:688 buildFixPrompt is a pure batch assembler, but buildAgentBrief concatenates the org standard and working perimeter onto the returned string, and the lane capability rules are a hand-written list the file itself records as having drifted from the guard.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:7436fd55a7cb2500",
-          "evaluatedRevision": 43,
-          "revisionsBehind": 1,
-          "stale": true
+          "evidence": "src/lib/org/followups.ts:689 buildAgentBrief takes the finished string from buildFixPrompt and appends the org standard and working perimeter after it, so policy-class layers trail the per-call task outside any single assembler's ordering or budget, the post-return append the golden path says the door must seal against.",
+          "evaluatedAt": "2026-11-03",
+          "evaluatedAgainst": "sha256-b2:ad13b2ee69c25e8d",
+          "evaluatedRevision": 44,
+          "revisionsBehind": 1
         },
         {
           "subject": "fleet-orchestration",
