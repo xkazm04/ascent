@@ -1,0 +1,37 @@
+{
+ "schema": "conform-run/1",
+ "worker": "580dd30c-afb5-4485-b83f-c1c1a385d1df",
+ "subject": "test-harness",
+ "evaluatedAt": "2026-11-03T16:01:53.916090+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [],
+ "declined": [
+  {
+   "subject": "test-harness",
+   "context": "Local Autopilot & Loop Engine",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "test-harness",
+   "context": "Scan Pipeline & Ingestion",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "test-harness",
+   "context": "Roadmap & Recommendation Tracking",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "test-harness",
+   "context": "Org Import, Scan & Watchlist",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "test-harness",
+   "context": "Follow-ups Ledger",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": []
+}
