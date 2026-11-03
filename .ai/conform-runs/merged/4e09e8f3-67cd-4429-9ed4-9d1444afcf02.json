@@ -1,0 +1,205 @@
+{
+ "schema": "conform-run/1",
+ "worker": "4e09e8f3-67cd-4429-9ed4-9d1444afcf02",
+ "subject": "quality-gates",
+ "evaluatedAt": "2026-11-03T23:06:59.337836+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "MCP Server",
+   "subject": "quality-gates",
+   "bundle": "software-engineering",
+   "state": "conformant",
+   "evidence": "src/app/api/mcp/route.ts:249 Every catalog tool marked `mutates` must clear a pure, table-driven write gate before its handler runs. Structural tests keep the table in step with the catalog, and an exhaustive matrix proves the gate can refuse, so the write door is an enforced, live gate rather than a convention.",
+   "techniques": [
+    {
+     "technique": "chokepoint-tag-registry",
+     "verdict": "conformant",
+     "evidence": "src/lib/mcp/write-gate.test.ts:42 Three-way check: policy row \u2194 catalog entry \u2194 `mutates` marker, tested in both directions. A write tool added without a row fails the suite."
+    },
+    {
+     "technique": "prose-rule-drift",
+     "verdict": "conformant",
+     "evidence": "src/lib/mcp/write-gate.test.ts:48 The 'writes need telemetry:write' rule is mechanised as an equivalence test instead of staying a sentence in a comment."
+    },
+    {
+     "technique": "gate-liveness",
+     "verdict": "conformant",
+     "evidence": "src/lib/mcp/write-gate.matrix.test.ts:53 The matrix asserts its own instrument (4,480 cases, refused > 0 and < cases), so a matrix that never refused cannot pass green."
+    },
+    {
+     "technique": "instrument-answers-only-its-own-question",
+     "verdict": "conformant",
+     "evidence": "src/lib/mcp/write-gate.matrix.test.ts:4 States which question each test suite answers (single-fault prose regex vs typed-rule precedence over the full product). That is division of labour, not redundancy."
+    },
+    {
+     "technique": "severity-by-construction",
+     "verdict": "conformant",
+     "evidence": "src/app/api/mcp/route.ts:256 A denial returns before runTool, so the refusal actually stops the write; the label and the code path agree."
+    },
+    {
+     "technique": "gate-laddering",
+     "verdict": "conformant",
+     "evidence": "src/app/api/mcp/route.ts:242 The same rule is enforced at two rungs: the commit-time structural test, and a fail-closed runtime check for a mutates tool with no policy row."
+    },
+    {
+     "technique": "refusal-names-a-reachable-remedy",
+     "verdict": "conformant",
+     "evidence": "src/lib/mcp/write-gate.ts:219 Each refusal names the remedy (which scope to grant, plan, or ceiling reset), and the ceiling message is pinned by a test to say it resets."
+    },
+    {
+     "technique": "unmeasurable-criteria",
+     "verdict": "conformant",
+     "evidence": "src/lib/mcp/handlers.ts:129 gate_verdict reports unmeasured bars as skips. An unreadable admission layer is a REFUSE (handlers.ts:106), and writesToday=null is an announced no-persistence skip."
+    },
+    {
+     "technique": "policy-projection",
+     "verdict": "conformant",
+     "evidence": "src/lib/mcp/handlers.ts:126 The agent-facing verdict carries the same enumerated policy, through the same describer, that the CI gate and dashboard use, so the projection cannot understate."
+    },
+    {
+     "technique": "self-reported-gate-inputs",
+     "verdict": "conformant",
+     "evidence": "src/app/api/mcp/gates.ts:90 The anti-inflation ceiling counts audit rows the door writes, not records the agent authors, so the gated party cannot shrink its own count."
+    },
+    {
+     "technique": "renameable-detector-keys",
+     "verdict": "conformant",
+     "evidence": "src/app/api/mcp/route.ts:239 The ceiling and audit identity are keyed on the immutable token id, not the author-chosen (non-unique) token name."
+    },
+    {
+     "technique": "fabrication-economics",
+     "verdict": "conformant",
+     "evidence": "src/lib/mcp/write-gate.ts:103 An explicit null declares that no natural key exists, instead of inventing one to fill the audit field."
+    },
+    {
+     "technique": "oracle-frozen-during-repair",
+     "verdict": "conformant",
+     "evidence": "src/lib/mcp/handlers-write.test.ts:115 An agent repairing a follow-up cannot write the verdict. Only the default-branch rescan closes a row, and a test pins this."
+    },
+    {
+     "technique": "false-positive-economics",
+     "verdict": "conformant",
+     "evidence": "src/lib/mcp/write-gate.ts:53 Ceilings are calibrated to the honest population so they do not fire on correct use."
+    },
+    {
+     "technique": "item-liveness",
+     "verdict": "conformant",
+     "evidence": "src/lib/mcp/work-tools.ts:246 Claims are leases: a silent holder's rows return to the queue automatically instead of reading as owned forever."
+    }
+   ]
+  },
+  {
+   "context": "AI-Native Passports",
+   "subject": "quality-gates",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/report/passport/pr/route.ts:53 The passport-PR route turns any read failure (including a DB outage) into the 404 'No passport \u2026 Scan it first'. That is the exact false fact the sibling GET route avoids with a strict read, so an instrument failure is reported as a fact about the repo, with a remedy that would not clear it.",
+   "techniques": [
+    {
+     "technique": "unmeasurable-criteria",
+     "verdict": "deviation",
+     "evidence": "src/app/api/report/passport/pr/route.ts:53 The could-not-read state is collapsed into 'subject has no passport' instead of being derived and refused as an outage. The GET sibling (route.ts:40) uses strict: true for exactly this reason."
+    },
+    {
+     "technique": "refusal-names-a-reachable-remedy",
+     "verdict": "deviation",
+     "evidence": "src/app/api/report/passport/pr/route.ts:55 The preferred remedy is printed even when the real cause is an unreadable store. Rescanning does not clear that refusal."
+    },
+    {
+     "technique": "waiver-names-its-finding",
+     "verdict": "conformant",
+     "evidence": "src/app/api/report/passport/overrides/route.ts:75 Each decline names one allow-listed field and finding. A malformed decline is rejected loudly, not dropped, and evidence limitations are excluded from declining (passport-overlay.ts:90)."
+    },
+    {
+     "technique": "renameable-detector-keys",
+     "verdict": "conformant",
+     "evidence": "src/lib/analyze/passport-overlay.ts:98 Declines join on a minted finding id rather than renameable blocker prose."
+    },
+    {
+     "technique": "advancement-evidence-fields",
+     "verdict": "conformant",
+     "evidence": "src/app/api/report/passport/overrides/route.ts:128 The accepted-gap record carries author, day and the code/severity baseline it was made against, so the hole is written into the item's row."
+    },
+    {
+     "technique": "self-reported-gate-inputs",
+     "verdict": "conformant",
+     "evidence": "src/app/api/report/passport/overrides/route.ts:64 The override author is taken from the session; a client-supplied `by` is refused, so the override record cannot be forged by the caller."
+    },
+    {
+     "technique": "item-liveness",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/decision/route.ts:51 A snooze must carry a future expiry, so a stood-down finding resurfaces instead of silently becoming permanent."
+    }
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "quality-gates",
+   "context": "Scan Pipeline & Ingestion",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "quality-gates",
+   "context": "AI Registry Repo (Onboarding & Index)",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "quality-gates",
+   "context": "First-Run Onboarding Wizard",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-03T23:06:59.337836+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "quality-gates"
+   ],
+   "techniques": [
+    "chokepoint-tag-registry",
+    "fabrication-economics",
+    "false-positive-economics",
+    "gate-laddering",
+    "gate-liveness",
+    "instrument-answers-only-its-own-question",
+    "item-liveness",
+    "oracle-frozen-during-repair",
+    "policy-projection",
+    "prose-rule-drift",
+    "refusal-names-a-reachable-remedy",
+    "renameable-detector-keys",
+    "self-reported-gate-inputs",
+    "severity-by-construction",
+    "unmeasurable-criteria"
+   ],
+   "deviations": 0,
+   "context": "MCP Server",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-03T23:06:59.337836+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "quality-gates"
+   ],
+   "techniques": [
+    "advancement-evidence-fields",
+    "item-liveness",
+    "refusal-names-a-reachable-remedy",
+    "renameable-detector-keys",
+    "self-reported-gate-inputs",
+    "unmeasurable-criteria",
+    "waiver-names-its-finding"
+   ],
+   "deviations": 1,
+   "context": "AI-Native Passports",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

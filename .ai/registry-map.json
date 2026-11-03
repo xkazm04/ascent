@@ -7671,7 +7671,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "conformant",
+          "evidence": "src/app/api/mcp/route.ts:249 Every catalog tool marked `mutates` must clear a pure, table-driven write gate before its handler runs. Structural tests keep the table in step with the catalog, and an exhaustive matrix proves the gate can refuse, so the write door is an enforced, live gate rather than a convention.",
+          "evaluatedAt": "2026-11-03",
+          "evaluatedAgainst": "sha256-b2:0d8378dd13155e59",
+          "evaluatedRevision": 54
         },
         {
           "subject": "agent-runtime-assembly",
@@ -8867,7 +8871,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/app/api/report/passport/pr/route.ts:53 The passport-PR route turns any read failure (including a DB outage) into the 404 'No passport … Scan it first'. That is the exact false fact the sibling GET route avoids with a strict read, so an instrument failure is reported as a fact about the repo, with a remedy that would not clear it.",
+          "evaluatedAt": "2026-11-03",
+          "evaluatedAgainst": "sha256-b2:0d8378dd13155e59",
+          "evaluatedRevision": 54
         },
         {
           "subject": "test-harness",
