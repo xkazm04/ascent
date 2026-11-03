@@ -850,19 +850,34 @@
       "subject": "test-harness",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-12",
-      "evaluatedTs": "2026-10-12T22:31:42.340Z",
-      "worker": "0ef36dc8-231a-43ae-a276-e42d804c3d85",
+      "evaluatedAt": "2026-11-03",
+      "evaluatedTs": "2026-11-03T11:08:21.193Z",
+      "worker": "2c9bf65f-cf35-4523-a815-660ee0811855",
       "techniques": [
         {
           "technique": "unreached-decisions-pin-nothing",
           "verdict": "deviation",
-          "evidence": "src/features/inflight/live/LiveWarRoomHeader.test.ts:27 The test asserts against its own duplicated copy of daysUntil instead of the exported production helper."
+          "evidence": "src/features/inflight/live/LiveWarRoomHeader.test.ts:27 The test drives a copy of the helper, not the production decision. Its header comment (lines 6-7) says the helper is module-private with no exported seam, but production now exports it, so the lift-into-a-reachable-unit repair is already available and unused. No dom test in the folder asserts the countdown either (grep for deadline/daysUntil across *.dom.test.tsx finds nothing)."
+        },
+        {
+          "technique": "negative-control-tests",
+          "verdict": "deviation",
+          "evidence": "src/features/inflight/live/LiveWarRoomGoalBanner.tsx:32 Mutating this production function cannot turn the suite red, because the only test of it never imports it. The instrument cannot fail on the protection it names."
         },
         {
           "technique": "isolation-lanes",
           "verdict": "conformant",
-          "evidence": "src/features/inflight/live/LiveWarRoomHeader.dom.test.tsx:1 Declares an isolated jsdom environment at the file level for DOM component assertions."
+          "evidence": "src/features/inflight/live/LiveWarRoomHeader.dom.test.tsx:1 Declares an isolated jsdom environment at the file level for DOM component assertions.",
+          "carriedFrom": "2026-10-12"
+        }
+      ],
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "src/features/inflight/live/LiveWarRoomHeader.test.ts:27 The test file re-implements daysUntil verbatim as a private local function rather than importing the production helper from LiveWarRoomGoalBanner.tsx, leaving production changes unreached by tests.",
+          "evaluatedAt": "2026-10-12T22:31:42.340Z",
+          "worker": "0ef36dc8-231a-43ae-a276-e42d804c3d85",
+          "reason": "replaced by 2c9bf65f-cf35-4523-a815-660ee0811855"
         }
       ]
     },
@@ -871,19 +886,40 @@
       "subject": "test-harness",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-12",
-      "evaluatedTs": "2026-10-12T22:31:42.340Z",
-      "worker": "0ef36dc8-231a-43ae-a276-e42d804c3d85",
+      "evaluatedAt": "2026-11-03",
+      "evaluatedTs": "2026-11-03T11:08:21.193Z",
+      "worker": "2c9bf65f-cf35-4523-a815-660ee0811855",
       "techniques": [
         {
           "technique": "recorded-interaction-fixtures",
           "verdict": "deviation",
-          "evidence": "src/lib/llm/bedrock.test.ts:19 External LLM provider SDKs are stubbed using hand-written class mocks rather than recorded cassettes or live lanes."
+          "evidence": "src/lib/llm/bedrock.test.ts:18 This is a hand-written fake of the SDK class, not a recording at the wire. The Gemini fake in provider.test.ts:18-28 is likewise modelled on what the consumer reads. The freshness obligation is met only by src/lib/llm/bench/llm-bench.test.ts:31, which is opt-in (LLM_BENCH === \"1\") and documented as never run in CI, so it is not a scheduled certification lane."
+        },
+        {
+          "technique": "assert-the-schedule-not-the-stopwatch",
+          "verdict": "conformant",
+          "evidence": "src/lib/llm/bedrock.test.ts:81 The per-call timeout cutoff is proved on a fake clock against a send() that rejects only when its abort signal fires. No wall-clock bound is involved."
+        },
+        {
+          "technique": "isolation-lanes",
+          "verdict": "conformant",
+          "evidence": "src/lib/llm/index.test.ts:28 Every provider-availability env var is stubbed empty, so the host machine's real AWS, Gemini and Nebius config cannot leak into the selection assertions. What the test inherits is declared."
         },
         {
           "technique": "unreached-decisions-pin-nothing",
           "verdict": "conformant",
-          "evidence": "src/lib/llm/provider.test.ts:37 Pins the validation decision to drop missing scores rather than coercing them silently to zero."
+          "evidence": "src/lib/llm/provider.test.ts:37 Pins the validation decision to drop missing scores rather than coercing them silently to zero.",
+          "carriedFrom": "2026-10-12"
+        }
+      ],
+      "registryProposal": "recorded-interaction-fixtures could say how its 'trivial enough to fake honestly' exemption applies to LLM SDKs: a text-plus-usage response looks trivial, but the tool-use and thinking-budget shapes are not, and the technique gives no threshold.",
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "src/lib/llm/bedrock.test.ts:19 The suite stubs external cloud LLM providers with hand-written in-memory mocks without recorded network interaction fixtures or scheduled live certification lanes.",
+          "evaluatedAt": "2026-10-12T22:31:42.340Z",
+          "worker": "0ef36dc8-231a-43ae-a276-e42d804c3d85",
+          "reason": "replaced by 2c9bf65f-cf35-4523-a815-660ee0811855"
         }
       ]
     },
