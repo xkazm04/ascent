@@ -27,7 +27,10 @@ const laneRow = (over: Record<string, unknown> = {}) => ({
 });
 
 describe("the migration", () => {
-  const sql = readFileSync(MIGRATION, "utf8");
+  // Read portably: the blob is LF, but `core.autocrlf` checks it out CRLF on Windows, and a bare `\n`
+  // split then leaves a trailing `\r` on every line so the `TEXT;$` anchor below cannot match locally
+  // while CI (Linux) stays green. Same assertions, normalised line endings.
+  const sql = readFileSync(MIGRATION, "utf8").replace(/\r\n/g, "\n");
 
   it("adds every new column NULLABLE — no NOT NULL, no DEFAULT, no backfill", () => {
     const adds = sql.split("\n").filter((l) => l.trim().startsWith("ALTER TABLE"));
