@@ -5607,7 +5607,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/features/inflight/live/fleetTimetable.ts:1 The Live War Room is a client dashboard that lines up per-repo scan history and live scan progress, and it holds no agent memory store, recall or consolidation. A search of src/features/inflight/live and src/app/org/[slug]/live for recall, episod and consolidat found zero hits. 'memory', 'decay' and 'forget' do appear in non-listed sibling files of that directory, so they are not used as absence terms.",
+          "evaluatedAt": "2026-11-03",
+          "evaluatedAgainst": "sha256-b2:6c06fb6d8d6c900f",
+          "evaluatedRevision": 52
         },
         {
           "subject": "test-harness",
@@ -7086,9 +7090,10 @@
           "changedAt": "2026-10-25",
           "confidence": "strong",
           "state": "not-applicable",
-          "evidence": "src/app/api/org/skills/promote/route.ts:3 These routes file a generated SKILL.md into a versioned library and mint API tokens for that library. Nothing here recalls, decays, or consolidates knowledge across agent turns.",
-          "evaluatedAt": "2026-10-12",
-          "stale": true
+          "evidence": "src/app/api/org/skills/promote/route.ts:3 These routes file a scan-generated SKILL.md into a versioned library, record downloads/adoption and mint API tokens. No agent memory is carried across turns here, and procedure-promotion's precondition (a repeated observed workflow being promoted) does not hold either, because the source is a scan report and not an episode count. A case-insensitive search of src/app/api/org/skills and src/app/api/org/tokens for memory, recall, episod and consolidat found zero hits.",
+          "evaluatedAt": "2026-11-03",
+          "evaluatedAgainst": "sha256-b2:6c06fb6d8d6c900f",
+          "evaluatedRevision": 52
         },
         {
           "subject": "agent-instruction-files",

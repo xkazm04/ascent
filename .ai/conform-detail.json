@@ -299,12 +299,14 @@
       "bundle": "software-engineering",
       "state": "not-applicable",
       "evaluatedAt": "2026-11-03",
-      "evaluatedTs": "2026-11-03T09:59:19.855Z",
+      "evaluatedTs": "2026-11-03T17:04:11.522Z",
+      "worker": "7a4acc34-8eeb-4585-8b62-4ac1ee3bd885",
       "techniques": [
         {
           "technique": "procedure-promotion",
           "verdict": "not-applicable",
-          "evidence": "src/app/api/org/skills/promote/route.ts:3 The promoted source is a scan report rendered as a skill, not a procedure distilled from memory or counted recurrence, so the memory-to-capability boundary is not exercised here."
+          "evidence": "src/app/api/org/skills/promote/route.ts:3 The promoted source is a scan report rendered as a skill, not a procedure distilled from memory or counted recurrence, so the memory-to-capability boundary is not exercised here.",
+          "carriedFrom": "2026-11-03"
         },
         {
           "technique": "working-memory",
@@ -339,14 +341,15 @@
           "evaluatedAt": "2026-10-12T21:25:33.075Z",
           "worker": "734e5899-6f25-4bee-bb68-6bd8ded3612f",
           "reason": "replaced by cc4c6ef2-4b84-4e54-b015-dbb2cac25c96"
+        },
+        {
+          "state": "not-applicable",
+          "evidence": "src/app/api/org/skills/promote/route.ts:3 These routes file a generated SKILL.md into a versioned library and mint API tokens for that library. Nothing here recalls, decays, or consolidates knowledge across agent turns.",
+          "evaluatedAt": "2026-10-12",
+          "worker": null,
+          "reason": "replaced by 7a4acc34-8eeb-4585-8b62-4ac1ee3bd885"
         }
-      ],
-      "withdrawn": {
-        "worker": "cc4c6ef2-4b84-4e54-b015-dbb2cac25c96",
-        "state": "not-applicable",
-        "at": "2026-11-03T10:00:19.518552+00:00",
-        "reason": "reviewer (sonnet): The anchor (promote/route.ts:3) only describes what promote does and doesn't show that no memory lifecycle exists here; skills/events/route.ts runs usage telemetry with 'dormancy' semantics, which the search terms (recall, decay, memory, consolidat) could not match, so I couldn't confirm absence."
-      }
+      ]
     },
     "Org Dashboard & Analytics/Developer home (UC3 individual care)/browser-credential-boundary": {
       "context": "Developer home (UC3 individual care)",
@@ -772,9 +775,10 @@
       "context": "Live War Room",
       "subject": "agent-memory",
       "bundle": "software-engineering",
-      "state": "unknown",
+      "state": "not-applicable",
       "evaluatedAt": "2026-11-03",
-      "evaluatedTs": "2026-11-03T09:59:19.855Z",
+      "evaluatedTs": "2026-11-03T17:04:11.522Z",
+      "worker": "7a4acc34-8eeb-4585-8b62-4ac1ee3bd885",
       "techniques": [
         {
           "technique": "working-memory",
@@ -782,13 +786,7 @@
           "evidence": "src/features/inflight/live/LiveWarRoom.tsx:22 The wall surfaces failed scans, not operative task state.",
           "carriedFrom": "2026-10-12"
         }
-      ],
-      "withdrawn": {
-        "worker": "cc4c6ef2-4b84-4e54-b015-dbb2cac25c96",
-        "state": "not-applicable",
-        "at": "2026-11-03T10:00:19.573208+00:00",
-        "reason": "reviewer (sonnet): The anchor (fleetTimetable.ts:1) is a pure scan-history aligner, so it is incidental to the claim that nothing in the context touches agent memory; the zero-hit grep covers only the listed files, and the sibling live/cockpit and live/desk code (loop and brief handling) was never examined."
-      }
+      ]
     },
     "Org Knowledge & Skills/Athena Companion/agent-memory": {
       "context": "Athena Companion",
