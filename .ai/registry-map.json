@@ -6556,7 +6556,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/org/followups.ts:293 The agent brief is a hand-written projection of the integrity guard's gate-config regex (src/lib/local/lane-gate-diff.ts). It has already drifted downward once: the prose named four tools against ~40 prefixes and lanes voided cycles. The fix restated the list by hand rather than generating it from the guard, and no test pins the two together.",
+          "evaluatedAt": "2026-11-03",
+          "evaluatedAgainst": "sha256-b2:0d8378dd13155e59",
+          "evaluatedRevision": 54
         },
         {
           "subject": "eval-harness",

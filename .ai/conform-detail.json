@@ -7870,6 +7870,37 @@
           "evidence": "src/lib/org/developer-view-load.ts:36 The care memory is filed and read under the server-resolved owner identity, never a caller-supplied one. There is no counterpart axis here."
         }
       ]
+    },
+    "Org Planning & Execution/Follow-ups Ledger/quality-gates": {
+      "context": "Follow-ups Ledger",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-03",
+      "evaluatedTs": "2026-11-03T22:07:40.763Z",
+      "worker": "cc307536-3d69-45ec-9f5b-c150b98f7c87",
+      "techniques": [
+        {
+          "technique": "policy-projection",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/followups.ts:293 The brief is a hand-maintained subset of GATE_CONFIG_BASENAME/GATE_CONFIG_FLEET_BASENAME. Drift was measured (an assistant acted on the subset), yet the projection is still not derived from the one policy object."
+        },
+        {
+          "technique": "item-liveness",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/followup-claims.ts:71 Machine claims lease and are swept, but a human hand-off is an in_progress claim with no clock. Recovery depends on someone manually sending it back or releasing it, so abandoned human claims stay counted as held."
+        },
+        {
+          "technique": "self-reported-gate-inputs",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/followup-claims.ts:25 The agent's own report_attempt cannot close a row. Only a rescan that measures the dimension moving writes done, so the verdict never rests on the gated party's paperwork."
+        },
+        {
+          "technique": "oracle-frozen-during-repair",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/followups.ts:296 The freeze on tests, fixtures, CI and gate configs is mechanical: an integrity guard diffs the lane's work and voids the cycle (lane-gate-diff.ts). It is not merely requested in the brief."
+        }
+      ]
     }
   }
 }
