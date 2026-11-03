@@ -4243,7 +4243,11 @@
           "revision": 34,
           "changedAt": "2026-10-15",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/db/segments.ts:2 Segments are org-scoped tags managed through dashboard REST routes and UI. segments.ts contains no `mcp`, and the context's route, page, feature and scope directories have zero hits for mcp, tools/call, inputSchema and jsonrpc. The only `mcp` hits in the shared src/lib/db directory are unrelated modules (org-api-tokens, followup-claims, org-memory), so that term is left out of absence_terms.",
+          "evaluatedAt": "2026-11-03",
+          "evaluatedAgainst": "sha256-b2:ed8e615f51454325",
+          "evaluatedRevision": 34
         },
         {
           "subject": "test-harness",
@@ -6599,7 +6603,11 @@
           "revision": 34,
           "changedAt": "2026-10-15",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/mcp/tools.ts:260 get_fix_brief is declared a `computed` (Ascent-arithmetic) result, but its text splices in org-authored memory, skill and playbook text plus scan-stated gap prose beside the server's own '## Protocol' instructions, so result-egress.ts returns it with no provenance `_meta` and the result never marks which part is upstream text.",
+          "evaluatedAt": "2026-11-03",
+          "evaluatedAgainst": "sha256-b2:ed8e615f51454325",
+          "evaluatedRevision": 34
         },
         {
           "subject": "table",
@@ -6808,7 +6816,11 @@
           "revision": 34,
           "changedAt": "2026-10-15",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/org/loop/route.ts:2 This context's routes are session-authenticated REST endpoints that start, stop and review loop runs and pair local paths. A search of src/app/api/org/local, src/app/api/org/loop and src/features/admin/pairing for mcp, tools/call, inputSchema and jsonrpc found zero hits; remote-agent lanes are claimed through the MCP work tools in src/lib/mcp (judged under Follow-ups Ledger), not by code in this context.",
+          "evaluatedAt": "2026-11-03",
+          "evaluatedAgainst": "sha256-b2:ed8e615f51454325",
+          "evaluatedRevision": 34
         },
         {
           "subject": "module-design",

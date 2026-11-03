@@ -1,0 +1,158 @@
+{
+ "schema": "conform-run/1",
+ "worker": "d260875c-0d25-49bb-a0dc-00f6591c6aa4",
+ "subject": "mcp-tools",
+ "evaluatedAt": "2026-11-03T23:56:07.764652+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Follow-ups Ledger",
+   "subject": "mcp-tools",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/mcp/tools.ts:260 get_fix_brief is declared a `computed` (Ascent-arithmetic) result, but its text splices in org-authored memory, skill and playbook text plus scan-stated gap prose beside the server's own '## Protocol' instructions, so result-egress.ts returns it with no provenance `_meta` and the result never marks which part is upstream text.",
+   "techniques": [
+    {
+     "technique": "untrusted-result-handling",
+     "verdict": "deviation",
+     "evidence": "src/lib/mcp/tools.ts:260 get_fix_brief embeds org-authored text (via buildLaneBrief and buildAgentBrief) but declares itself computed. Egress therefore skips provenance meta, and the tool's voice is not separated from quoted upstream text. Credential redaction does happen upstream (lane-brief.ts sanitizeAgentText), so the gap is attribution, not leakage. Server-side entitlement is re-checked per call (heldFollowups and claimability in getFixBriefTool)."
+    },
+    {
+     "technique": "authentication-and-scoping",
+     "verdict": "conformant",
+     "evidence": "src/app/api/mcp/route.ts:275 The work-queue holder is keyed on the minted token id, not the token's non-unique name; the name travels only as a label (work-tools.ts:165)."
+    },
+    {
+     "technique": "caller-differentiated-capability",
+     "verdict": "conformant",
+     "evidence": "src/lib/mcp/work-tools.ts:118 The agent door always runs the claim gate as executor `remote-agent`, which is subject to the tier, seal and admission-mode rules a human hand-off is not, and it has no verb that reaches status done."
+    },
+    {
+     "technique": "enumeration-without-a-scope",
+     "verdict": "conformant",
+     "evidence": "src/lib/mcp/work-tools.ts:127 The no-ids listing is scoped by the org the verified token belongs to and by one named repo, capped by MAX_CLAIM_COUNT. There is no unscoped enumeration."
+    },
+    {
+     "technique": "first-party-agent-is-a-principal",
+     "verdict": "conformant",
+     "evidence": "src/lib/mcp/tool-registry.ts:9 Athena, the in-process companion, reads the same binding table and is refused the holder (work) tools, so it gets no path an external token would be refused."
+    },
+    {
+     "technique": "server-composition",
+     "verdict": "conformant",
+     "evidence": "src/lib/mcp/tool-registry.ts:53 There is one registry keyed by the catalog's own names (a structural test pins it to MCP_TOOLS), with dispatch through a single door. A holder tool reached with no principal fails closed."
+    },
+    {
+     "technique": "tool-schema-design",
+     "verdict": "conformant",
+     "evidence": "src/lib/mcp/tools.ts:164 Constraints are declared in the schema (maxItems, integer bounds, enum verdicts, additionalProperties false). Verb-object names, one operation per tool. Argument failures come back as in-band isError results through fail()."
+    },
+    {
+     "technique": "orchestration-to-tool-migration",
+     "verdict": "conformant",
+     "evidence": "src/lib/mcp/work-tools.ts:14 Deterministic adjudication stays a computed rescan pass; only the adaptive claim/brief/report work is on the agent surface."
+    },
+    {
+     "technique": "transport-selection",
+     "verdict": "conformant",
+     "evidence": "src/app/api/mcp/route.ts:101 Streamable HTTP door with Origin validation (fail-closed when no site origin is configured), bearer auth, and a 401 WWW-Authenticate challenge before any tool runs."
+    },
+    {
+     "technique": "ambient-selection-is-not-an-argument",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/mcp/work-tools.ts:16 This is a service-backed server, not a single-seat application. Repo, ids and principal are all explicit per call."
+    }
+   ],
+   "registryProposal": "untrusted-result-handling could name the composite-result case: a server tool whose result is mostly its own computed text but splices in sanitized tenant-authored sections needs a per-section provenance marker, not one trust class per tool."
+  },
+  {
+   "context": "Local Autopilot & Loop Engine",
+   "subject": "mcp-tools",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/app/api/org/loop/route.ts:2 This context's routes are session-authenticated REST endpoints that start, stop and review loop runs and pair local paths. A search of src/app/api/org/local, src/app/api/org/loop and src/features/admin/pairing for mcp, tools/call, inputSchema and jsonrpc found zero hits; remote-agent lanes are claimed through the MCP work tools in src/lib/mcp (judged under Follow-ups Ledger), not by code in this context.",
+   "techniques": [],
+   "absenceTerms": [
+    "mcp",
+    "tools/call",
+    "inputSchema",
+    "jsonrpc"
+   ]
+  },
+  {
+   "context": "Repositories & Segments",
+   "subject": "mcp-tools",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/db/segments.ts:2 Segments are org-scoped tags managed through dashboard REST routes and UI. segments.ts contains no `mcp`, and the context's route, page, feature and scope directories have zero hits for mcp, tools/call, inputSchema and jsonrpc. The only `mcp` hits in the shared src/lib/db directory are unrelated modules (org-api-tokens, followup-claims, org-memory), so that term is left out of absence_terms.",
+   "techniques": [],
+   "absenceTerms": [
+    "tools/call",
+    "inputSchema",
+    "jsonrpc"
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "mcp-tools",
+   "context": "CI Gate & Status Checks",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "mcp-tools",
+   "context": "Scan Pipeline & Ingestion",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-03T23:56:07.764652+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "mcp-tools"
+   ],
+   "techniques": [
+    "ambient-selection-is-not-an-argument",
+    "authentication-and-scoping",
+    "caller-differentiated-capability",
+    "enumeration-without-a-scope",
+    "first-party-agent-is-a-principal",
+    "orchestration-to-tool-migration",
+    "server-composition",
+    "tool-schema-design",
+    "transport-selection",
+    "untrusted-result-handling"
+   ],
+   "deviations": 1,
+   "context": "Follow-ups Ledger",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-03T23:56:07.764652+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "mcp-tools"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Local Autopilot & Loop Engine",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-03T23:56:07.764652+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "mcp-tools"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Repositories & Segments",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
