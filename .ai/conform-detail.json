@@ -7820,6 +7820,58 @@
           "evidence": "src/lib/org/followups.ts:682 The null standard drops the whole section without any in-band notice of kind, count or cause, and the same null also carries the read-failure path."
         }
       ]
+    },
+    "Org Planning & Execution/Local Autopilot & Loop Engine/agent-memory": {
+      "context": "Local Autopilot & Loop Engine",
+      "subject": "agent-memory",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-03",
+      "evaluatedTs": "2026-11-03T12:12:34.838Z",
+      "worker": "95ffbffc-f65f-4872-abf8-106dc5254015",
+      "techniques": [
+        {
+          "technique": "recall-injection",
+          "verdict": "deviation",
+          "evidence": "src/app/api/org/loop/propose/route.ts:141 'Empty is not broken, and the difference must be visible' fails here: a read failure collapses into the same null as 'no brief'. The engine (loop-lane.ts:1215) repeats the same catch-to-null."
+        },
+        {
+          "technique": "durable-store-failure-posture",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/lane-brief-read.ts:91 The per-section memory reader this route calls catches every error and returns an empty list. buildLaneBrief then tells the executing agent 'This organization has recorded no procedural memory for this repository.' (lane-brief.ts:263): a degraded read that reads as empty, not unavailable."
+        },
+        {
+          "technique": "scope-before-similarity",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/lane-brief-read.ts:80 Memory candidates are scoped to the repo namespace before recall ranks them, so one repo's lessons do not brief another repo's lane."
+        },
+        {
+          "technique": "loss-site-inventory",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/lane-brief.ts:273 The section cap that runs after recall's own 4,000-char budget (lane-brief-read.ts:28) writes an in-text omission notice and records trimmed in provenance, so the second cut is visible."
+        }
+      ]
+    },
+    "Org Dashboard & Analytics/Developer home (UC3 individual care)/agent-memory": {
+      "context": "Developer home (UC3 individual care)",
+      "subject": "agent-memory",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-03",
+      "evaluatedTs": "2026-11-03T12:12:34.838Z",
+      "worker": "95ffbffc-f65f-4872-abf8-106dc5254015",
+      "techniques": [
+        {
+          "technique": "durable-store-failure-posture",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/developer-view-load.ts:64 A degraded read of the stored mentor share is shown as empty rather than unavailable. The sibling activity read at line 82 shows the correct posture ('unreadable')."
+        },
+        {
+          "technique": "owner-and-counterpart-scope",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/developer-view-load.ts:36 The care memory is filed and read under the server-resolved owner identity, never a caller-supplied one. There is no counterpart axis here."
+        }
+      ]
     }
   }
 }

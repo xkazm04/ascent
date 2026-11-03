@@ -5286,7 +5286,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/org/developer-view-load.ts:64 The local mentor's durable care state (kept/dropped moves, journal, profile) is read with a catch-to-null that the comment says 'reads as \"nothing shared\"', so an unreadable store renders as 'Moves kept 0 / none yet' (DeveloperCompanion.tsx:28), even though the same loader gives the contributor snapshot a distinct 'unreadable' state at line 82.",
+          "evaluatedAt": "2026-11-03",
+          "evaluatedAgainst": "sha256-b2:6c06fb6d8d6c900f",
+          "evaluatedRevision": 52
         },
         {
           "subject": "data-access",
@@ -6655,7 +6659,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/app/api/org/loop/propose/route.ts:141 The lane-brief preview turns a failed read of the org's standard (procedural memory, playbooks, skills) into brief:null, the same value used for foundation lanes and empty batches, and BriefStrip drops null proposals, so the operator cannot tell 'the lane will get no memory because the read failed' from 'there is nothing to brief'.",
+          "evaluatedAt": "2026-11-03",
+          "evaluatedAgainst": "sha256-b2:6c06fb6d8d6c900f",
+          "evaluatedRevision": 52
         },
         {
           "subject": "eval-harness",
