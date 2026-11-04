@@ -1103,12 +1103,11 @@
           "changedAt": "2026-10-27",
           "confidence": "probable",
           "state": "deviation",
-          "evidence": "src/lib/llm/transport/claude.ts:109 The authorization probe inherits credentials that real runs strip, so it can report authorization for a different billing environment.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:5791230ffb7d9fad",
-          "evaluatedRevision": 9,
-          "revisionsBehind": 1,
-          "stale": true
+          "evidence": "src/lib/llm/transport/claude.ts:109 probe() runs `claude auth status` in the unstripped host environment, while run() deletes ANTHROPIC_API_KEY (line 147), so on a host that carries a key the probe describes a metered-key process nobody launches. It also folds an unparseable auth-status result into authed:false instead of unknown.",
+          "evaluatedAt": "2026-11-04",
+          "evaluatedAgainst": "sha256-b2:75415727a875a42a",
+          "evaluatedRevision": 10,
+          "revisionsBehind": 1
         },
         {
           "subject": "test-harness",
@@ -4504,12 +4503,11 @@
           "changedAt": "2026-10-27",
           "confidence": "probable",
           "state": "not-applicable",
-          "evidence": "src/lib/org/practice-library.ts:8 This context's only LLM contact is a markdown brief that a person copies into their own tool, and practices/generate builds a deterministic artifact from one GitHub metadata call; I searched src/lib/org, src/features/shared/practices, src/app/api/practices and the three org pages recursively for child_process, stream-json, execFile and dangerously-skip-permissions and found nothing.",
-          "evaluatedAt": "2026-10-24",
-          "evaluatedAgainst": "sha256-b2:5791230ffb7d9fad",
-          "evaluatedRevision": 9,
-          "revisionsBehind": 1,
-          "stale": true
+          "evidence": "src/lib/org/practice-library.ts:8 The context's only LLM contact is a markdown brief a person copies into their own tool, and practices/generate builds its artifact from a GitHub metadata call. A recursive search of src/lib/org, src/features/shared/practices, src/app/api/practices and src/app/org/[slug] for child_process, stream-json, allowedTools and execFile found no hit, and none of the context's files import @/lib/llm.",
+          "evaluatedAt": "2026-11-04",
+          "evaluatedAgainst": "sha256-b2:75415727a875a42a",
+          "evaluatedRevision": 10,
+          "revisionsBehind": 1
         },
         {
           "subject": "agent-memory",

@@ -2604,44 +2604,65 @@
       "subject": "agent-cli-transport",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T11:24:06.642Z",
-      "worker": "ef824da9-b06d-4031-bd48-31351fb383d5",
+      "evaluatedAt": "2026-11-04",
+      "evaluatedTs": "2026-11-04T22:16:47.037Z",
+      "worker": "7a6eab45-68ca-4be9-aa05-366ce44a72e2",
       "techniques": [
         {
           "technique": "availability-probe",
           "verdict": "deviation",
-          "evidence": "src/lib/llm/transport/claude.ts:109 Probe uses the inherited environment; run() deletes ANTHROPIC_API_KEY before spawning."
+          "evidence": "src/lib/llm/transport/claude.ts:109 The probe env differs from the run env, which is the named failure. Its result is two-valued: line 122 returns authed:false on any auth-status error, with no unknown state."
+        },
+        {
+          "technique": "subscription-auth-selection",
+          "verdict": "conformant",
+          "evidence": "src/lib/llm/transport/claude.ts:147 Strip applied last in run(), before captureCli. The strip direction is recorded in the capability row's billing field."
+        },
+        {
+          "technique": "dated-capability-matrix",
+          "verdict": "conformant",
+          "evidence": "src/lib/llm/transport/claude.ts:87 Capability row carries verifiedOn, verifiedVersion, modes, answerChannel, schemaOutput and readonlyEnforcement as data."
+        },
+        {
+          "technique": "output-normalization",
+          "verdict": "conformant",
+          "evidence": "src/lib/llm/transport/claude.ts:71 Single-json dialect reads .result, and is_error/subtype become a typed envelope failure. spawn.ts keeps stdout and stderr separate, caps output and closes stdin."
+        },
+        {
+          "technique": "permission-stance-enforcement",
+          "verdict": "conformant",
+          "evidence": "src/lib/llm/transport/claude.ts:128 Only the generate seam is served, with a neutral tmpdir cwd. edit and readonly-scan are refused as not-supported rather than promised untested."
+        },
+        {
+          "technique": "fallback-ladder",
+          "verdict": "conformant",
+          "evidence": "src/lib/llm/index.ts:90 Ladder of gemini → local → mock, with an explicit selection failing loud into accounted retry → failover → mock. The shared predicate is cliProviderAllowed."
+        },
+        {
+          "technique": "thread-custody-across-resume",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/transport/claude.ts:154 One-shot generate calls carry no session or resume id."
         },
         {
           "technique": "child-observed-posture",
           "verdict": "deviation",
-          "evidence": "src/lib/llm/transport/claude.ts:120 Only loggedIn is inspected; the child's auth method, subscription tier, and unexpected missing fields are not checked against an expected record."
-        },
-        {
-          "technique": "dated-capability-matrix",
-          "verdict": "deviation",
-          "evidence": "src/lib/llm/transport/index.ts:40 Observed versions are cached without reconciliation against the adapters' verifiedVersion records; no version-mismatch staleness handling was found."
+          "evidence": "src/lib/llm/transport/claude.ts:120 Only loggedIn is inspected; the child's auth method, subscription tier, and unexpected missing fields are not checked against an expected record.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "host-routed-approval-round-trip",
           "verdict": "not-applicable",
-          "evidence": "src/lib/llm/transport/claude.ts:154 This assessment transport runs unattended print-mode calls, without a mid-turn human approval channel."
-        },
+          "evidence": "src/lib/llm/transport/claude.ts:154 This assessment transport runs unattended print-mode calls, without a mid-turn human approval channel.",
+          "carriedFrom": "2026-10-13"
+        }
+      ],
+      "superseded": [
         {
-          "technique": "output-normalization",
-          "verdict": "deviation",
-          "evidence": "src/lib/llm/transport/codex.ts:187 A stream containing both answer text and turn.failed/error bypasses this failure branch and returns success, contrary to authoritative envelope error handling."
-        },
-        {
-          "technique": "permission-stance-enforcement",
-          "verdict": "deviation",
-          "evidence": "src/lib/llm/transport/claude-stream.ts:16 Generate invocations leave native tools enabled; running in tmpdir does not enforce the promised absence of workspace access."
-        },
-        {
-          "technique": "subscription-auth-selection",
-          "verdict": "deviation",
-          "evidence": "src/lib/llm/transport/claude.ts:146 Repository assessment content reaches a child inheriting the full application environment, with only ANTHROPIC_API_KEY removed rather than an environment allowlist."
+          "state": "deviation",
+          "evidence": "src/lib/llm/transport/claude.ts:109 The authorization probe inherits credentials that real runs strip, so it can report authorization for a different billing environment.",
+          "evaluatedAt": "2026-10-13T11:24:06.642Z",
+          "worker": "ef824da9-b06d-4031-bd48-31351fb383d5",
+          "reason": "replaced by 7a6eab45-68ca-4be9-aa05-366ce44a72e2"
         }
       ]
     },
@@ -2701,9 +2722,9 @@
       "subject": "agent-cli-transport",
       "bundle": "software-engineering",
       "state": "not-applicable",
-      "evaluatedAt": "2026-10-24",
-      "evaluatedTs": "2026-10-24T05:17:29.170Z",
-      "worker": "f18b2407-1137-4010-97e7-d3445d34e1d7",
+      "evaluatedAt": "2026-11-04",
+      "evaluatedTs": "2026-11-04T22:16:47.037Z",
+      "worker": "7a6eab45-68ca-4be9-aa05-366ce44a72e2",
       "techniques": [
         {
           "technique": "availability-probe",
@@ -2758,6 +2779,15 @@
           "verdict": "not-applicable",
           "evidence": "src/lib/practices/artifact.ts:62 No child conversation identifier is stored or resumed.",
           "carriedFrom": "2026-10-13"
+        }
+      ],
+      "superseded": [
+        {
+          "state": "not-applicable",
+          "evidence": "src/lib/org/practice-library.ts:8 This context's only LLM contact is a markdown brief that a person copies into their own tool, and practices/generate builds a deterministic artifact from one GitHub metadata call; I searched src/lib/org, src/features/shared/practices, src/app/api/practices and the three org pages recursively for child_process, stream-json, execFile and dangerously-skip-permissions and found nothing.",
+          "evaluatedAt": "2026-10-24T05:17:29.170Z",
+          "worker": "f18b2407-1137-4010-97e7-d3445d34e1d7",
+          "reason": "replaced by 7a6eab45-68ca-4be9-aa05-366ce44a72e2"
         }
       ]
     },
