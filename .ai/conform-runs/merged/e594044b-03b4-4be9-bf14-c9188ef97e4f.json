@@ -1,0 +1,127 @@
+{
+ "schema": "conform-run/1",
+ "worker": "e594044b-03b4-4be9-bf14-c9188ef97e4f",
+ "subject": "eval-harness",
+ "evaluatedAt": "2026-11-04T22:05:04.506219+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Live War Room",
+   "subject": "eval-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/features/inflight/live/LiveWarRoomLeaderboard.tsx:40 The fleet leaderboard prints an ordinal rank over single-scan overall scores sorted with an alphabetical tie-break (computeLeaderboard), with no check against the \u00b12-point run-to-run noise band the codebase itself measured, so two repos one point apart get distinct ranks that a re-scan can swap.",
+   "techniques": [
+    {
+     "technique": "resolution-precondition",
+     "verdict": "deviation",
+     "evidence": "src/features/inflight/live/LiveWarRoomLeaderboard.tsx:40 An order is published with no check that the spread between rows exceeds the within-repo scan wobble (SCORE_NOISE_BAND=2), so draws are shown as ranks. fleetTimetable.ts sorts rows by latest score the same way."
+    },
+    {
+     "technique": "measurement-revision",
+     "verdict": "conformant",
+     "evidence": "src/features/inflight/live/LiveWarRoomPanels.tsx:151 Movers render through deltaHex/fmtDelta, which mute a within-noise delta to 'held'. A re-scan inside the band reads as a second sample, not a move."
+    }
+   ],
+   "registryProposal": "resolution-precondition's use_when says 'an order over models or prompts or configurations'. Here the candidates are repositories and the LLM-blended scan is the instrument, but the failure is the same: ordinal ranks inside a measured run-to-run SD. The trigger could name 'any ranking produced by an LLM-judged instrument', or the subject could point to peer-benchmarking for it."
+  },
+  {
+   "context": "Portfolio & Public Leaderboard",
+   "subject": "eval-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/components/leaderboard/LeaderboardTable.tsx:80 The public register gives every model-scored repo a numbered rank by overall score, with no tie at the run-to-run noise band. Its own confidence chip says to treat a low-confidence score as an interval, yet the rank still treats it as a point.",
+   "techniques": [
+    {
+     "technique": "resolution-precondition",
+     "verdict": "deviation",
+     "evidence": "src/components/leaderboard/LeaderboardTable.tsx:80 The ordinal rank is published without checking between-row spread against within-repo SD. Rows inside \u00b12 points are presented as ordered."
+    },
+    {
+     "technique": "judge-stability",
+     "verdict": "conformant",
+     "evidence": "src/app/leaderboard/page.tsx:137 Rows scored under an earlier rubric are disclosed above the fold and chipped per row. Mock-engine scans are kept off the ranking."
+    }
+   ]
+  },
+  {
+   "context": "Fleet Rollups & Insights",
+   "subject": "eval-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/org/teamStandings.ts:149 explainTeamStandings always names a leader and a laggard and explains the gap dimension by dimension, even when the spread (line 199) sits inside the scan noise band. A draw is narrated as a standing instead of being reported as a tie.",
+   "techniques": [
+    {
+     "technique": "resolution-precondition",
+     "verdict": "deviation",
+     "evidence": "src/lib/org/teamStandings.ts:149 No precondition compares the leader\u2013laggard spread with SCORE_NOISE_BAND before publishing the order. The slug tie-break picks a 'leader' for an exact tie."
+    },
+    {
+     "technique": "measurement-revision",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/org-insights.ts:301 A period delta inside the noise band goes to a counted 'held' bucket instead of gainers or regressers, so a re-scan wobble is not reported as a move."
+    }
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "eval-harness",
+   "context": "CI Gate & Status Checks",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "eval-harness",
+   "context": "Trends & Comparison",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-04T22:05:04.506219+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "eval-harness"
+   ],
+   "techniques": [
+    "measurement-revision",
+    "resolution-precondition"
+   ],
+   "deviations": 1,
+   "context": "Live War Room",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-04T22:05:04.506219+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "eval-harness"
+   ],
+   "techniques": [
+    "judge-stability",
+    "resolution-precondition"
+   ],
+   "deviations": 1,
+   "context": "Portfolio & Public Leaderboard",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-04T22:05:04.506219+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "eval-harness"
+   ],
+   "techniques": [
+    "measurement-revision",
+    "resolution-precondition"
+   ],
+   "deviations": 1,
+   "context": "Fleet Rollups & Insights",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

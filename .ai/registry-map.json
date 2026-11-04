@@ -3529,7 +3529,11 @@
           "revision": 37,
           "changedAt": "2026-09-29",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/org/teamStandings.ts:149 explainTeamStandings always names a leader and a laggard and explains the gap dimension by dimension, even when the spread (line 199) sits inside the scan noise band. A draw is narrated as a standing instead of being reported as a tie.",
+          "evaluatedAt": "2026-11-04",
+          "evaluatedAgainst": "sha256-b2:7ccead00b7f92aba",
+          "evaluatedRevision": 37
         },
         {
           "subject": "audit-logging",
@@ -5673,7 +5677,11 @@
           "revision": 37,
           "changedAt": "2026-09-29",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/features/inflight/live/LiveWarRoomLeaderboard.tsx:40 The fleet leaderboard prints an ordinal rank over single-scan overall scores sorted with an alphabetical tie-break (computeLeaderboard), with no check against the ±2-point run-to-run noise band the codebase itself measured, so two repos one point apart get distinct ranks that a re-scan can swap.",
+          "evaluatedAt": "2026-11-04",
+          "evaluatedAgainst": "sha256-b2:7ccead00b7f92aba",
+          "evaluatedRevision": 37
         },
         {
           "subject": "fleet-orchestration",
@@ -9116,7 +9124,11 @@
           "revision": 37,
           "changedAt": "2026-09-29",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/components/leaderboard/LeaderboardTable.tsx:80 The public register gives every model-scored repo a numbered rank by overall score, with no tie at the run-to-run noise band. Its own confidence chip says to treat a low-confidence score as an interval, yet the rank still treats it as a point.",
+          "evaluatedAt": "2026-11-04",
+          "evaluatedAgainst": "sha256-b2:7ccead00b7f92aba",
+          "evaluatedRevision": 37
         },
         {
           "subject": "table",

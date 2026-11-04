@@ -8438,6 +8438,70 @@
       "evaluatedTs": "2026-11-04T02:31:00.389Z",
       "worker": "06141116-800b-4f25-bd8d-177f88fb9157",
       "techniques": []
+    },
+    "Org Planning & Execution/Live War Room/eval-harness": {
+      "context": "Live War Room",
+      "subject": "eval-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-04",
+      "evaluatedTs": "2026-11-04T22:05:04.506Z",
+      "worker": "e594044b-03b4-4be9-bf14-c9188ef97e4f",
+      "techniques": [
+        {
+          "technique": "resolution-precondition",
+          "verdict": "deviation",
+          "evidence": "src/features/inflight/live/LiveWarRoomLeaderboard.tsx:40 An order is published with no check that the spread between rows exceeds the within-repo scan wobble (SCORE_NOISE_BAND=2), so draws are shown as ranks. fleetTimetable.ts sorts rows by latest score the same way."
+        },
+        {
+          "technique": "measurement-revision",
+          "verdict": "conformant",
+          "evidence": "src/features/inflight/live/LiveWarRoomPanels.tsx:151 Movers render through deltaHex/fmtDelta, which mute a within-noise delta to 'held'. A re-scan inside the band reads as a second sample, not a move."
+        }
+      ],
+      "registryProposal": "resolution-precondition's use_when says 'an order over models or prompts or configurations'. Here the candidates are repositories and the LLM-blended scan is the instrument, but the failure is the same: ordinal ranks inside a measured run-to-run SD. The trigger could name 'any ranking produced by an LLM-judged instrument', or the subject could point to peer-benchmarking for it."
+    },
+    "Reporting & Visualization/Portfolio & Public Leaderboard/eval-harness": {
+      "context": "Portfolio & Public Leaderboard",
+      "subject": "eval-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-04",
+      "evaluatedTs": "2026-11-04T22:05:04.506Z",
+      "worker": "e594044b-03b4-4be9-bf14-c9188ef97e4f",
+      "techniques": [
+        {
+          "technique": "resolution-precondition",
+          "verdict": "deviation",
+          "evidence": "src/components/leaderboard/LeaderboardTable.tsx:80 The ordinal rank is published without checking between-row spread against within-repo SD. Rows inside ±2 points are presented as ordered."
+        },
+        {
+          "technique": "judge-stability",
+          "verdict": "conformant",
+          "evidence": "src/app/leaderboard/page.tsx:137 Rows scored under an earlier rubric are disclosed above the fold and chipped per row. Mock-engine scans are kept off the ranking."
+        }
+      ]
+    },
+    "Org Scanning & Fleet Rollups/Fleet Rollups & Insights/eval-harness": {
+      "context": "Fleet Rollups & Insights",
+      "subject": "eval-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-04",
+      "evaluatedTs": "2026-11-04T22:05:04.506Z",
+      "worker": "e594044b-03b4-4be9-bf14-c9188ef97e4f",
+      "techniques": [
+        {
+          "technique": "resolution-precondition",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/teamStandings.ts:149 No precondition compares the leader–laggard spread with SCORE_NOISE_BAND before publishing the order. The slug tie-break picks a 'leader' for an exact tie."
+        },
+        {
+          "technique": "measurement-revision",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/org-insights.ts:301 A period delta inside the noise band goes to a counted 'held' bucket instead of gainers or regressers, so a re-scan wobble is not reported as a move."
+        }
+      ]
     }
   }
 }
