@@ -8372,6 +8372,62 @@
       "evaluatedTs": "2026-11-04T01:39:34.337Z",
       "worker": "8fa3d745-5ecd-4e18-86d3-03db2e1ce6b2",
       "techniques": []
+    },
+    "Repository Scanning & Scoring/Maturity Model & Scoring Engine/quality-gates": {
+      "context": "Maturity Model & Scoring Engine",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-04",
+      "evaluatedTs": "2026-11-04T02:16:05.317Z",
+      "worker": "b5cb1c8a-2807-475b-b17b-42eb1b886fee",
+      "techniques": [
+        {
+          "technique": "renameable-detector-keys",
+          "verdict": "deviation",
+          "evidence": "src/lib/analyze/index.ts:802 Name key: any core-path file named *ratchet* earns the 'enforced' award on its own (ratchetPath alone satisfies index.ts:912). The author can add the key without the blocking property, and the label claims enforcement."
+        },
+        {
+          "technique": "match-the-resolved-artifact",
+          "verdict": "deviation",
+          "evidence": "src/lib/analyze/index.ts:926 The zero-warning award matches raw, lowercased workflow text that still contains comments, so a YAML comment mentioning --max-warnings 0 satisfies it. D4 already does this right by keeping only uses:/run: lines (index.ts:639)."
+        },
+        {
+          "technique": "severity-by-construction",
+          "verdict": "conformant",
+          "evidence": "src/lib/analyze/index.ts:810 The detector credits a linter whose warnings fail the build separately from one that is merely configured, which is enforcement by construction rather than by label."
+        },
+        {
+          "technique": "false-positive-economics",
+          "verdict": "conformant",
+          "evidence": "src/lib/analyze/index.ts:805 A measured false positive (game repos) was fixed by narrowing the DEBT_CEILING key. The award was kept, not deleted."
+        },
+        {
+          "technique": "unmeasurable-criteria",
+          "verdict": "conformant",
+          "evidence": "src/lib/analyze/platform-carry.ts:92 Observed, carried and unobservable are derived states, and an unobservable dimension is excluded from the verdict rather than scored as a gap. The CI-health sample floor at platform-signals.ts:170 skips rates below 5 runs."
+        },
+        {
+          "technique": "gate-liveness",
+          "verdict": "conformant",
+          "evidence": "src/lib/analyze/index.ts:1220 A crashed detector takes its own path: a warning plus failed:true. pulls.ts:525 refuses to blend evidence over it, so an instrument failure never reads as a measured zero."
+        },
+        {
+          "technique": "prose-rule-drift",
+          "verdict": "conformant",
+          "evidence": "src/lib/maturity/model.ts:27 The rule 'bump the rubric version when a scoring knob moves' is mechanised by two hash pins instead of living only in prose, and the residue no pin can reach is named (model.ts:34)."
+        },
+        {
+          "technique": "instrument-answers-only-its-own-question",
+          "verdict": "conformant",
+          "evidence": "src/lib/maturity/model.ts:29 The two pins are an explicit partition: the declaration hash versus the end-to-end pipeline fingerprint. Neither one's green is taken as covering the other's question."
+        },
+        {
+          "technique": "blocking-by-input-determinism",
+          "verdict": "conformant",
+          "evidence": "src/lib/analyze/calibration.test.ts:4 The blocking calibration and fingerprint pins read only offline fixtures. The live model answer and network ingestion are explicitly left out of what may go red (model.ts:34)."
+        }
+      ]
     }
   }
 }

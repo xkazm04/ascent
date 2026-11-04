@@ -1384,7 +1384,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/analyze/index.ts:802 The D6 detector awards 15 points labelled 'Quality ratchet / debt ceiling enforced' (index.ts:912) when a file merely has 'ratchet' in its name, so the gated party (a repo, often an improvement-loop agent) can produce the token without the property, and the verdict reads as a ceiling when it is only a floor.",
+          "evaluatedAt": "2026-11-04",
+          "evaluatedAgainst": "sha256-b2:0d8378dd13155e59",
+          "evaluatedRevision": 54
         },
         {
           "subject": "mcp-tools",
