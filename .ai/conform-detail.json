@@ -8428,6 +8428,16 @@
           "evidence": "src/lib/analyze/calibration.test.ts:4 The blocking calibration and fingerprint pins read only offline fixtures. The live model answer and network ingestion are explicitly left out of what may go red (model.ts:34)."
         }
       ]
+    },
+    "Org Planning & Execution/Live War Room/quality-gates": {
+      "context": "Live War Room",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-04",
+      "evaluatedTs": "2026-11-04T02:31:00.389Z",
+      "worker": "06141116-800b-4f25-bd8d-177f88fb9157",
+      "techniques": []
     }
   }
 }

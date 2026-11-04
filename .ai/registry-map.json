@@ -5768,7 +5768,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/features/inflight/live/LiveWarRoomOps.tsx:18 The War Room is a read-and-display wall: it rescans and measures after a merge has already happened and refuses nothing. In its files 'gate' appears only as 'session-gated' UI controls, and a search of src/features/inflight/live and src/app/org/[slug]/live found no hook, ratchet, waiver or exit-code vocabulary.",
+          "evaluatedAt": "2026-11-04",
+          "evaluatedAgainst": "sha256-b2:0d8378dd13155e59",
+          "evaluatedRevision": 54
         },
         {
           "subject": "agent-instruction-files",
