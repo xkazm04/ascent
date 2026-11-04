@@ -8195,13 +8195,13 @@
       "bundle": "software-engineering",
       "state": "unknown",
       "evaluatedAt": "2026-11-04",
-      "evaluatedTs": "2026-11-04T01:39:34.337Z",
+      "evaluatedTs": "2026-11-04T01:55:14.763Z",
       "techniques": [],
       "withdrawn": {
-        "worker": "8fa3d745-5ecd-4e18-86d3-03db2e1ce6b2",
+        "worker": "085721c2-ca58-4253-a875-4167e9d93011",
         "state": "not-applicable",
-        "at": "2026-11-04T01:40:38.982083+00:00",
-        "reason": "reviewer (sonnet): The claim that this context builds no prompt is contradicted: src/app/report/compare/ExemplarSection.tsx:48 calls exemplarMarkdownSection from src/lib/report/llm-markdown.ts, and ExemplarPanel.tsx:80 passes the result to CopyForLlm. That assembles an LLM-bound comparison payload, which the cited ter"
+        "at": "2026-11-04T01:55:44.268714+00:00",
+        "reason": "reviewer (sonnet): The anchor (compare.ts:1) only shows that the diff engine is pure, but src/app/report/compare also has ExemplarSection.tsx and ExemplarPanel.tsx, which assemble LLM-targeted markdown through exemplarMarkdownSection in lib/report/llm-markdown.ts and a CopyForLlm button, so 'nothing here builds a prom"
       }
     },
     "Org Planning & Execution/Follow-ups Ledger/mcp-tools": {
