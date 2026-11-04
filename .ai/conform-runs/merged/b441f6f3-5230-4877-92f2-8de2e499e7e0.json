@@ -1,0 +1,87 @@
+{
+ "schema": "conform-run/1",
+ "worker": "b441f6f3-5230-4877-92f2-8de2e499e7e0",
+ "subject": "fleet-orchestration",
+ "evaluatedAt": "2026-11-04T01:07:59.894524+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Follow-ups Ledger",
+   "subject": "fleet-orchestration",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/org/followups.ts:162 A craft row that the rescan does not restate is closed as done on its Ascent-Resolves trailer alone. For the lane, that trailer is written from the ids the session itself reported resolved (followups.ts:454), so the worker's claim becomes the ruling with no artifact check, and the case is not reported as UNVERIFIED. This contradicts the header of followup-claims.ts, which says done needs the dimension to move.",
+   "techniques": [
+    {
+     "technique": "completion-claim-verification",
+     "verdict": "deviation",
+     "evidence": "src/lib/org/followups.ts:162 The gap path needs attributable movement, but the craft path closes on the delegate's own claim. A case nothing can verify should be held as UNVERIFIED, not passed as done."
+    },
+    {
+     "technique": "brief-carries-the-session",
+     "verdict": "conformant",
+     "evidence": "src/lib/org/followups.ts:274 Every lane prompt restates the worker's capability limits and the void rules inside the brief itself; it does not assume the worker loaded any standing files."
+    },
+    {
+     "technique": "result-harvest",
+     "verdict": "conformant",
+     "evidence": "src/lib/mcp/work-tools.ts:351 Failure and escalation are first-class reported results. A 'resolved' report only clears the lease and leaves the ruling to the rescan."
+    },
+    {
+     "technique": "parallel-dispatch",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/followup-claims.ts:191 There is one claim door, arbitrated by a database compare-and-set, so a row can never have two concurrent holders. A held row is refused, never stolen."
+    },
+    {
+     "technique": "lifecycle-signals",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/followup-claims.ts:112 Alongside the report_attempt signals, a lazy sweeper releases lapsed leases with a vocabulary of its own ('lease expired'), not as success."
+    }
+   ],
+   "registryProposal": "completion-claim-verification could name the case where the acceptance instrument (here, a scoring rubric) structurally cannot witness the work. In that case the corpus should say the claim stays UNVERIFIED and counted apart, not promoted to done because the alternative would stall a ladder."
+  }
+ ],
+ "declined": [
+  {
+   "subject": "fleet-orchestration",
+   "context": "Live War Room",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "fleet-orchestration",
+   "context": "Org Import, Scan & Watchlist",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "fleet-orchestration",
+   "context": "Developer home (UC3 individual care)",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "fleet-orchestration",
+   "context": "AI Registry Repo (Onboarding & Index)",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-04T01:07:59.894524+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "fleet-orchestration"
+   ],
+   "techniques": [
+    "brief-carries-the-session",
+    "completion-claim-verification",
+    "lifecycle-signals",
+    "parallel-dispatch",
+    "result-harvest"
+   ],
+   "deviations": 1,
+   "context": "Follow-ups Ledger",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

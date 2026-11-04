@@ -2137,19 +2137,50 @@
       "subject": "fleet-orchestration",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T08:23:00.262Z",
-      "worker": "64ffc148-ae82-4b38-a9ea-c17d50bfa005",
+      "evaluatedAt": "2026-11-04",
+      "evaluatedTs": "2026-11-04T01:07:59.894Z",
+      "worker": "b441f6f3-5230-4877-92f2-8de2e499e7e0",
       "techniques": [
         {
           "technique": "completion-claim-verification",
           "verdict": "deviation",
-          "evidence": "src/lib/org/followups.ts:162 After the restatement check, craft completion depends on the trailer alone; scans-persist uses this decision without an independent craft-artifact acceptance verdict."
+          "evidence": "src/lib/org/followups.ts:162 The gap path needs attributable movement, but the craft path closes on the delegate's own claim. A case nothing can verify should be held as UNVERIFIED, not passed as done."
+        },
+        {
+          "technique": "brief-carries-the-session",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/followups.ts:274 Every lane prompt restates the worker's capability limits and the void rules inside the brief itself; it does not assume the worker loaded any standing files."
+        },
+        {
+          "technique": "result-harvest",
+          "verdict": "conformant",
+          "evidence": "src/lib/mcp/work-tools.ts:351 Failure and escalation are first-class reported results. A 'resolved' report only clears the lease and leaves the ruling to the rescan."
+        },
+        {
+          "technique": "parallel-dispatch",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/followup-claims.ts:191 There is one claim door, arbitrated by a database compare-and-set, so a row can never have two concurrent holders. A held row is refused, never stolen."
+        },
+        {
+          "technique": "lifecycle-signals",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/followup-claims.ts:112 Alongside the report_attempt signals, a lazy sweeper releases lapsed leases with a vocabulary of its own ('lease expired'), not as success."
         },
         {
           "technique": "evidence-outranks-a-liveness-claim",
           "verdict": "deviation",
-          "evidence": "src/lib/db/followup-claims.ts:138 Expiry alone returns an editing task to the queue, without confirming that its remote holder stopped or fencing that holder's repository edits."
+          "evidence": "src/lib/db/followup-claims.ts:138 Expiry alone returns an editing task to the queue, without confirming that its remote holder stopped or fencing that holder's repository edits.",
+          "carriedFrom": "2026-10-13"
+        }
+      ],
+      "registryProposal": "completion-claim-verification could name the case where the acceptance instrument (here, a scoring rubric) structurally cannot witness the work. In that case the corpus should say the claim stays UNVERIFIED and counted apart, not promoted to done because the alternative would stall a ladder.",
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "src/lib/org/followups.ts:162 A non-restated craft item becomes done from its completion trailer without an independent artifact acceptance check, turning the worker's claim into the ruling.",
+          "evaluatedAt": "2026-10-13T08:23:00.262Z",
+          "worker": "64ffc148-ae82-4b38-a9ea-c17d50bfa005",
+          "reason": "replaced by b441f6f3-5230-4877-92f2-8de2e499e7e0"
         }
       ]
     },

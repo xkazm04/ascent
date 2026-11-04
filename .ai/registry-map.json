@@ -6478,12 +6478,11 @@
           "changedAt": "2026-10-15",
           "confidence": "probable",
           "state": "deviation",
-          "evidence": "src/lib/org/followups.ts:162 A non-restated craft item becomes done from its completion trailer without an independent artifact acceptance check, turning the worker's claim into the ruling.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:4fc5c1fbe75c52d2",
-          "evaluatedRevision": 25,
-          "revisionsBehind": 3,
-          "stale": true
+          "evidence": "src/lib/org/followups.ts:162 A craft row that the rescan does not restate is closed as done on its Ascent-Resolves trailer alone. For the lane, that trailer is written from the ids the session itself reported resolved (followups.ts:454), so the worker's claim becomes the ruling with no artifact check, and the case is not reported as UNVERIFIED. This contradicts the header of followup-claims.ts, which says done needs the dimension to move.",
+          "evaluatedAt": "2026-11-04",
+          "evaluatedAgainst": "sha256-b2:93bd71853ab468b1",
+          "evaluatedRevision": 28,
+          "revisionsBehind": 3
         },
         {
           "subject": "agent-instruction-files",
