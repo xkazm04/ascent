@@ -1,0 +1,59 @@
+{
+ "schema": "conform-run/1",
+ "worker": "93844284-8178-48b6-8464-d59a85284fbc",
+ "subject": "eval-harness",
+ "evaluatedAt": "2026-11-04T01:25:14.274322+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Provider Integrations",
+   "subject": "eval-harness",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/integrations/otlp.ts:3 This context ingests vendor AI-usage telemetry (OTLP metrics and logs) into per-repo usage records and attributes spend. A case-insensitive search of its directories (src/app/org/[slug]/integrations, src/lib/integrations, src/app/api/integrations, src/lib/db) found no eval-harness vocabulary: no pass@k, golden set, holdout, win rate, eval harness, eval suite or trial count. Nothing here scores a candidate against scenarios.",
+   "techniques": [],
+   "absenceTerms": [
+    "pass@k",
+    "golden set",
+    "holdout"
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "eval-harness",
+   "context": "Live War Room",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "eval-harness",
+   "context": "CI Gate & Status Checks",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "eval-harness",
+   "context": "Trends & Comparison",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "eval-harness",
+   "context": "Portfolio & Public Leaderboard",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-04T01:25:14.274322+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "eval-harness"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Provider Integrations",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

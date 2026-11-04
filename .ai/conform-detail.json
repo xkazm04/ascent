@@ -8332,6 +8332,16 @@
         }
       ],
       "registryProposal": "capability-documentation assumes the system that renders the capability layer also owns the assembler. An MCP server publishes the layer but not the prompt, and its catalog-level `_meta` prose is a place where doctrine mentions drift. The technique could name server-published catalog copy explicitly as a doctrine surface that needs the same sync and completeness check."
+    },
+    "Org Dashboard & Analytics/Provider Integrations/eval-harness": {
+      "context": "Provider Integrations",
+      "subject": "eval-harness",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-04",
+      "evaluatedTs": "2026-11-04T01:25:14.274Z",
+      "worker": "93844284-8178-48b6-8464-d59a85284fbc",
+      "techniques": []
     }
   }
 }

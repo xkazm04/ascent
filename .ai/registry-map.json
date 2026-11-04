@@ -4892,7 +4892,11 @@
           "revision": 37,
           "changedAt": "2026-09-29",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/integrations/otlp.ts:3 This context ingests vendor AI-usage telemetry (OTLP metrics and logs) into per-repo usage records and attributes spend. A case-insensitive search of its directories (src/app/org/[slug]/integrations, src/lib/integrations, src/app/api/integrations, src/lib/db) found no eval-harness vocabulary: no pass@k, golden set, holdout, win rate, eval harness, eval suite or trial count. Nothing here scores a candidate against scenarios.",
+          "evaluatedAt": "2026-11-04",
+          "evaluatedAgainst": "sha256-b2:7ccead00b7f92aba",
+          "evaluatedRevision": 37
         },
         {
           "subject": "test-harness",
