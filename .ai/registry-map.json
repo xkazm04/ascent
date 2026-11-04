@@ -2060,7 +2060,11 @@
           "revision": 44,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/auth/login/route.ts:1 This context handles the OAuth, session and Supabase cookie flows; it builds no model prompt. Its only 'prompt' hits are UI sign-in prompts (src/lib/auth.ts:290). buildPrompt, cache_control and tokenBudget appear nowhere in its directories or under src/lib.",
+          "evaluatedAt": "2026-11-04",
+          "evaluatedAgainst": "sha256-b2:ad13b2ee69c25e8d",
+          "evaluatedRevision": 44
         },
         {
           "subject": "mcp-tools",
@@ -8940,7 +8944,11 @@
           "revision": 44,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/org/decision/route.ts:5 The routes here serve stored passports, overrides, PRs and issues, and record decisions into Shared Org Memory. The scan prompt reads that memory later, but the prompt is assembled outside this context (in the scan and memory modules). A search of these directories for systemPrompt, buildPrompt, maxTokens, cache_control and tokenBudget found nothing.",
+          "evaluatedAt": "2026-11-04",
+          "evaluatedAgainst": "sha256-b2:ad13b2ee69c25e8d",
+          "evaluatedRevision": 44
         },
         {
           "subject": "table",
@@ -9938,7 +9946,11 @@
           "revision": 44,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/cron/purge/route.ts:1 This context deletes and erases database rows in batches, run by cron and by the admin erase dialog; it builds no LLM prompt. Its 'llm' hits are OrgLlmConfig rows being erased. buildPrompt, cache_control and tokenBudget appear nowhere in its directories or anywhere under src/lib.",
+          "evaluatedAt": "2026-11-04",
+          "evaluatedAgainst": "sha256-b2:ad13b2ee69c25e8d",
+          "evaluatedRevision": 44
         },
         {
           "subject": "settings",

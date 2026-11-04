@@ -1,0 +1,135 @@
+{
+  "schema": "conform-run/1",
+  "worker": "8fa3d745-5ecd-4e18-86d3-03db2e1ce6b2",
+  "subject": "prompt-assembly",
+  "evaluatedAt": "2026-11-04T01:39:34.337607+00:00",
+  "provider": "claude",
+  "model": "claude-opus-5-5",
+  "pairs": [
+    {
+      "context": "CI Gate & Status Checks",
+      "subject": "prompt-assembly",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evidence": "src/app/api/gate/[owner]/[repo]/route.ts:7 The gate runs a deterministic policy check over a scan. Its LLM path hands off to the scan pipeline, which lives outside this context, and the PR-comment builder only escapes and renders report text. Nothing here builds a model prompt. A search of src/lib/scoring, src/lib/github, src/lib/db, the gate routes and src/features/standing/governance for systemPrompt, buildPrompt, maxTokens, cache_control and tokenBudget found nothing.",
+      "techniques": [],
+      "absenceTerms": [
+        "systemPrompt",
+        "buildPrompt",
+        "maxTokens",
+        "cache_control",
+        "tokenBudget"
+      ]
+    },
+    {
+      "context": "Data Retention & Purge",
+      "subject": "prompt-assembly",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evidence": "src/app/api/cron/purge/route.ts:1 This context deletes and erases database rows in batches, run by cron and by the admin erase dialog; it builds no LLM prompt. Its 'llm' hits are OrgLlmConfig rows being erased. buildPrompt, cache_control and tokenBudget appear nowhere in its directories or anywhere under src/lib.",
+      "techniques": [],
+      "absenceTerms": [
+        "buildPrompt",
+        "cache_control",
+        "tokenBudget"
+      ]
+    },
+    {
+      "context": "GitHub OAuth & Session",
+      "subject": "prompt-assembly",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evidence": "src/app/api/auth/login/route.ts:1 This context handles the OAuth, session and Supabase cookie flows; it builds no model prompt. Its only 'prompt' hits are UI sign-in prompts (src/lib/auth.ts:290). buildPrompt, cache_control and tokenBudget appear nowhere in its directories or under src/lib.",
+      "techniques": [],
+      "absenceTerms": [
+        "buildPrompt",
+        "cache_control",
+        "tokenBudget"
+      ]
+    },
+    {
+      "context": "AI-Native Passports",
+      "subject": "prompt-assembly",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evidence": "src/app/api/org/decision/route.ts:5 The routes here serve stored passports, overrides, PRs and issues, and record decisions into Shared Org Memory. The scan prompt reads that memory later, but the prompt is assembled outside this context (in the scan and memory modules). A search of these directories for systemPrompt, buildPrompt, maxTokens, cache_control and tokenBudget found nothing.",
+      "techniques": [],
+      "absenceTerms": [
+        "systemPrompt",
+        "buildPrompt",
+        "maxTokens",
+        "cache_control",
+        "tokenBudget"
+      ]
+    }
+  ],
+  "declined": [
+    {
+      "subject": "prompt-assembly",
+      "context": "Trends & Comparison",
+      "reason": "withdrawn after review: reviewer (sonnet): The claim that this context builds no prompt is contradicted: src/app/report/compare/ExemplarSection.tsx:48 calls exemplarMarkdownSection from src/lib/report/llm-markdown.ts, and ExemplarPanel.tsx:80 passes the result to CopyForLlm. That assembles an LLM-bound comparison payload, which the cited ter"
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-11-04T01:39:34.337607+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "prompt-assembly"
+      ],
+      "techniques": [],
+      "deviations": 0,
+      "context": "Trends & Comparison",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-04T01:39:34.337607+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "prompt-assembly"
+      ],
+      "techniques": [],
+      "deviations": 0,
+      "context": "CI Gate & Status Checks",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-04T01:39:34.337607+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "prompt-assembly"
+      ],
+      "techniques": [],
+      "deviations": 0,
+      "context": "Data Retention & Purge",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-04T01:39:34.337607+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "prompt-assembly"
+      ],
+      "techniques": [],
+      "deviations": 0,
+      "context": "GitHub OAuth & Session",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-04T01:39:34.337607+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "prompt-assembly"
+      ],
+      "techniques": [],
+      "deviations": 0,
+      "context": "AI-Native Passports",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    }
+  ]
+}

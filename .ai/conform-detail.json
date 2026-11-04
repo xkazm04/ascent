@@ -8195,13 +8195,13 @@
       "bundle": "software-engineering",
       "state": "unknown",
       "evaluatedAt": "2026-11-04",
-      "evaluatedTs": "2026-11-04T00:52:47.222Z",
+      "evaluatedTs": "2026-11-04T01:39:34.337Z",
       "techniques": [],
       "withdrawn": {
-        "worker": "97693b90-1279-4221-b900-6d6481e20c98",
+        "worker": "8fa3d745-5ecd-4e18-86d3-03db2e1ce6b2",
         "state": "not-applicable",
-        "at": "2026-11-04T00:53:31.054989+00:00",
-        "reason": "reviewer (sonnet): The anchor compare.ts:27 is only a doc comment on signalDelta, so it doesn't show that no prompt is assembled in this context; my grep of the context's files found no prompt assembly, but the seat's term list is repo-specific and the anchor is incidental."
+        "at": "2026-11-04T01:40:38.982083+00:00",
+        "reason": "reviewer (sonnet): The claim that this context builds no prompt is contradicted: src/app/report/compare/ExemplarSection.tsx:48 calls exemplarMarkdownSection from src/lib/report/llm-markdown.ts, and ExemplarPanel.tsx:80 passes the result to CopyForLlm. That assembles an LLM-bound comparison payload, which the cited ter"
       }
     },
     "Org Planning & Execution/Follow-ups Ledger/mcp-tools": {
@@ -8341,6 +8341,36 @@
       "evaluatedAt": "2026-11-04",
       "evaluatedTs": "2026-11-04T01:25:14.274Z",
       "worker": "93844284-8178-48b6-8464-d59a85284fbc",
+      "techniques": []
+    },
+    "Data & Persistence/Data Retention & Purge/prompt-assembly": {
+      "context": "Data Retention & Purge",
+      "subject": "prompt-assembly",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-04",
+      "evaluatedTs": "2026-11-04T01:39:34.337Z",
+      "worker": "8fa3d745-5ecd-4e18-86d3-03db2e1ce6b2",
+      "techniques": []
+    },
+    "Identity & GitHub Connectivity/GitHub OAuth & Session/prompt-assembly": {
+      "context": "GitHub OAuth & Session",
+      "subject": "prompt-assembly",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-04",
+      "evaluatedTs": "2026-11-04T01:39:34.337Z",
+      "worker": "8fa3d745-5ecd-4e18-86d3-03db2e1ce6b2",
+      "techniques": []
+    },
+    "Reporting & Visualization/AI-Native Passports/prompt-assembly": {
+      "context": "AI-Native Passports",
+      "subject": "prompt-assembly",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-04",
+      "evaluatedTs": "2026-11-04T01:39:34.337Z",
+      "worker": "8fa3d745-5ecd-4e18-86d3-03db2e1ce6b2",
       "techniques": []
     }
   }
