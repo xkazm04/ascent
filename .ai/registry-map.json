@@ -7681,7 +7681,11 @@
           "revision": 44,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/mcp/tools.ts:534 The scope-model copy on every tools/list result is hand-written prose that lists which tools each scope unlocks, and it names only two of the three followups:write tools: get_fix_brief (scopes [\"mcp:read\", \"followups:write\"], tools.ts:271) is missing, and tools.test.ts:164-166 only checks for selected substrings, so nothing derives this list from MCP_TOOLS or checks that it is complete.",
+          "evaluatedAt": "2026-11-04",
+          "evaluatedAgainst": "sha256-b2:ad13b2ee69c25e8d",
+          "evaluatedRevision": 44
         },
         {
           "subject": "quality-gates",

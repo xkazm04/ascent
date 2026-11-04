@@ -1,0 +1,99 @@
+{
+  "schema": "conform-run/1",
+  "worker": "97693b90-1279-4221-b900-6d6481e20c98",
+  "subject": "prompt-assembly",
+  "evaluatedAt": "2026-11-04T00:52:47.222428+00:00",
+  "provider": "claude",
+  "model": "claude-opus-5-5",
+  "pairs": [
+    {
+      "context": "MCP Server",
+      "subject": "prompt-assembly",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/lib/mcp/tools.ts:534 The scope-model copy on every tools/list result is hand-written prose that lists which tools each scope unlocks, and it names only two of the three followups:write tools: get_fix_brief (scopes [\"mcp:read\", \"followups:write\"], tools.ts:271) is missing, and tools.test.ts:164-166 only checks for selected substrings, so nothing derives this list from MCP_TOOLS or checks that it is complete.",
+      "techniques": [
+        {
+          "technique": "capability-documentation",
+          "verdict": "deviation",
+          "evidence": "src/lib/mcp/tools.ts:534 The catalog itself is a single authority: bindings are pinned to MCP_TOOLS and admitTools renders only active tools. The doctrine enumeration in TOOLS_LIST_SCOPE_COPY is a second, hand-written copy, it leaves out get_fix_brief, and no sync or completeness check covers it."
+        },
+        {
+          "technique": "consumer-coupled-decoration",
+          "verdict": "conformant",
+          "evidence": "src/lib/mcp/handlers.ts:358 The comment on the per-entry field names its consumer (cite_memory) right where the field is attached."
+        },
+        {
+          "technique": "contributed-document-admission",
+          "verdict": "conformant",
+          "evidence": "src/lib/mcp/registry-reads.ts:134 find_skills returns index entries (name, description, registryPath, registryVersion) and never the body. The body comes only through get_skill, on demand."
+        },
+        {
+          "technique": "variable-interpolation",
+          "verdict": "conformant",
+          "evidence": "src/lib/mcp/tools.ts:77 Each tool declares the trust class of its result (org-authored or computed) in the catalog. The field is required, so the class is set where the tool is declared rather than at a call site, and org-authored results go through egress redaction."
+        },
+        {
+          "technique": "fingerprinting-and-cache-keys",
+          "verdict": "conformant",
+          "evidence": "src/lib/mcp/tools.ts:102 Only the determinism precondition applies here: catalog order is alphabetical and pinned by a test, so the tool block stays byte-identical. The server holds no session, so the session-gate part does not apply."
+        }
+      ],
+      "registryProposal": "capability-documentation assumes the system that renders the capability layer also owns the assembler. An MCP server publishes the layer but not the prompt, and its catalog-level `_meta` prose is a place where doctrine mentions drift. The technique could name server-published catalog copy explicitly as a doctrine surface that needs the same sync and completeness check."
+    }
+  ],
+  "declined": [
+    {
+      "subject": "prompt-assembly",
+      "context": "CI Gate & Status Checks",
+      "reason": "the seat returned unknown"
+    },
+    {
+      "subject": "prompt-assembly",
+      "context": "Data Retention & Purge",
+      "reason": "the seat returned unknown"
+    },
+    {
+      "subject": "prompt-assembly",
+      "context": "GitHub OAuth & Session",
+      "reason": "the seat returned unknown"
+    },
+    {
+      "subject": "prompt-assembly",
+      "context": "Trends & Comparison",
+      "reason": "withdrawn after review: reviewer (sonnet): The anchor compare.ts:27 is only a doc comment on signalDelta, so it doesn't show that no prompt is assembled in this context; my grep of the context's files found no prompt assembly, but the seat's term list is repo-specific and the anchor is incidental."
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-11-04T00:52:47.222428+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "prompt-assembly"
+      ],
+      "techniques": [
+        "capability-documentation",
+        "consumer-coupled-decoration",
+        "contributed-document-admission",
+        "fingerprinting-and-cache-keys",
+        "variable-interpolation"
+      ],
+      "deviations": 1,
+      "context": "MCP Server",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-04T00:52:47.222428+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "prompt-assembly"
+      ],
+      "techniques": [],
+      "deviations": 0,
+      "context": "Trends & Comparison",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    }
+  ]
+}
