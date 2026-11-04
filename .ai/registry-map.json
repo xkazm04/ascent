@@ -3007,7 +3007,11 @@
           "revision": 44,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/components/onboarding/importScan.ts:5 The wizard only consumes the server's scan SSE stream (with a stall watchdog sized for a real LLM scan); prompt assembly happens server-side in the scanning pipeline. A case-insensitive 'prompt' search has zero hits in src/app/onboarding and src/components/onboarding. The only @/lib/llm import (PrivacyNotice.tsx) resolves the provider name for a disclosure and builds no prompt.",
+          "evaluatedAt": "2026-11-04",
+          "evaluatedAgainst": "sha256-b2:ad13b2ee69c25e8d",
+          "evaluatedRevision": 44
         },
         {
           "subject": "guided-tours",
@@ -5274,7 +5278,11 @@
           "revision": 44,
           "changedAt": "2026-10-14",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/org/developer-view-load.ts:11 The Developer home is a read model filled from DB reads (contributor insights, the viewer's own mentor share) and rendered by client components; none of its listed files imports @/lib/llm or builds model input, and the terms systemPrompt/llmMaxTokens/runClaudePrompt have zero hits in its directories. Disclosure: src/lib/org does host other contexts' assemblers (briefing-narrative.ts, followups.ts buildFixPrompt), and those are not part of this context.",
+          "evaluatedAt": "2026-11-04",
+          "evaluatedAgainst": "sha256-b2:ad13b2ee69c25e8d",
+          "evaluatedRevision": 44
         },
         {
           "subject": "agent-memory",
@@ -5685,7 +5693,11 @@
           "revision": 44,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/features/inflight/live/fleetTimetable.ts:7 The War Room aligns stored scan histories into a timetable and renders panels; it neither calls nor assembles a model prompt. @/lib/llm/systemPrompt/llmMaxTokens/runClaudePrompt have zero hits in src/app/org/[slug]/live and src/features/inflight/live. The only 'prompt' words are two comments in the cockpit/ and theater/ subfolders, which are outside the listed files.",
+          "evaluatedAt": "2026-11-04",
+          "evaluatedAgainst": "sha256-b2:ad13b2ee69c25e8d",
+          "evaluatedRevision": 44
         },
         {
           "subject": "voice-io",

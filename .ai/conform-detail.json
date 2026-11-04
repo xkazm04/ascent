@@ -1184,16 +1184,11 @@
       "context": "First-Run Onboarding Wizard",
       "subject": "prompt-assembly",
       "bundle": "software-engineering",
-      "state": "unknown",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T00:24:42.892Z",
-      "techniques": [],
-      "withdrawn": {
-        "worker": "c7c43841-8146-44ed-a006-052acaf3d426",
-        "state": "not-applicable",
-        "at": "2026-10-13T00:25:44.752267+00:00",
-        "reason": "reviewer (sonnet): importScan.ts:5 is a comment about the stall watchdog and does not show that the wizard has no prompt assembler. My own grep of src/components/onboarding for the claimed terms found no matches, but that is a context-wide absence and the anchor only shows one module's purpose, so the not-applicable r"
-      }
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-04",
+      "evaluatedTs": "2026-11-04T00:11:58.635Z",
+      "worker": "767c7a8b-da17-4a7d-87d4-3286294aeef7",
+      "techniques": []
     },
     "Repository Scanning & Scoring/LLM Provider Abstraction/prompt-assembly": {
       "context": "LLM Provider Abstraction",
@@ -6814,16 +6809,11 @@
       "context": "Developer home (UC3 individual care)",
       "subject": "prompt-assembly",
       "bundle": "software-engineering",
-      "state": "unknown",
-      "evaluatedAt": "2026-11-03",
-      "evaluatedTs": "2026-11-03T23:38:33.168Z",
-      "techniques": [],
-      "withdrawn": {
-        "worker": "f9b3a0d5-f84d-4a59-b4d8-cd1f0835be4d",
-        "state": "not-applicable",
-        "at": "2026-11-03T23:39:02.883200+00:00",
-        "reason": "reviewer (sonnet): The anchor developer-view-load.ts:11 is only a db import line, so it does not show that no prompt is assembled; the other evidence is a grep for four terms, and the copy-command UI (CareCopyAction) was not ruled out."
-      }
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-04",
+      "evaluatedTs": "2026-11-04T00:11:58.635Z",
+      "worker": "767c7a8b-da17-4a7d-87d4-3286294aeef7",
+      "techniques": []
     },
     "Org Knowledge & Skills/AI Registry Repo (Onboarding & Index)/test-harness": {
       "context": "AI Registry Repo (Onboarding & Index)",
@@ -8173,14 +8163,14 @@
       "subject": "prompt-assembly",
       "bundle": "software-engineering",
       "state": "unknown",
-      "evaluatedAt": "2026-11-03",
-      "evaluatedTs": "2026-11-03T23:38:33.168Z",
+      "evaluatedAt": "2026-11-04",
+      "evaluatedTs": "2026-11-04T00:11:58.635Z",
       "techniques": [],
       "withdrawn": {
-        "worker": "f9b3a0d5-f84d-4a59-b4d8-cd1f0835be4d",
+        "worker": "767c7a8b-da17-4a7d-87d4-3286294aeef7",
         "state": "not-applicable",
-        "at": "2026-11-03T23:39:02.924683+00:00",
-        "reason": "reviewer (sonnet): The anchor compare.ts:308 is a function that attributes a score change to the LLM judgment, so it does not show that no prompt is built; src/lib/report also holds an LLM briefing composer (llm-markdown, briefing-scope), which the verdict does not account for."
+        "at": "2026-11-04T00:12:27.621270+00:00",
+        "reason": "reviewer (sonnet): The context's own src/app/report/compare/page.tsx renders ExemplarSection, which imports exemplarMarkdownSection from @/lib/report/llm-markdown and uses CopyForLlm to build LLM-facing markdown, so the claim that nothing in the context assembles model input is contradicted."
       }
     },
     "Org Planning & Execution/Follow-ups Ledger/mcp-tools": {
@@ -8263,6 +8253,16 @@
       "evaluatedAt": "2026-11-03",
       "evaluatedTs": "2026-11-03T23:56:07.764Z",
       "worker": "d260875c-0d25-49bb-a0dc-00f6591c6aa4",
+      "techniques": []
+    },
+    "Org Planning & Execution/Live War Room/prompt-assembly": {
+      "context": "Live War Room",
+      "subject": "prompt-assembly",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-04",
+      "evaluatedTs": "2026-11-04T00:11:58.635Z",
+      "worker": "767c7a8b-da17-4a7d-87d4-3286294aeef7",
       "techniques": []
     }
   }

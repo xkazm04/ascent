@@ -1,0 +1,133 @@
+{
+  "schema": "conform-run/1",
+  "worker": "767c7a8b-da17-4a7d-87d4-3286294aeef7",
+  "subject": "prompt-assembly",
+  "evaluatedAt": "2026-11-04T00:11:58.635751+00:00",
+  "provider": "claude",
+  "model": "claude-opus-5-5",
+  "pairs": [
+    {
+      "context": "Developer home (UC3 individual care)",
+      "subject": "prompt-assembly",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evidence": "src/lib/org/developer-view-load.ts:11 The Developer home is a read model filled from DB reads (contributor insights, the viewer's own mentor share) and rendered by client components; none of its listed files imports @/lib/llm or builds model input, and the terms systemPrompt/llmMaxTokens/runClaudePrompt have zero hits in its directories. Disclosure: src/lib/org does host other contexts' assemblers (briefing-narrative.ts, followups.ts buildFixPrompt), and those are not part of this context.",
+      "techniques": [],
+      "absenceTerms": [
+        "systemPrompt",
+        "llmMaxTokens",
+        "runClaudePrompt"
+      ]
+    },
+    {
+      "context": "First-Run Onboarding Wizard",
+      "subject": "prompt-assembly",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evidence": "src/components/onboarding/importScan.ts:5 The wizard only consumes the server's scan SSE stream (with a stall watchdog sized for a real LLM scan); prompt assembly happens server-side in the scanning pipeline. A case-insensitive 'prompt' search has zero hits in src/app/onboarding and src/components/onboarding. The only @/lib/llm import (PrivacyNotice.tsx) resolves the provider name for a disclosure and builds no prompt.",
+      "techniques": [],
+      "absenceTerms": [
+        "prompt",
+        "systemPrompt",
+        "llmMaxTokens",
+        "runClaudePrompt"
+      ]
+    },
+    {
+      "context": "Live War Room",
+      "subject": "prompt-assembly",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evidence": "src/features/inflight/live/fleetTimetable.ts:7 The War Room aligns stored scan histories into a timetable and renders panels; it neither calls nor assembles a model prompt. @/lib/llm/systemPrompt/llmMaxTokens/runClaudePrompt have zero hits in src/app/org/[slug]/live and src/features/inflight/live. The only 'prompt' words are two comments in the cockpit/ and theater/ subfolders, which are outside the listed files.",
+      "techniques": [],
+      "absenceTerms": [
+        "systemPrompt",
+        "llmMaxTokens",
+        "runClaudePrompt",
+        "@/lib/llm"
+      ]
+    },
+    {
+      "context": "CI Gate & Status Checks",
+      "subject": "prompt-assembly",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evidence": "src/app/api/gate/[owner]/[repo]/route.ts:11 The gate evaluates a policy over a finished ScanReport and posts checks/comments. It reaches a model only by delegating a cold scan to scanRepository, which is owned by the scanning context, and gate.ts, gate-comment.ts, checks.ts, write.ts and org-gate.ts import no LLM module. Disclosure: src/lib/scoring/prompt.ts (buildAssessmentPrompt) shares the directory but belongs to the scanning context. The 'prompts' in gate-comment.ts are human-facing exploration prompts in a PR comment.",
+      "techniques": [],
+      "absenceTerms": [
+        "systemPrompt",
+        "llmMaxTokens",
+        "runClaudePrompt"
+      ]
+    }
+  ],
+  "declined": [
+    {
+      "subject": "prompt-assembly",
+      "context": "Trends & Comparison",
+      "reason": "withdrawn after review: reviewer (sonnet): The context's own src/app/report/compare/page.tsx renders ExemplarSection, which imports exemplarMarkdownSection from @/lib/report/llm-markdown and uses CopyForLlm to build LLM-facing markdown, so the claim that nothing in the context assembles model input is contradicted."
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-11-04T00:11:58.635751+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "prompt-assembly"
+      ],
+      "techniques": [],
+      "deviations": 0,
+      "context": "Developer home (UC3 individual care)",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-04T00:11:58.635751+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "prompt-assembly"
+      ],
+      "techniques": [],
+      "deviations": 0,
+      "context": "Trends & Comparison",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-04T00:11:58.635751+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "prompt-assembly"
+      ],
+      "techniques": [],
+      "deviations": 0,
+      "context": "First-Run Onboarding Wizard",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-04T00:11:58.635751+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "prompt-assembly"
+      ],
+      "techniques": [],
+      "deviations": 0,
+      "context": "Live War Room",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-04T00:11:58.635751+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "prompt-assembly"
+      ],
+      "techniques": [],
+      "deviations": 0,
+      "context": "CI Gate & Status Checks",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    }
+  ]
+}
