@@ -1,0 +1,37 @@
+{
+ "schema": "conform-run/1",
+ "worker": "025473e7-951b-476a-9b61-b5c619db4c88",
+ "subject": "quality-gates",
+ "evaluatedAt": "2026-11-04T02:58:37.852162+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [],
+ "declined": [
+  {
+   "subject": "quality-gates",
+   "context": "Scan Pipeline & Ingestion",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "quality-gates",
+   "context": "AI Registry Repo (Onboarding & Index)",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "quality-gates",
+   "context": "First-Run Onboarding Wizard",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "quality-gates",
+   "context": "Developer home (UC3 individual care)",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "quality-gates",
+   "context": "Org Memory",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": []
+}
