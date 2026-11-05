@@ -5153,7 +5153,11 @@
           "revision": 28,
           "changedAt": "2026-10-15",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/db/personal.ts:1 The context is the individual-tier read model and watchlist/backlog overlay writes. It dispatches, tracks or harvests no agent sessions; its only 'claim' is the personal-namespace auto-claim on /me. Searching its directories for hibernat/sweeper/subagent/fanout found nothing.",
+          "evaluatedAt": "2026-11-05",
+          "evaluatedAgainst": "sha256-b2:93bd71853ab468b1",
+          "evaluatedRevision": 28
         },
         {
           "subject": "people-analytics-ethics",
@@ -5714,7 +5718,11 @@
           "revision": 28,
           "changedAt": "2026-10-15",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/features/inflight/live/fleetTimetable.ts:1 The context's listed files are a repo-scan wall: 'fleet' means watched repos, and the ship-loop band's accept goes to acceptDirection (src/lib/db/improvement.ts:258), which opens a templated practice-starter PR with no agent session. Searching src/features/inflight/live and src/app/org/[slug]/live for hibernat/sweeper/subagent/fanout found nothing. Broader terms (dispatch, heartbeat, worktree) do hit the sibling cockpit/ folder, but those files belong to the loop/cockpit context, not to this one.",
+          "evaluatedAt": "2026-11-05",
+          "evaluatedAgainst": "sha256-b2:93bd71853ab468b1",
+          "evaluatedRevision": 28
         },
         {
           "subject": "prompt-assembly",
@@ -7408,7 +7416,11 @@
           "revision": 28,
           "changedAt": "2026-10-15",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/org/registry-view.ts:4 Here 'fleet' means the org's repos pointing at a customer-owned registry repo. The view, panel, index and migrate routes read conformance and sync counts and start, track or harvest no agent sessions. Searching the context's directories for hibernat/sweeper/subagent/fanout found nothing, and the only agent mentions in the listed files are fixture copy and a how-to saying nothing needs a session.",
+          "evaluatedAt": "2026-11-05",
+          "evaluatedAgainst": "sha256-b2:93bd71853ab468b1",
+          "evaluatedRevision": 28
         },
         {
           "subject": "concurrent-vcs",

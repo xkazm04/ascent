@@ -8763,6 +8763,36 @@
       "evaluatedTs": "2026-11-05T23:14:30.711Z",
       "worker": "5e79817b-d7e2-4232-ab9f-62c13745d70b",
       "techniques": []
+    },
+    "Org Planning & Execution/Live War Room/fleet-orchestration": {
+      "context": "Live War Room",
+      "subject": "fleet-orchestration",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-05",
+      "evaluatedTs": "2026-11-05T23:38:44.323Z",
+      "worker": "4ce28162-ba85-4d0f-95b4-bc8ee5c9a4c5",
+      "techniques": []
+    },
+    "Org Knowledge & Skills/AI Registry Repo (Onboarding & Index)/fleet-orchestration": {
+      "context": "AI Registry Repo (Onboarding & Index)",
+      "subject": "fleet-orchestration",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-05",
+      "evaluatedTs": "2026-11-05T23:38:44.323Z",
+      "worker": "4ce28162-ba85-4d0f-95b4-bc8ee5c9a4c5",
+      "techniques": []
+    },
+    "Org Dashboard & Analytics/Org Overview & Standing/fleet-orchestration": {
+      "context": "Org Overview & Standing",
+      "subject": "fleet-orchestration",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-05",
+      "evaluatedTs": "2026-11-05T23:38:44.323Z",
+      "worker": "4ce28162-ba85-4d0f-95b4-bc8ee5c9a4c5",
+      "techniques": []
     }
   }
 }
