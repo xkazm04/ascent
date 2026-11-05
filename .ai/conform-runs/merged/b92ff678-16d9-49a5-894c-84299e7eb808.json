@@ -1,0 +1,233 @@
+{
+ "schema": "conform-run/1",
+ "worker": "b92ff678-16d9-49a5-894c-84299e7eb808",
+ "subject": "table",
+ "evaluatedAt": "2026-11-05T22:37:29.106741+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "People & Delivery Analytics",
+   "subject": "table",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/features/bought/teams/TeamsMatrix.tsx:61 The Teams sort compares one metric with no identity tiebreaker and flips the whole comparison by direction. Tied teams therefore keep whatever order the rollup happened to return, and the NEGATIVE_INFINITY used for absent AI%/\u0394 readings rises to the top of an ascending sort, so a missing reading poses as the lowest value instead of staying last.",
+   "techniques": [
+    {
+     "technique": "sorting",
+     "verdict": "deviation",
+     "evidence": "src/features/bought/teams/TeamsMatrix.tsx:61 No row-identity tiebreaker. Absent values (-Infinity at :34-35) have no fixed home and float first when ascending. The third click returns to sort=null, which is storage order rather than a named default (:68). Sort state is exposed via aria-sort (TeamsMatrixSortTh.tsx:33), but nothing announces the change through a live region or caption."
+    },
+    {
+     "technique": "filtering",
+     "verdict": "deviation",
+     "evidence": "src/features/bought/teams/TeamsRollupPanel.tsx:99 The panel's rollup is scoped by segment, stack AND the period window (:44 getOrgTeamRollup(slug, segmentId, techGroupId, window)). The export link forwards only segment and stack, so the predicate is threaded one axis at a time: the CSV's movement columns are not the period the user reviewed."
+    },
+    {
+     "technique": "loading-and-empty-states",
+     "verdict": "conformant",
+     "evidence": "src/features/bought/teams/TeamsRollupPanel.tsx:69 A failed rollup query shows a 'couldn't load' state that differs from the 'no team attribution yet' empty state. Each section degrades on its own through allSettled."
+    },
+    {
+     "technique": "client-server-split",
+     "verdict": "conformant",
+     "evidence": "src/features/bought/teams/TeamsRollupPanelView.tsx:73 All-client regime: the full team rollup reaches the client, which sorts the complete set. No server window truncates it first."
+    },
+    {
+     "technique": "grid-keyboard-model",
+     "verdict": "conformant",
+     "evidence": "src/features/bought/teams/TeamsMatrix.tsx:134 A native table through OrgTable with a caption and scope=col headers. The only interactive cells are disclosure and sort buttons, so there is no grid role and no key ownership to carry. GovernanceTable follows the same pattern."
+    },
+    {
+     "technique": "performance",
+     "verdict": "conformant",
+     "evidence": "src/features/bought/teams/TeamsMatrix.tsx:150 Rows are keyed by team identity rather than index. Expansion state is a Set keyed by slug, so it survives a resort."
+    }
+   ]
+  },
+  {
+   "context": "Portfolio & Public Leaderboard",
+   "subject": "table",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/leaderboard/page.tsx:153 getPublicRegister returns null both when there are zero candidates (src/lib/register/data.ts:318) and when a read fails. The page renders null as 'Register unavailable\u2026 the read failed', so a public corpus with no scans looks like an outage, and the 'No public scans yet' empty branch can never be reached.",
+   "techniques": [
+    {
+     "technique": "loading-and-empty-states",
+     "verdict": "deviation",
+     "evidence": "src/app/leaderboard/page.tsx:153 An empty-settled result ('nothing exists yet') is shown in the error's clothes because of the data layer's null collapse at data.ts:318 (the page's own comment at :79-80 names it). The portfolio page has a related gap: orgs in read.unavailable or read.empty are only reported when ALL companies are missing. In a partial result they silently disappear from the table."
+    },
+    {
+     "technique": "sorting",
+     "verdict": "deviation",
+     "evidence": "src/lib/org/portfolio.ts:118 The portfolio order uses avgOverall alone with no org-identity tiebreaker, so tied companies follow the order the user typed in the URL. By contrast, the leaderboard's byRank (src/lib/register/corpus.ts:50) does append fullName as a tiebreaker."
+    },
+    {
+     "technique": "pagination",
+     "verdict": "conformant",
+     "evidence": "src/app/leaderboard/page.tsx:148 Offset paging with ?page=N over a bounded candidate window (data.ts:322-325). When the window truncates the corpus, the count states its bound instead of implying it covers the whole corpus."
+    },
+    {
+     "technique": "filtering",
+     "verdict": "conformant",
+     "evidence": "src/app/portfolio/page.tsx:69 The free-text org list commits only through an explicit GET form submit, and the input is filled from the applied (deduplicated) predicate, so entered and applied agree when the page loads."
+    },
+    {
+     "technique": "client-server-split",
+     "verdict": "conformant",
+     "evidence": "src/app/portfolio/page.tsx:38 The tenancy/permission predicate runs on the server for every slug and is never exposed as a filter the user can clear."
+    },
+    {
+     "technique": "grid-keyboard-model",
+     "verdict": "deviation",
+     "evidence": "src/components/leaderboard/LeaderboardTable.tsx:69 The 12-column public board is an ol/li over a CSS grid with a header row of plain spans (:55-66). It takes neither honest shape (native table or grid): no dimension cell is associated with a column header, and the board has no accessible name. Its sibling PortfolioTable uses OrgTable with a caption."
+    },
+    {
+     "technique": "performance",
+     "verdict": "conformant",
+     "evidence": "src/components/leaderboard/LeaderboardTable.tsx:73 Rows are keyed by repo identity, and server paging keeps the number of mounted rows bounded."
+    }
+   ]
+  },
+  {
+   "context": "AI-Native Passports",
+   "subject": "table",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/app/org/[slug]/passports/page.tsx:9 This context's files are API routes (passport, overrides, PR, issue, decision), the CreateIssueModal and a redirect-only page. Searching them and their parent directories for table markup, sort state, CSV and the table primitives found nothing. The Passports table itself (src/features/standing/passports/PassportTable.tsx) is outside this context's file list.",
+   "techniques": [],
+   "absenceTerms": [
+    "<table",
+    "aria-sort",
+    "OrgTable",
+    "DataTable"
+   ]
+  },
+  {
+   "context": "Developer home (UC3 individual care)",
+   "subject": "table",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/features/developer/CareMovesBoard.tsx:17 The developer home shows identity-dominant moves as cards in a four-state board, which the golden path names as the correct non-table choice. Searching its files and directories found no table markup, sort state or table primitive. The only sort is a numeric percentile computation in developer-view.ts:296.",
+   "techniques": [],
+   "absenceTerms": [
+    "<table",
+    "aria-sort",
+    "OrgTable",
+    "DataTable"
+   ]
+  },
+  {
+   "context": "PDF & LLM Export",
+   "subject": "table",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/org/export/route.ts:120 The teams export rebuilds the rollup from segment and stack only, and the route accepts no window parameter. The exported avgDelta/improving/declining columns therefore describe since-last-scan movement, while the on-screen Teams table described the selected period: the file is not the evidence the user reviewed.",
+   "techniques": [
+    {
+     "technique": "filtering",
+     "verdict": "deviation",
+     "evidence": "src/app/api/org/export/route.ts:120 The predicate is listed field by field (segment, stack) rather than taken whole. The period axis the Teams panel applies (TeamsRollupPanel.tsx:44) is dropped, and neither the filename nor the header names the comparison window."
+    },
+    {
+     "technique": "export-escapes-for-its-consumer",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/export/route.ts:164 Every org CSV route imports the shared encoder at src/lib/export/csv.ts, which guards before quoting (:31 then :32), covers full-width and control-character triggers, exempts signed numbers and writes null as an empty cell. A hostile set is tested in csv.test.ts. The LLM markdown export also escapes for its consumer: newlines and pipes are collapsed in table cells (llm-markdown.ts:131)."
+    },
+    {
+     "technique": "loading-and-empty-states",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/export/route.ts:61 A null or unavailable lookup returns an explicit 404 rather than a header-only 200, so a failed read is never sent as an empty export."
+    },
+    {
+     "technique": "client-server-split",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/export/route.ts:37 Scope filters are checked on the server against the org's own allowlist of segments and stacks, and an unknown value fails closed with a 400. Tenancy is gated by requireOrgRead before any read."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-11-05T22:37:29.106741+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "table"
+   ],
+   "techniques": [
+    "client-server-split",
+    "filtering",
+    "grid-keyboard-model",
+    "loading-and-empty-states",
+    "performance",
+    "sorting"
+   ],
+   "deviations": 1,
+   "context": "People & Delivery Analytics",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-05T22:37:29.106741+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "table"
+   ],
+   "techniques": [
+    "client-server-split",
+    "filtering",
+    "grid-keyboard-model",
+    "loading-and-empty-states",
+    "pagination",
+    "performance",
+    "sorting"
+   ],
+   "deviations": 1,
+   "context": "Portfolio & Public Leaderboard",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-05T22:37:29.106741+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "table"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "AI-Native Passports",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-05T22:37:29.106741+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "table"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Developer home (UC3 individual care)",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-05T22:37:29.106741+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "table"
+   ],
+   "techniques": [
+    "client-server-split",
+    "export-escapes-for-its-consumer",
+    "filtering",
+    "loading-and-empty-states"
+   ],
+   "deviations": 1,
+   "context": "PDF & LLM Export",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

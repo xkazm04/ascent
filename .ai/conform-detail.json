@@ -2506,39 +2506,45 @@
       "subject": "table",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T10:39:11.279Z",
-      "worker": "56735964-f5f6-478b-aaae-58c70bb83c5b",
+      "evaluatedAt": "2026-11-05",
+      "evaluatedTs": "2026-11-05T22:37:29.106Z",
+      "worker": "b92ff678-16d9-49a5-894c-84299e7eb808",
       "techniques": [
         {
-          "technique": "client-server-split",
-          "verdict": "conformant",
-          "evidence": "src/features/bought/teams/TeamsRollupPanel.tsx:150 The matrix sorts the complete scoped team rollup; the inspected server query does not page teams before that client sort."
+          "technique": "sorting",
+          "verdict": "deviation",
+          "evidence": "src/features/bought/teams/TeamsMatrix.tsx:61 No row-identity tiebreaker. Absent values (-Infinity at :34-35) have no fixed home and float first when ascending. The third click returns to sort=null, which is storage order rather than a named default (:68). Sort state is exposed via aria-sort (TeamsMatrixSortTh.tsx:33), but nothing announces the change through a live region or caption."
         },
         {
           "technique": "filtering",
           "verdict": "deviation",
-          "evidence": "src/app/api/org/export/route.ts:120 TeamsRollupPanel passes window to the same producer at line 56, but the export branch omits it and the download link carries only segment and stack."
+          "evidence": "src/features/bought/teams/TeamsRollupPanel.tsx:99 The panel's rollup is scoped by segment, stack AND the period window (:44 getOrgTeamRollup(slug, segmentId, techGroupId, window)). The export link forwards only segment and stack, so the predicate is threaded one axis at a time: the CSV's movement columns are not the period the user reviewed."
         },
         {
           "technique": "loading-and-empty-states",
-          "verdict": "deviation",
-          "evidence": "src/features/bought/teams/TeamsTab.tsx:18 The initial fallback replaces the entire TeamsRollupPanel, withholding its scope controls and table headers while data loads."
+          "verdict": "conformant",
+          "evidence": "src/features/bought/teams/TeamsRollupPanel.tsx:69 A failed rollup query shows a 'couldn't load' state that differs from the 'no team attribution yet' empty state. Each section degrades on its own through allSettled."
+        },
+        {
+          "technique": "client-server-split",
+          "verdict": "conformant",
+          "evidence": "src/features/bought/teams/TeamsRollupPanelView.tsx:73 All-client regime: the full team rollup reaches the client, which sorts the complete set. No server window truncates it first."
+        },
+        {
+          "technique": "grid-keyboard-model",
+          "verdict": "conformant",
+          "evidence": "src/features/bought/teams/TeamsMatrix.tsx:134 A native table through OrgTable with a caption and scope=col headers. The only interactive cells are disclosure and sort buttons, so there is no grid role and no key ownership to carry. GovernanceTable follows the same pattern."
+        },
+        {
+          "technique": "performance",
+          "verdict": "conformant",
+          "evidence": "src/features/bought/teams/TeamsMatrix.tsx:150 Rows are keyed by team identity rather than index. Expansion state is a Set keyed by slug, so it survives a resort."
         },
         {
           "technique": "pagination",
           "verdict": "deviation",
-          "evidence": "src/features/bought/delivery/PrRepoTable.tsx:158 The first twelve rows are separated from an unbounded remainder, which is rendered in a details element; folding does not establish a bounded pagination window."
-        },
-        {
-          "technique": "performance",
-          "verdict": "deviation",
-          "evidence": "src/features/bought/delivery/PrRepoTable.tsx:173 All healthier-tail rows are rendered even when their details element is closed, and getOrgPrSignals fetches all scoped repositories; the visual fold does not bound payload or DOM construction."
-        },
-        {
-          "technique": "sorting",
-          "verdict": "deviation",
-          "evidence": "src/features/bought/teams/TeamsMatrix.tsx:61 Reversing direction moves the negative-infinity sentinels for absent AI share and movement to the front, and the comparator supplies no immutable identity tiebreaker."
+          "evidence": "src/features/bought/delivery/PrRepoTable.tsx:158 The first twelve rows are separated from an unbounded remainder, which is rendered in a details element; folding does not establish a bounded pagination window.",
+          "carriedFrom": "2026-10-13"
         }
       ],
       "superseded": [
@@ -2548,6 +2554,13 @@
           "evaluatedAt": "2026-09-20",
           "worker": null,
           "reason": "replaced by 56735964-f5f6-478b-aaae-58c70bb83c5b"
+        },
+        {
+          "state": "deviation",
+          "evidence": "src/app/api/org/export/route.ts:120 Teams export omits the window supplied by the on-screen panel, so its movement columns can describe since-last-scan comparisons instead of the period the user reviewed.",
+          "evaluatedAt": "2026-10-13T10:39:11.279Z",
+          "worker": "56735964-f5f6-478b-aaae-58c70bb83c5b",
+          "reason": "replaced by b92ff678-16d9-49a5-894c-84299e7eb808"
         }
       ]
     },
@@ -7086,16 +7099,11 @@
       "context": "Developer home (UC3 individual care)",
       "subject": "table",
       "bundle": "software-engineering",
-      "state": "unknown",
-      "evaluatedAt": "2026-10-24",
-      "evaluatedTs": "2026-10-24T02:49:49.561Z",
-      "techniques": [],
-      "withdrawn": {
-        "worker": "40d9db5a-3068-43e0-8df7-9efc9778c45d",
-        "state": "not-applicable",
-        "at": "2026-10-24T02:50:18.173190+00:00",
-        "reason": "reviewer (sonnet): The not-applicable rests on a negative search, but CareShareUpload.dom.test.tsx:106 says the shared MatrixGrid kit 'captions its accessible table itself', so the privacy ledger is tabular data and the absence claim is contradicted."
-      }
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-05",
+      "evaluatedTs": "2026-11-05T22:37:29.106Z",
+      "worker": "b92ff678-16d9-49a5-894c-84299e7eb808",
+      "techniques": []
     },
     "Org Dashboard & Analytics/Developer home (UC3 individual care)/agent-runtime-assembly": {
       "context": "Developer home (UC3 individual care)",
@@ -8626,6 +8634,92 @@
           "technique": "outbound-fetch-destination-validation",
           "verdict": "not-applicable",
           "evidence": "src/lib/integrations/otlp.ts:25 The git.repository URL inside the OTLP payload is only parsed into a repo identity or a named unsupported host. It is never fetched, so no destination arrives as data."
+        }
+      ]
+    },
+    "Reporting & Visualization/Portfolio & Public Leaderboard/table": {
+      "context": "Portfolio & Public Leaderboard",
+      "subject": "table",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-05",
+      "evaluatedTs": "2026-11-05T22:37:29.106Z",
+      "worker": "b92ff678-16d9-49a5-894c-84299e7eb808",
+      "techniques": [
+        {
+          "technique": "loading-and-empty-states",
+          "verdict": "deviation",
+          "evidence": "src/app/leaderboard/page.tsx:153 An empty-settled result ('nothing exists yet') is shown in the error's clothes because of the data layer's null collapse at data.ts:318 (the page's own comment at :79-80 names it). The portfolio page has a related gap: orgs in read.unavailable or read.empty are only reported when ALL companies are missing. In a partial result they silently disappear from the table."
+        },
+        {
+          "technique": "sorting",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/portfolio.ts:118 The portfolio order uses avgOverall alone with no org-identity tiebreaker, so tied companies follow the order the user typed in the URL. By contrast, the leaderboard's byRank (src/lib/register/corpus.ts:50) does append fullName as a tiebreaker."
+        },
+        {
+          "technique": "pagination",
+          "verdict": "conformant",
+          "evidence": "src/app/leaderboard/page.tsx:148 Offset paging with ?page=N over a bounded candidate window (data.ts:322-325). When the window truncates the corpus, the count states its bound instead of implying it covers the whole corpus."
+        },
+        {
+          "technique": "filtering",
+          "verdict": "conformant",
+          "evidence": "src/app/portfolio/page.tsx:69 The free-text org list commits only through an explicit GET form submit, and the input is filled from the applied (deduplicated) predicate, so entered and applied agree when the page loads."
+        },
+        {
+          "technique": "client-server-split",
+          "verdict": "conformant",
+          "evidence": "src/app/portfolio/page.tsx:38 The tenancy/permission predicate runs on the server for every slug and is never exposed as a filter the user can clear."
+        },
+        {
+          "technique": "grid-keyboard-model",
+          "verdict": "deviation",
+          "evidence": "src/components/leaderboard/LeaderboardTable.tsx:69 The 12-column public board is an ol/li over a CSS grid with a header row of plain spans (:55-66). It takes neither honest shape (native table or grid): no dimension cell is associated with a column header, and the board has no accessible name. Its sibling PortfolioTable uses OrgTable with a caption."
+        },
+        {
+          "technique": "performance",
+          "verdict": "conformant",
+          "evidence": "src/components/leaderboard/LeaderboardTable.tsx:73 Rows are keyed by repo identity, and server paging keeps the number of mounted rows bounded."
+        }
+      ],
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "src/components/leaderboard/LeaderboardTable.tsx:68 draws the 12-column public board as ol/li over a CSS grid whose header row is plain spans (:54-66), so no dimension cell is associated with a column header and the board carries no accessible name, while its sibling src/app/portfolio/PortfolioTable.tsx:43 uses the real OrgTable primitive with a caption; pagination and the error/empty split are conformant (src/lib/register/data.ts:236, :308-311, :321; src/app/leaderboard/page.tsx:56, :155)",
+          "evaluatedAt": "2026-09-20",
+          "worker": null,
+          "reason": "replaced by b92ff678-16d9-49a5-894c-84299e7eb808"
+        }
+      ]
+    },
+    "Reporting & Visualization/PDF & LLM Export/table": {
+      "context": "PDF & LLM Export",
+      "subject": "table",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-05",
+      "evaluatedTs": "2026-11-05T22:37:29.106Z",
+      "worker": "b92ff678-16d9-49a5-894c-84299e7eb808",
+      "techniques": [
+        {
+          "technique": "filtering",
+          "verdict": "deviation",
+          "evidence": "src/app/api/org/export/route.ts:120 The predicate is listed field by field (segment, stack) rather than taken whole. The period axis the Teams panel applies (TeamsRollupPanel.tsx:44) is dropped, and neither the filename nor the header names the comparison window."
+        },
+        {
+          "technique": "export-escapes-for-its-consumer",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/export/route.ts:164 Every org CSV route imports the shared encoder at src/lib/export/csv.ts, which guards before quoting (:31 then :32), covers full-width and control-character triggers, exempts signed numbers and writes null as an empty cell. A hostile set is tested in csv.test.ts. The LLM markdown export also escapes for its consumer: newlines and pipes are collapsed in table cells (llm-markdown.ts:131)."
+        },
+        {
+          "technique": "loading-and-empty-states",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/export/route.ts:61 A null or unavailable lookup returns an explicit 404 rather than a header-only 200, so a failed read is never sent as an empty export."
+        },
+        {
+          "technique": "client-server-split",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/export/route.ts:37 Scope filters are checked on the server against the org's own allowlist of segments and stacks, and an unknown value fails closed with a 400. Tenancy is gated by requireOrgRead before any read."
         }
       ]
     }

@@ -4746,13 +4746,12 @@
           "changedAt": "2026-10-14",
           "confidence": "probable",
           "state": "deviation",
-          "evidence": "src/app/api/org/export/route.ts:120 Teams export omits the window supplied by the on-screen panel, so its movement columns can describe since-last-scan comparisons instead of the period the user reviewed.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:f5aa23bf6f14872f",
-          "evaluatedRevision": 12,
+          "evidence": "src/features/bought/teams/TeamsMatrix.tsx:61 The Teams sort compares one metric with no identity tiebreaker and flips the whole comparison by direction. Tied teams therefore keep whatever order the rollup happened to return, and the NEGATIVE_INFINITY used for absent AI%/Δ readings rises to the top of an ascending sort, so a missing reading poses as the lowest value instead of staying last.",
+          "evaluatedAt": "2026-11-05",
+          "evaluatedAgainst": "sha256-b2:c587a204413d5373",
+          "evaluatedRevision": 14,
           "source": "conform",
-          "revisionsBehind": 2,
-          "stale": true
+          "revisionsBehind": 2
         }
       ],
       "governance": "governed"
@@ -5423,7 +5422,11 @@
           "revision": 14,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/features/developer/CareMovesBoard.tsx:17 The developer home shows identity-dominant moves as cards in a four-state board, which the golden path names as the correct non-table choice. Searching its files and directories found no table markup, sort state or table primitive. The only sort is a numeric percentile computation in developer-view.ts:296.",
+          "evaluatedAt": "2026-11-05",
+          "evaluatedAgainst": "sha256-b2:c587a204413d5373",
+          "evaluatedRevision": 14
         },
         {
           "subject": "test-harness",
@@ -7898,7 +7901,11 @@
           "revision": 14,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/app/api/org/export/route.ts:120 The teams export rebuilds the rollup from segment and stack only, and the route accepts no window parameter. The exported avgDelta/improving/declining columns therefore describe since-last-scan movement, while the on-screen Teams table described the selected period: the file is not the evidence the user reviewed.",
+          "evaluatedAt": "2026-11-05",
+          "evaluatedAgainst": "sha256-b2:c587a204413d5373",
+          "evaluatedRevision": 14
         },
         {
           "subject": "test-harness",
@@ -9155,13 +9162,12 @@
           "changedAt": "2026-10-14",
           "confidence": "probable",
           "state": "deviation",
-          "evidence": "src/components/leaderboard/LeaderboardTable.tsx:68 draws the 12-column public board as ol/li over a CSS grid whose header row is plain spans (:54-66), so no dimension cell is associated with a column header and the board carries no accessible name, while its sibling src/app/portfolio/PortfolioTable.tsx:43 uses the real OrgTable primitive with a caption; pagination and the error/empty split are conformant (src/lib/register/data.ts:236, :308-311, :321; src/app/leaderboard/page.tsx:56, :155)",
-          "evaluatedAt": "2026-09-20",
-          "evaluatedAgainst": "sha256:9ac911984c10d3d5",
-          "evaluatedRevision": 5,
+          "evidence": "src/app/leaderboard/page.tsx:153 getPublicRegister returns null both when there are zero candidates (src/lib/register/data.ts:318) and when a read fails. The page renders null as 'Register unavailable… the read failed', so a public corpus with no scans looks like an outage, and the 'No public scans yet' empty branch can never be reached.",
+          "evaluatedAt": "2026-11-05",
+          "evaluatedAgainst": "sha256-b2:c587a204413d5373",
+          "evaluatedRevision": 14,
           "source": "conform",
-          "revisionsBehind": 9,
-          "stale": true
+          "revisionsBehind": 9
         },
         {
           "subject": "readiness-passports",
