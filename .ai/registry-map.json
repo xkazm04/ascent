@@ -2875,7 +2875,11 @@
           "revision": 28,
           "changedAt": "2026-10-15",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/launch/page.tsx:27 Here 'fleet' means GitHub installations and repos drawn as stars. The only concurrency is a bounded fetch of /api/app/repos (runBounded in useFleetData.ts), and searching src/app/launch and src/components/launch for 'hibernat', 'heartbeat', 'sweeper', 'subprocess' and 'spawn' found nothing, so no agent session fleet exists here.",
+          "evaluatedAt": "2026-11-04",
+          "evaluatedAgainst": "sha256-b2:93bd71853ab468b1",
+          "evaluatedRevision": 28
         },
         {
           "subject": "agent-memory",
@@ -3602,7 +3606,11 @@
           "revision": 28,
           "changedAt": "2026-10-15",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/org/scan/route.ts:5 The work units here are durable ScanJob rows (single-shot LLM inference per repo) drained with SCAN_CONCURRENCY=4 under a wall-clock deadline. That is a job queue, governed by background-jobs and admission-queue, not a fleet of autonomous agent sessions. Searching src/app/api/org, src/app/api/cron and src/lib/db for 'hibernat' and 'sweeper' found nothing, and no tool loop or agentic session exists in the scan path (src/lib/scan.ts, src/lib/analyze, src/lib/scan-queue-worker.ts).",
+          "evaluatedAt": "2026-11-04",
+          "evaluatedAgainst": "sha256-b2:93bd71853ab468b1",
+          "evaluatedRevision": 28
         },
         {
           "subject": "admission-queue",
@@ -5375,7 +5383,11 @@
           "revision": 28,
           "changedAt": "2026-10-15",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/org/developer-view.ts:5 The context is a read model of one developer's own repos and the care data they chose to share. It starts, tracks or harvests no agent sessions. 'Session' here means the developer's own Claude Code session counts, and searching src/lib/org, src/features/developer, src/app/org and src/components/org for 'hibernat' and 'sweeper' found nothing.",
+          "evaluatedAt": "2026-11-04",
+          "evaluatedAgainst": "sha256-b2:93bd71853ab468b1",
+          "evaluatedRevision": 28
         },
         {
           "subject": "quality-gates",

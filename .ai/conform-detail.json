@@ -8532,6 +8532,36 @@
           "evidence": "src/lib/db/org-insights.ts:301 A period delta inside the noise band goes to a counted 'held' bucket instead of gainers or regressers, so a re-scan wobble is not reported as a move."
         }
       ]
+    },
+    "Org Scanning & Fleet Rollups/Org Import, Scan & Watchlist/fleet-orchestration": {
+      "context": "Org Import, Scan & Watchlist",
+      "subject": "fleet-orchestration",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-04",
+      "evaluatedTs": "2026-11-04T22:30:40.590Z",
+      "worker": "024c2d03-088b-4108-9261-79c8f4a8040f",
+      "techniques": []
+    },
+    "Org Dashboard & Analytics/Developer home (UC3 individual care)/fleet-orchestration": {
+      "context": "Developer home (UC3 individual care)",
+      "subject": "fleet-orchestration",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-04",
+      "evaluatedTs": "2026-11-04T22:30:40.590Z",
+      "worker": "024c2d03-088b-4108-9261-79c8f4a8040f",
+      "techniques": []
+    },
+    "Onboarding, Shell & AI Standard/Launch Fleet Map/fleet-orchestration": {
+      "context": "Launch Fleet Map",
+      "subject": "fleet-orchestration",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-04",
+      "evaluatedTs": "2026-11-04T22:30:40.590Z",
+      "worker": "024c2d03-088b-4108-9261-79c8f4a8040f",
+      "techniques": []
     }
   }
 }
