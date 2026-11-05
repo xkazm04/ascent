@@ -7199,7 +7199,11 @@
           "revision": 37,
           "changedAt": "2026-09-29",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/org/skills/promote/route.ts:3 These routes do CRUD, promotion, adoption, download and token issuance for org skills, all behind authorization gates; nothing here scores candidates against scenarios. A case-insensitive grep of src/app/api/org/skills and src/app/api/org/tokens for eval|judge|benchmark|scenario|trial|rubric found no hit.",
+          "evaluatedAt": "2026-11-05",
+          "evaluatedAgainst": "sha256-b2:7ccead00b7f92aba",
+          "evaluatedRevision": 37
         },
         {
           "subject": "mcp-tools",
@@ -8365,7 +8369,11 @@
           "revision": 37,
           "changedAt": "2026-09-29",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/report/compare.ts:505 The diff's 'ruler' identity is the rubric version alone, so two model-scored scans graded by different judge models (ComparableScan records engineModel, but no comparison reads it; MixedEngineCaveat only fires for mock vs live) are spliced into one delta without any discontinuity notice, which judge-stability forbids because the model is part of the instrument.",
+          "evaluatedAt": "2026-11-05",
+          "evaluatedAgainst": "sha256-b2:7ccead00b7f92aba",
+          "evaluatedRevision": 37
         },
         {
           "subject": "quality-gates",

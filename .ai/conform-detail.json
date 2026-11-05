@@ -8722,6 +8722,47 @@
           "evidence": "src/app/api/org/export/route.ts:37 Scope filters are checked on the server against the org's own allowlist of segments and stacks, and an unknown value fails closed with a 400. Tenancy is gated by requireOrgRead before any read."
         }
       ]
+    },
+    "Reporting & Visualization/Trends & Comparison/eval-harness": {
+      "context": "Trends & Comparison",
+      "subject": "eval-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-05",
+      "evaluatedTs": "2026-11-05T23:14:30.711Z",
+      "worker": "5e79817b-d7e2-4232-ab9f-62c13745d70b",
+      "techniques": [
+        {
+          "technique": "judge-stability",
+          "verdict": "deviation",
+          "evidence": "src/lib/report/compare.ts:505 Pins and annotates the rubric, but not the judge model; engineModel is on ComparableScan yet unused in compare.ts, WhatChanged or trends, so a model swap between live scans is spliced silently."
+        },
+        {
+          "technique": "scenario-design",
+          "verdict": "conformant",
+          "evidence": "src/components/report/WhatChanged.tsx:40 When the exam (rubric) changed underneath, the comparison says so before showing deltas, instead of presenting rubric movement as improvement."
+        },
+        {
+          "technique": "failure-attribution",
+          "verdict": "conformant",
+          "evidence": "src/lib/report/compare.ts:308 A score movement is attributed to judgment drift rather than to invented evidence when no detector signal changed (the signalDelta is kept separately)."
+        },
+        {
+          "technique": "certification-levels",
+          "verdict": "conformant",
+          "evidence": "src/components/report/TrendChart.tsx:102 Points from the deterministic floor are drawn differently and footnoted, so a no-model score is labelled as what it saw rather than plotted as a model grade."
+        }
+      ]
+    },
+    "Org Knowledge & Skills/Skills Registry & API Tokens/eval-harness": {
+      "context": "Skills Registry & API Tokens",
+      "subject": "eval-harness",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-05",
+      "evaluatedTs": "2026-11-05T23:14:30.711Z",
+      "worker": "5e79817b-d7e2-4232-ab9f-62c13745d70b",
+      "techniques": []
     }
   }
 }
