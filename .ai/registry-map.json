@@ -4946,7 +4946,11 @@
           "revision": 4,
           "changedAt": "2026-10-27",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "conformant",
+          "evidence": "src/lib/integrations/ingest-token.ts:122 The per-org ingest token is a server-minted HMAC bound to the slug and a revocation epoch, never stored, and checked in constant time with no fallback secret. The ingest routes answer with a closed, status-mapped vocabulary (401/415/400/503 'not configured'/503 retry) and log raw store errors only on the server.",
+          "evaluatedAt": "2026-11-05",
+          "evaluatedAgainst": "sha256-b2:8c4e4cc37445b46c",
+          "evaluatedRevision": 4
         },
         {
           "subject": "multi-provider-gateway-plane",
@@ -8735,11 +8739,7 @@
           "confidence": "probable",
           "state": "conformant",
           "evidence": "src/components/report/useReportScan.ts:421 The report client renders only the server's own error sentence and branches on its closed code (NOT_FOUND), and the GitHub-side network error that used to put the internal GHES host into that sentence is now logged on the server and replaced with a fixed message, so the earlier deviation is fixed.",
-          "evaluatedAt": "2026-10-24",
-          "evaluatedAgainst": "sha256-b2:d3eef10e9ed8459f",
-          "evaluatedRevision": 3,
-          "revisionsBehind": 1,
-          "stale": true
+          "evaluatedAt": "2026-10-24"
         },
         {
           "subject": "docs-sync",
@@ -9257,12 +9257,12 @@
           "revision": 4,
           "changedAt": "2026-10-27",
           "confidence": "probable",
-          "state": "conformant",
-          "evidence": "src/lib/register/data.ts:117-144 REGISTER_REPO_SELECT is a structural Prisma select carrying no sensitive/internal columns, and isPrivate is re-asserted at the scan query, the repo query, AND per-row in registerEntryFrom:155 — three independent checks, matching omit-the-column-not-the-value's structural-exclusion discipline; leaderboard/page.tsx:61 and portfolio.ts:80-82/32 degrade every DB or authorization failure to null/empty via .catch(()=>null) rather than surfacing a raw error, matching opaque-upstream-errors' spirit for a public surface. Separately noted (not scored as a technique deviation): leaderboard/page.tsx:98-101 renders getDbMode()/dbModeLabel() ('Served live from Aurora DSQL') to every anonymous visitor of this crawlable public page — the SAME value api/health/route.ts:29-38 explicitly reasons 'describes deployment TOPOLOGY... shouldn't be handed to an anonymous caller' and gates behind CRON_SECRET. I did not mark this a deviation because it discloses only a coarse backend-family label (no hostname/credential/error-body), and the codebase treats it as a deliberate trust-building UI element (also on the landing page, IndexGallery.tsx) rather than an oversight — but it is a real inconsistency in how the project applies its own stated topology-disclosure rule, worth registry attention.",
-          "evaluatedAt": "2026-08-31",
-          "evaluatedAgainst": "sha256:f3f5d2c3d03ce511",
+          "state": "deviation",
+          "evidence": "src/app/leaderboard/page.tsx:121 The crawlable public register shows every anonymous visitor the backend family (e.g. 'Aurora DSQL'). /api/health hides that same dbMode behind CRON_SECRET as 'deployment TOPOLOGY ... shouldn't be handed to an anonymous caller' (src/app/api/health/route.ts:30). The topology opacity paid for at one door is published for free at another, which is the 'cheapest publication' failure the technique names.",
+          "evaluatedAt": "2026-11-05",
+          "evaluatedAgainst": "sha256-b2:8c4e4cc37445b46c",
           "source": "retained",
-          "stale": true
+          "evaluatedRevision": 4
         }
       ],
       "governance": "governed"

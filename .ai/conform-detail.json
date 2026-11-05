@@ -446,37 +446,49 @@
       "context": "Portfolio & Public Leaderboard",
       "subject": "browser-credential-boundary",
       "bundle": "software-engineering",
-      "state": "conformant",
-      "evaluatedAt": "2026-08-31",
-      "worker": "w9-ascent",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-05",
+      "evaluatedTs": "2026-11-05T22:17:31.388Z",
+      "worker": "22793d7c-a269-4bb7-b41c-3d45e0819628",
       "techniques": [
         {
-          "technique": "omit-the-column-not-the-value",
-          "verdict": "conformant",
-          "evidence": "register/data.ts:117-144 REGISTER_REPO_SELECT + :155 registerEntryFrom re-asserts isPrivate per row"
-        },
-        {
           "technique": "opaque-upstream-errors",
-          "verdict": "conformant",
-          "evidence": "leaderboard/page.tsx:61 .catch(()=>null); portfolio.ts buildPortfolio per-org .catch(()=>null) at :80-81; portfolio/page.tsx:29 per-org canReadOrg with unreadable orgs silently dropped and counted, not leaked"
+          "verdict": "deviation",
+          "evidence": "src/app/leaderboard/page.tsx:121 The technique says opacity is only as strong as the fact's cheapest publication: either accept dbMode as public and drop the health-route gate, or stop rendering it here. Currently both are done. The failure-vs-empty half is fine: page.tsx:74 turns a thrown read into null, and the page shows RegisterUnavailable rather than an empty ranking."
         },
         {
-          "technique": "public-vs-server-env-split",
+          "technique": "omit-the-column-not-the-value",
           "verdict": "not-applicable",
-          "evidence": "no browser-held credential exists for this surface's data source"
-        },
-        {
-          "technique": "aggregate-view-not-base-table",
-          "verdict": "not-applicable",
-          "evidence": "no client-held DB credential fronts this store; the Prisma select IS the structural boundary, judged under omit-the-column-not-the-value instead"
+          "evidence": "src/lib/register/data.ts:162 The register is a server-side Prisma projection. No browser holds a store credential for these tables, so there is no public-role shape. The select is still narrow, and isPrivate is re-asserted per row."
         },
         {
           "technique": "default-deny-plus-defaulted-owner",
           "verdict": "not-applicable",
-          "evidence": "no RLS policy engine fronts this store for a browser role"
+          "evidence": "src/app/portfolio/page.tsx:38 Each org is gated by canReadOrg in deployed code. No row policy is evaluated for a browser-held role."
+        },
+        {
+          "technique": "public-vs-server-env-split",
+          "verdict": "not-applicable",
+          "evidence": "no browser-held credential exists for this surface's data source",
+          "carriedFrom": "2026-08-31"
+        },
+        {
+          "technique": "aggregate-view-not-base-table",
+          "verdict": "not-applicable",
+          "evidence": "no client-held DB credential fronts this store; the Prisma select IS the structural boundary, judged under omit-the-column-not-the-value instead",
+          "carriedFrom": "2026-08-31"
         }
       ],
-      "registryProposal": "opaque-upstream-errors is framed around a broker relaying an upstream FAILURE. ascent has a real, deliberate case of the same underlying concern (deployment topology reaching an anonymous caller) on a SUCCESS path: leaderboard/page.tsx displays getDbMode() ('Aurora DSQL'/'PostgreSQL'/'embedded PGlite') to every anonymous visitor, while api/health/route.ts explicitly gates the identical value behind an internal-caller check with the comment 'shouldn't be handed to an anonymous caller'. The technique's current wording doesn't cover a topology label shown in a normal 200 response, so a project can pass this technique while being internally inconsistent about the same value. Consider naming 'success-path topology/backend-identity disclosure to an anonymous caller' as a named case alongside error relaying."
+      "registryProposal": "opaque-upstream-errors' 'cheapest publication' section is written for an upstream hostname in the bundle. It could say explicitly that a coarse backend label shown on a public page is the same failure when a sibling route treats that label as topology to withhold, and that the fix is to make the two doors agree, either way.",
+      "superseded": [
+        {
+          "state": "conformant",
+          "evidence": "src/lib/register/data.ts:117-144 REGISTER_REPO_SELECT is a structural Prisma select carrying no sensitive/internal columns, and isPrivate is re-asserted at the scan query, the repo query, AND per-row in registerEntryFrom:155 — three independent checks, matching omit-the-column-not-the-value's structural-exclusion discipline; leaderboard/page.tsx:61 and portfolio.ts:80-82/32 degrade every DB or authorization failure to null/empty via .catch(()=>null) rather than surfacing a raw error, matching opaque-upstream-errors' spirit for a public surface. Separately noted (not scored as a technique deviation): leaderboard/page.tsx:98-101 renders getDbMode()/dbModeLabel() ('Served live from Aurora DSQL') to every anonymous visitor of this crawlable public page — the SAME value api/health/route.ts:29-38 explicitly reasons 'describes deployment TOPOLOGY... shouldn't be handed to an anonymous caller' and gates behind CRON_SECRET. I did not mark this a deviation because it discloses only a coarse backend-family label (no hostname/credential/error-body), and the codebase treats it as a deliberate trust-building UI element (also on the landing page, IndexGallery.tsx) rather than an oversight — but it is a real inconsistency in how the project applies its own stated topology-disclosure rule, worth registry attention.",
+          "evaluatedAt": "2026-08-31",
+          "worker": null,
+          "reason": "replaced by 22793d7c-a269-4bb7-b41c-3d45e0819628"
+        }
+      ]
     },
     "Org Planning & Execution/Playbooks/remediation-handoff": {
       "context": "Playbooks",
@@ -2909,34 +2921,39 @@
       "subject": "browser-credential-boundary",
       "bundle": "software-engineering",
       "state": "conformant",
-      "evaluatedAt": "2026-10-24",
-      "evaluatedTs": "2026-10-24T05:36:54.040Z",
-      "worker": "6aeacfd2-bf5e-49c9-aa40-6fc74d148091",
+      "evaluatedAt": "2026-11-05",
+      "evaluatedTs": "2026-11-05T22:17:31.388Z",
       "techniques": [
         {
           "technique": "opaque-upstream-errors",
           "verdict": "conformant",
-          "evidence": "src/components/report/useReportScan.ts:421 The client branches on the closed GitHubError code, and the message it renders now comes from fixed sentences. src/lib/github/source.ts:307-313 now logs the raw fetch error with console.warn and throws \"Couldn't reach GitHub. Please try again.\" instead of interpolating String(e). GraphQL error bodies, which graphql.ts:124-143 copies into messages, are caught and set to null at scan-ingest.ts:157-162, so they never reach the stream."
+          "evidence": "src/components/report/useReportScan.ts:421 Branches on the server's closed code. Server side: GitHubError messages come from our own vocabulary (source.ts:313 'Couldn't reach GitHub'), and non-GitHub errors become 'Unexpected error while scanning the repository.' The permalink also keeps a failed read apart from an empty one (page.tsx:129 PermalinkReadError vs ColdScanGate)."
         },
         {
           "technique": "broker-proxy-attaches-secret",
           "verdict": "conformant",
-          "evidence": "src/components/report/useReportScan.ts:273 The browser sends only its intent (url, ref, subPath, fresh) to a same-origin route. The GitHub token or installation token is attached on the server, and the body carries no credential."
+          "evidence": "src/components/report/useReportScan.ts:273 The browser sends only intent (url, ref, subPath) to a same-origin route. The GitHub token or installation credential is resolved server-side, and the route refuses unauthenticated callers (stream route 401 auth_required) before spending it."
         },
         {
-          "technique": "default-deny-plus-defaulted-owner",
-          "verdict": "not-applicable",
-          "evidence": "src/app/report/[owner]/[repo]/page.tsx:259 Read access is decided in app code on the server (canReadOrg), not by store row policies that a browser-held key reaches. This is the technique's 'your code is the only client' exclusion."
+          "technique": "server-sealed-client-roundtrip",
+          "verdict": "conformant",
+          "evidence": "src/app/api/scan/stream/route.ts:50 The client relays the peek's headSha/headEtag back (useReportScan.ts:287). The server takes the keep-it-server-side branch and re-resolves the head instead of trusting the courier."
         },
         {
           "technique": "omit-the-column-not-the-value",
           "verdict": "not-applicable",
-          "evidence": "src/app/report/[owner]/[repo]/page.tsx:49 Scan rows are read by a server component through @/lib/db. No public role can compose its own query against the table, so this context has no regime-one table shape to judge."
+          "evidence": "src/app/report/[owner]/[repo]/page.tsx:49 Report data is read server-side through Prisma with an org gate. No browser-held store credential reaches these tables (regime two), so the browser has no public-role table shape to design."
+        },
+        {
+          "technique": "default-deny-plus-defaulted-owner",
+          "verdict": "not-applicable",
+          "evidence": "src/app/report/[owner]/[repo]/page.tsx:159 Authorization is checked in deployed code and fails closed. This matches the technique's 'your code is the only client' case: there are no row policies for a browser to reach."
         },
         {
           "technique": "aggregate-view-not-base-table",
           "verdict": "not-applicable",
-          "evidence": "src/app/report/[owner]/[repo]/opengraph-image.tsx:34 The share card reads on the server under a resolved readable org. The browser has no grant on a base table, so no aggregate view is needed."
+          "evidence": "src/app/report/[owner]/[repo]/opengraph-image.tsx:34 The share card reads on the server under a resolved readable org. The browser has no grant on a base table, so no aggregate view is needed.",
+          "carriedFrom": "2026-10-24"
         },
         {
           "technique": "allowlisted-operator-stream",
@@ -2958,8 +2975,21 @@
           "evaluatedAt": "2026-08-23",
           "worker": null,
           "reason": "replaced by 00de936c-9e69-450e-8a18-7a6e03f71d45"
+        },
+        {
+          "state": "conformant",
+          "evidence": "src/components/report/useReportScan.ts:421 The report client renders only the server's own error sentence and branches on its closed code (NOT_FOUND), and the GitHub-side network error that used to put the internal GHES host into that sentence is now logged on the server and replaced with a fixed message, so the earlier deviation is fixed.",
+          "evaluatedAt": "2026-10-24T05:36:54.040Z",
+          "worker": "6aeacfd2-bf5e-49c9-aa40-6fc74d148091",
+          "reason": "replaced by 22793d7c-a269-4bb7-b41c-3d45e0819628"
         }
-      ]
+      ],
+      "withdrawn": {
+        "worker": "22793d7c-a269-4bb7-b41c-3d45e0819628",
+        "state": "conformant",
+        "at": "2026-11-05T22:18:19.306967+00:00",
+        "reason": "reviewer (sonnet): One technique claims the stream route refuses unauthenticated callers (401 auth_required) before spending the server credential, but src/app/api/scan/stream/route.ts:100-117 exempts the anonymous public scan funnel from the sign-in wall by default (`publicScan` is passed to scanAuthGate), so that cl"
+      }
     },
     "Billing, Credits & Metering/Credits & Entitlements/plan-entitlements": {
       "context": "Credits & Entitlements",
@@ -8562,6 +8592,42 @@
       "evaluatedTs": "2026-11-04T22:30:40.590Z",
       "worker": "024c2d03-088b-4108-9261-79c8f4a8040f",
       "techniques": []
+    },
+    "Org Dashboard & Analytics/Provider Integrations/browser-credential-boundary": {
+      "context": "Provider Integrations",
+      "subject": "browser-credential-boundary",
+      "bundle": "software-engineering",
+      "state": "conformant",
+      "evaluatedAt": "2026-11-05",
+      "evaluatedTs": "2026-11-05T22:17:31.388Z",
+      "worker": "22793d7c-a269-4bb7-b41c-3d45e0819628",
+      "techniques": [
+        {
+          "technique": "server-sealed-client-roundtrip",
+          "verdict": "conformant",
+          "evidence": "src/lib/integrations/ingest-token.ts:122 The carried token is sealed under a key only the server holds, bound to its subject (slug + epoch inside the signed material). With no secret, parseIngestToken returns null (line 98)."
+        },
+        {
+          "technique": "opaque-upstream-errors",
+          "verdict": "conformant",
+          "evidence": "src/app/api/integrations/ingest/v1/metrics/route.ts:82 The store failure is logged and mapped to a retryable 503 with Retry-After. 'Not configured here' is its own member (ingest-guard.ts:141), and auth runs before the wire-format check."
+        },
+        {
+          "technique": "public-vs-server-env-split",
+          "verdict": "conformant",
+          "evidence": "src/lib/integrations/ingest-token.ts:40 The signing secret is an unprefixed server-only variable whose absence closes the door (no silent dev fallback). The module has no explicit `server-only` marker; it relies on node:crypto plus a comment that the client never imports it."
+        },
+        {
+          "technique": "omit-the-column-not-the-value",
+          "verdict": "conformant",
+          "evidence": "src/lib/integrations/ingest-token.ts:2 This is the technique's strongest home ('nowhere, derived on demand'): the token is recomputed from the slug and epoch, so there is no stored token column to expose."
+        },
+        {
+          "technique": "outbound-fetch-destination-validation",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/integrations/otlp.ts:25 The git.repository URL inside the OTLP payload is only parsed into a repo identity or a named unsupported host. It is never fetched, so no destination arrives as data."
+        }
+      ]
     }
   }
 }

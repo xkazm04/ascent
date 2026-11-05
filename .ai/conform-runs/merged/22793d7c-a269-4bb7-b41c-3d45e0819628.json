@@ -1,0 +1,140 @@
+{
+  "schema": "conform-run/1",
+  "worker": "22793d7c-a269-4bb7-b41c-3d45e0819628",
+  "subject": "browser-credential-boundary",
+  "evaluatedAt": "2026-11-05T22:17:31.388178+00:00",
+  "provider": "claude",
+  "model": "claude-opus-5-5",
+  "pairs": [
+    {
+      "context": "Portfolio & Public Leaderboard",
+      "subject": "browser-credential-boundary",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/app/leaderboard/page.tsx:121 The crawlable public register shows every anonymous visitor the backend family (e.g. 'Aurora DSQL'). /api/health hides that same dbMode behind CRON_SECRET as 'deployment TOPOLOGY ... shouldn't be handed to an anonymous caller' (src/app/api/health/route.ts:30). The topology opacity paid for at one door is published for free at another, which is the 'cheapest publication' failure the technique names.",
+      "techniques": [
+        {
+          "technique": "opaque-upstream-errors",
+          "verdict": "deviation",
+          "evidence": "src/app/leaderboard/page.tsx:121 The technique says opacity is only as strong as the fact's cheapest publication: either accept dbMode as public and drop the health-route gate, or stop rendering it here. Currently both are done. The failure-vs-empty half is fine: page.tsx:74 turns a thrown read into null, and the page shows RegisterUnavailable rather than an empty ranking."
+        },
+        {
+          "technique": "omit-the-column-not-the-value",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/register/data.ts:162 The register is a server-side Prisma projection. No browser holds a store credential for these tables, so there is no public-role shape. The select is still narrow, and isPrivate is re-asserted per row."
+        },
+        {
+          "technique": "default-deny-plus-defaulted-owner",
+          "verdict": "not-applicable",
+          "evidence": "src/app/portfolio/page.tsx:38 Each org is gated by canReadOrg in deployed code. No row policy is evaluated for a browser-held role."
+        }
+      ],
+      "registryProposal": "opaque-upstream-errors' 'cheapest publication' section is written for an upstream hostname in the bundle. It could say explicitly that a coarse backend label shown on a public page is the same failure when a sibling route treats that label as topology to withhold, and that the fix is to make the two doors agree, either way."
+    },
+    {
+      "context": "Provider Integrations",
+      "subject": "browser-credential-boundary",
+      "bundle": "software-engineering",
+      "state": "conformant",
+      "evidence": "src/lib/integrations/ingest-token.ts:122 The per-org ingest token is a server-minted HMAC bound to the slug and a revocation epoch, never stored, and checked in constant time with no fallback secret. The ingest routes answer with a closed, status-mapped vocabulary (401/415/400/503 'not configured'/503 retry) and log raw store errors only on the server.",
+      "techniques": [
+        {
+          "technique": "server-sealed-client-roundtrip",
+          "verdict": "conformant",
+          "evidence": "src/lib/integrations/ingest-token.ts:122 The carried token is sealed under a key only the server holds, bound to its subject (slug + epoch inside the signed material). With no secret, parseIngestToken returns null (line 98)."
+        },
+        {
+          "technique": "opaque-upstream-errors",
+          "verdict": "conformant",
+          "evidence": "src/app/api/integrations/ingest/v1/metrics/route.ts:82 The store failure is logged and mapped to a retryable 503 with Retry-After. 'Not configured here' is its own member (ingest-guard.ts:141), and auth runs before the wire-format check."
+        },
+        {
+          "technique": "public-vs-server-env-split",
+          "verdict": "conformant",
+          "evidence": "src/lib/integrations/ingest-token.ts:40 The signing secret is an unprefixed server-only variable whose absence closes the door (no silent dev fallback). The module has no explicit `server-only` marker; it relies on node:crypto plus a comment that the client never imports it."
+        },
+        {
+          "technique": "omit-the-column-not-the-value",
+          "verdict": "conformant",
+          "evidence": "src/lib/integrations/ingest-token.ts:2 This is the technique's strongest home ('nowhere, derived on demand'): the token is recomputed from the slug and epoch, so there is no stored token column to expose."
+        },
+        {
+          "technique": "outbound-fetch-destination-validation",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/integrations/otlp.ts:25 The git.repository URL inside the OTLP payload is only parsed into a repo identity or a named unsupported host. It is never fetched, so no destination arrives as data."
+        }
+      ]
+    }
+  ],
+  "declined": [
+    {
+      "subject": "browser-credential-boundary",
+      "context": "Developer home (UC3 individual care)",
+      "reason": "the seat returned unknown"
+    },
+    {
+      "subject": "browser-credential-boundary",
+      "context": "GitHub OAuth & Session",
+      "reason": "evidence leans on supabase/client.ts, which is not a tracked file"
+    },
+    {
+      "subject": "browser-credential-boundary",
+      "context": "Repo Report Shell & Tabs",
+      "reason": "withdrawn after review: reviewer (sonnet): One technique claims the stream route refuses unauthenticated callers (401 auth_required) before spending the server credential, but src/app/api/scan/stream/route.ts:100-117 exempts the anonymous public scan funnel from the sign-in wall by default (`publicScan` is passed to scanAuthGate), so that cl"
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-11-05T22:17:31.388178+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "browser-credential-boundary"
+      ],
+      "techniques": [
+        "broker-proxy-attaches-secret",
+        "default-deny-plus-defaulted-owner",
+        "omit-the-column-not-the-value",
+        "opaque-upstream-errors",
+        "server-sealed-client-roundtrip"
+      ],
+      "deviations": 0,
+      "context": "Repo Report Shell & Tabs",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-05T22:17:31.388178+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "browser-credential-boundary"
+      ],
+      "techniques": [
+        "default-deny-plus-defaulted-owner",
+        "omit-the-column-not-the-value",
+        "opaque-upstream-errors"
+      ],
+      "deviations": 1,
+      "context": "Portfolio & Public Leaderboard",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-05T22:17:31.388178+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "browser-credential-boundary"
+      ],
+      "techniques": [
+        "omit-the-column-not-the-value",
+        "opaque-upstream-errors",
+        "outbound-fetch-destination-validation",
+        "public-vs-server-env-split",
+        "server-sealed-client-roundtrip"
+      ],
+      "deviations": 0,
+      "context": "Provider Integrations",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    }
+  ]
+}
