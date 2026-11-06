@@ -6495,25 +6495,39 @@
       "context": "AI-Native Passports",
       "subject": "readiness-passports",
       "bundle": "software-engineering",
-      "state": "conformant",
-      "evaluatedAt": "2026-10-19",
-      "evaluatedTs": "2026-10-19T11:17:23.393Z",
-      "worker": "15eb9e1e-0aa2-415c-a55b-b40acc57eb17",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T03:39:59.288Z",
+      "worker": "4e8d7022-5a37-46cb-babf-d756274ebb54",
       "techniques": [
         {
           "technique": "declined-by-choice",
-          "verdict": "conformant",
-          "evidence": "src/app/api/report/passport/overrides/route.ts:74 Validates decline paths against an allow-list before persistence so unobservable blind spots are never declinable."
+          "verdict": "deviation",
+          "evidence": "src/app/api/report/passport/overrides/route.ts:137 Several parts conform: an allow-list checked at the door (route.ts:123-124, isDeclinablePath over the literal DECLINABLE_PATHS), an overlay stored beside the scan, and `by`/`at` stamped by the server (lines 133-149). But the technique says the reason is required and rejected if empty, at one validation door. Here that rule lives only in the client control (PassportDeclineControl.tsx:14), so the door accepts a decline without a reason."
         },
         {
           "technique": "fingerprint-provenance",
-          "verdict": "conformant",
-          "evidence": "src/app/api/report/passport/route.ts:55 Migrates historical stored passports forward on read to the current schema version rather than mutating stored database rows."
+          "verdict": "deviation",
+          "evidence": "src/app/api/report/passport/pr/route.ts:60 The portable artifact committed to the customer repo carries a schema version and pointer. It also carries a generatedAt day and an unversioned generatedBy \"ascent-scan\" (passport.ts:543-546). It does NOT carry the immutable commit SHA it observed, which the AppPassport header in types.ts:383-390 has no field for; the SHA is only a lookup key beside the row (route.ts:40 headSha). It also has no assessor or ladder version. Migrate-on-read is realized (route.ts:55 upgradePassport, tagged migratedFrom)."
         },
         {
           "technique": "two-axis-readiness",
           "verdict": "conformant",
-          "evidence": "src/app/api/report/passport/pr/route.ts:79 Presents automation level and production readiness band as an independent ordinal pair without collapsing them into an averaged headline."
+          "evidence": "src/app/api/report/passport/pr/route.ts:79 The PR body reports the two axes as a pair (automation level, production band) with no averaged headline across them."
+        },
+        {
+          "technique": "named-vs-capability-metadata",
+          "verdict": "conformant",
+          "evidence": "src/app/api/report/passport/route.ts:3 The served artifact is deliberately tool-naming. Its monitoring and hosting fields are three-valued (vendor name / null meaning looked-and-none / \"unknown\"), per types.ts:414-419."
+        }
+      ],
+      "superseded": [
+        {
+          "state": "conformant",
+          "evidence": "src/app/api/report/passport/pr/route.ts:60 Ascent commits the externally derived, schema-versioned readiness passport as a portable JSON artifact into the repository alongside agent instructions.",
+          "evaluatedAt": "2026-10-19T11:17:23.393Z",
+          "worker": "15eb9e1e-0aa2-415c-a55b-b40acc57eb17",
+          "reason": "replaced by 4e8d7022-5a37-46cb-babf-d756274ebb54"
         }
       ]
     },

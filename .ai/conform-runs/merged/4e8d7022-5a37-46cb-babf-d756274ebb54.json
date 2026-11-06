@@ -1,0 +1,65 @@
+{
+ "schema": "conform-run/1",
+ "worker": "4e8d7022-5a37-46cb-babf-d756274ebb54",
+ "subject": "readiness-passports",
+ "evaluatedAt": "2026-11-06T03:39:59.288030+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "AI-Native Passports",
+   "subject": "readiness-passports",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/report/passport/overrides/route.ts:137 The server write door validates decline paths against the allow-list but never rejects a missing or empty reason. parseDeclined just drops a blank reason, and route.test.ts:160 sends `{}` and gets past validation to the 404 stage. So the 'reason is required' rule exists only in the PassportDeclineControl UI, and any other client can file a decline with no rationale.",
+   "techniques": [
+    {
+     "technique": "declined-by-choice",
+     "verdict": "deviation",
+     "evidence": "src/app/api/report/passport/overrides/route.ts:137 Several parts conform: an allow-list checked at the door (route.ts:123-124, isDeclinablePath over the literal DECLINABLE_PATHS), an overlay stored beside the scan, and `by`/`at` stamped by the server (lines 133-149). But the technique says the reason is required and rejected if empty, at one validation door. Here that rule lives only in the client control (PassportDeclineControl.tsx:14), so the door accepts a decline without a reason."
+    },
+    {
+     "technique": "fingerprint-provenance",
+     "verdict": "deviation",
+     "evidence": "src/app/api/report/passport/pr/route.ts:60 The portable artifact committed to the customer repo carries a schema version and pointer. It also carries a generatedAt day and an unversioned generatedBy \"ascent-scan\" (passport.ts:543-546). It does NOT carry the immutable commit SHA it observed, which the AppPassport header in types.ts:383-390 has no field for; the SHA is only a lookup key beside the row (route.ts:40 headSha). It also has no assessor or ladder version. Migrate-on-read is realized (route.ts:55 upgradePassport, tagged migratedFrom)."
+    },
+    {
+     "technique": "two-axis-readiness",
+     "verdict": "conformant",
+     "evidence": "src/app/api/report/passport/pr/route.ts:79 The PR body reports the two axes as a pair (automation level, production band) with no averaged headline across them."
+    },
+    {
+     "technique": "named-vs-capability-metadata",
+     "verdict": "conformant",
+     "evidence": "src/app/api/report/passport/route.ts:3 The served artifact is deliberately tool-naming. Its monitoring and hosting fields are three-valued (vendor name / null meaning looked-and-none / \"unknown\"), per types.ts:414-419."
+    }
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "readiness-passports",
+   "context": "Portfolio & Public Leaderboard",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-06T03:39:59.288030+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "readiness-passports"
+   ],
+   "techniques": [
+    "declined-by-choice",
+    "fingerprint-provenance",
+    "named-vs-capability-metadata",
+    "two-axis-readiness"
+   ],
+   "deviations": 1,
+   "context": "AI-Native Passports",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

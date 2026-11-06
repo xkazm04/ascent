@@ -9016,13 +9016,12 @@
           "revision": 4,
           "changedAt": "2026-10-27",
           "confidence": "probable",
-          "state": "conformant",
-          "evidence": "src/app/api/report/passport/pr/route.ts:60 Ascent commits the externally derived, schema-versioned readiness passport as a portable JSON artifact into the repository alongside agent instructions.",
-          "evaluatedAt": "2026-10-19",
-          "evaluatedAgainst": "sha256-b2:c63a7575b1e57d96",
-          "evaluatedRevision": 3,
-          "revisionsBehind": 1,
-          "stale": true
+          "state": "deviation",
+          "evidence": "src/app/api/report/passport/overrides/route.ts:137 The server write door validates decline paths against the allow-list but never rejects a missing or empty reason. parseDeclined just drops a blank reason, and route.test.ts:160 sends `{}` and gets past validation to the 404 stage. So the 'reason is required' rule exists only in the PassportDeclineControl UI, and any other client can file a decline with no rationale.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:ae6d093363f5067e",
+          "evaluatedRevision": 4,
+          "revisionsBehind": 1
         },
         {
           "subject": "quality-gates",
