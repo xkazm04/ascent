@@ -1,0 +1,65 @@
+{
+ "schema": "conform-run/1",
+ "worker": "ddf1db8e-6683-44d9-9064-c0f9b472844a",
+ "subject": "app-shell",
+ "evaluatedAt": "2026-11-06T05:42:12.064725+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Repo Report Shell & Tabs",
+   "subject": "app-shell",
+   "bundle": "software-engineering",
+   "state": "conformant",
+   "evidence": "src/app/report/[owner]/[repo]/page.tsx:95 The permalink paints its frame and a URL-derived masthead straight away, then streams the data-dependent body under a placeholder that matches the shape of ReportView's own header. No full-page skeleton blinks, and its tabs come from one id list that both the ?tab= parser and the rendered SideNav read.",
+   "techniques": [
+    {
+     "technique": "lazy-section-loading",
+     "verdict": "conformant",
+     "evidence": "src/app/report/[owner]/[repo]/page.tsx:95 Frame (ReportShell) holds still; fallback is the section's own masthead geometry, replaced in place (PermalinkPanels.tsx:54-57 documents the alignment), no loading.tsx double skeleton."
+    },
+    {
+     "technique": "navigation-model",
+     "verdict": "conformant",
+     "evidence": "src/components/report/ReportView.tsx:24 One closed tab vocabulary (ALL_TABS) feeds both the ?tab= whitelist and the rendered nav. Active state is derived (tab === t.id), and an unknown deep link falls back to scoring. Caveat: setTab uses replaceState (line 210), so Back does not step between tabs. The perf reason is written at the door, but the trade is not stated explicitly."
+    },
+    {
+     "technique": "nav-hierarchy",
+     "verdict": "conformant",
+     "evidence": "src/components/report/ReportView.tsx:254 The report's sub-sections are page-owned depth: a flat, single-level rail scoped to this page, not pushed up into the global header."
+    },
+    {
+     "technique": "entitlement-gating",
+     "verdict": "not-applicable",
+     "evidence": "src/app/report/[owner]/[repo]/page.tsx:156 Role checks gate page actions (passport edit/PR, foundation install), not nav entries. Each destination route re-checks, so hiding an action is not the only gate."
+    }
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "app-shell",
+   "context": "Design System: UI Primitives & Deck",
+   "reason": "evidence leans on ui/index.ts, which is not a tracked file"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-06T05:42:12.064725+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "app-shell"
+   ],
+   "techniques": [
+    "entitlement-gating",
+    "lazy-section-loading",
+    "nav-hierarchy",
+    "navigation-model"
+   ],
+   "deviations": 0,
+   "context": "Repo Report Shell & Tabs",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
