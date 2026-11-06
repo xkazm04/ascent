@@ -6,54 +6,59 @@
       "subject": "plan-entitlements",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T13:25:44.181Z",
-      "worker": "fd1cee79-4be4-4738-b614-44eea3062276",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T00:52:09.082Z",
+      "worker": "9f6dae05-1009-44b0-9037-7576250e6723",
       "techniques": [
         {
-          "technique": "capability-gate-predicates",
-          "verdict": "deviation",
-          "evidence": "src/lib/plans.ts:497 Capability checks return a bare boolean despite the technique requiring a named decision even for yes/no callers; scan-charge predicates do enumerate outcomes."
-        },
-        {
-          "technique": "deployment-mode-short-circuit",
+          "technique": "tier-model-single-source",
           "verdict": "conformant",
-          "evidence": "src/lib/plans.ts:500 The shared capability entry point short-circuits before reading the tier; the pricing page also branches to its self-hosted surface."
-        },
-        {
-          "technique": "entitlement-lifecycle-revocation",
-          "verdict": "deviation",
-          "evidence": "src/app/api/billing/webhook/route.ts:173 This guard preserves higher tiers but does not compare sub.id with the stored Subscription.stripeId; a superseded subscription at the same rank can still downgrade the org."
+          "evidence": "src/app/pricing/page.tsx:160 /pricing renders cards from PLAN_ORDER/PLAN_FEATURES; card bullets come from PLAN_CAPABILITIES, the same table planAllows indexes."
         },
         {
           "technique": "id-vs-label-split",
           "verdict": "conformant",
-          "evidence": "src/features/admin/settings/PlanControl.tsx:22 The switcher submits stable identifiers while deriving human labels from the model."
+          "evidence": "src/lib/plans.ts:26 Stored ids pro/enterprise are shown as Starter/Custom; the asymmetry is stated at the model."
         },
         {
-          "technique": "inherited-tier-not-cloned-tier",
-          "verdict": "not-applicable",
-          "evidence": "src/app/pricing/page.tsx:203 Custom terms enter an enquiry flow; searches found no implemented derived commercial agreement or per-customer price-override layer to judge."
+          "technique": "capability-gate-predicates",
+          "verdict": "conformant",
+          "evidence": "src/lib/plans.ts:385 Pure decideScanCharge returns an enumerated decision; resolveScanCharge is shared by the read and write gates; an unknown tier floors to free, and an unknown tenant is refused elsewhere."
+        },
+        {
+          "technique": "entitlement-lifecycle-revocation",
+          "verdict": "deviation",
+          "evidence": "src/app/api/billing/webhook/route.ts:15 Already in place: a closed set of entitling statuses, grantor-scoped plus rank revocation, a fetch of the current subscription before granting, a retry when the org is missing, and retention as a read floor. Missing: the required periodic reconciliation against the payment system."
         },
         {
           "technique": "price-book-authority",
           "verdict": "deviation",
-          "evidence": "src/lib/price-drift.ts:18 The live comparison runs on a KPI request, not a scheduled or deployment check; offline tests compare a recorded snapshot and cannot detect a subsequent Polar-only price change."
+          "evidence": "src/lib/price-drift.ts:17 The duplicate is named and the granted amount is derived server-side. But the only check that reads Polar runs when someone requests it (a script, not a gate per the technique). The CI test compares against a hand-copied transcript, and the comparison is keyed on product rather than price id."
+        },
+        {
+          "technique": "deployment-mode-short-circuit",
+          "verdict": "conformant",
+          "evidence": "src/lib/plans.ts:500 The single short-circuit sits in planAllows, with the same check in scanAllowance, isUnlimitedPlan and retentionCutoff; /pricing switches to SelfHostPricingBlueprint when selfHosted() (page.tsx:98)."
+        },
+        {
+          "technique": "live-catalog-edit-is-a-lifecycle-event",
+          "verdict": "conformant",
+          "evidence": "src/lib/plans.test.ts:80 The catalog lives in code; pinned per-tier allowance, retention and capability tests act as the acknowledged cap baseline, so any narrowing has to be decided in the diff."
         },
         {
           "technique": "provider-publishes-state-not-decision",
           "verdict": "not-applicable",
-          "evidence": "src/lib/plans.ts:56 The product authors its own closed capability vocabulary rather than serving operator-defined entitlement values to another product."
+          "evidence": "src/lib/plans.ts:485 Single repository: the gate and the vocabulary live together, and no entitlement read contract is served to another product."
+        },
+        {
+          "technique": "inherited-tier-not-cloned-tier",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/plan/route.ts:43 A tenant carries only a tier id; no per-customer derived price or capability record exists."
         },
         {
           "technique": "subtractive-entitlement",
           "verdict": "not-applicable",
-          "evidence": "src/lib/plans.ts:501 Capabilities resolve uniformly from the tier; searches found no per-subscription capability override or removal layer."
-        },
-        {
-          "technique": "tier-model-single-source",
-          "verdict": "deviation",
-          "evidence": "src/lib/plans.ts:361 The identifier validator manually duplicates the catalog's tier set, so adding a tier requires updating a validation enumeration as well as the model."
+          "evidence": "src/lib/plans.ts:501 Capabilities resolve from the tier alone; there is no per-subscription override or removal layer."
         }
       ],
       "superseded": [
@@ -63,6 +68,13 @@
           "evaluatedAt": "2026-08-31",
           "worker": null,
           "reason": "replaced by fd1cee79-4be4-4738-b614-44eea3062276"
+        },
+        {
+          "state": "deviation",
+          "evidence": "src/app/api/billing/webhook/route.ts:180 Revocation checks tier rank but not the currently granting subscription's identity, so a stale revoke can remove a replacement subscription at the same tier.",
+          "evaluatedAt": "2026-10-13T13:25:44.181Z",
+          "worker": "fd1cee79-4be4-4738-b614-44eea3062276",
+          "reason": "replaced by 9f6dae05-1009-44b0-9037-7576250e6723"
         }
       ]
     },
@@ -3029,54 +3041,56 @@
       "subject": "plan-entitlements",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T13:25:44.181Z",
-      "worker": "fd1cee79-4be4-4738-b614-44eea3062276",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T00:52:09.082Z",
+      "worker": "9f6dae05-1009-44b0-9037-7576250e6723",
       "techniques": [
         {
           "technique": "capability-gate-predicates",
-          "verdict": "deviation",
-          "evidence": "src/lib/entitlement.ts:92 The shared resolver computes an enumerated charge, but the returned entitlement contract replaces it with booleans instead of preserving the named decision."
+          "verdict": "conformant",
+          "evidence": "src/lib/entitlement.ts:82 The read gate (checkScanEntitlement) and the write gate (consumeScanCredit) share resolveScanCharge; an unknown org is refused as not_found (404), distinct from 402; allowanceRemaining is returned for batch sizing. Unknown-tenant refusals are not counted anywhere I found."
         },
         {
           "technique": "deployment-mode-short-circuit",
           "verdict": "deviation",
-          "evidence": "src/components/org/shared/CreditsControl.sections.tsx:29 The metering root correctly short-circuits self-hosted deployments, but OrgShellActions passes their unlimited state into this mode-unaware Custom-plan chip."
+          "evidence": "src/components/shared/credits/CreditsControl.sections.tsx:29 The root short-circuit is correct (isMeteredLane, entitlement.ts:48), but the UI copy does not follow the mode: self-hosted unlimited access is attributed to the Custom plan."
         },
         {
           "technique": "entitlement-lifecycle-revocation",
           "verdict": "conformant",
-          "evidence": "src/lib/db/credits.ts:268 Refund accounting identifies reversals by their originating order, including legacy keys, and applies only the remaining cumulative clawback."
-        },
-        {
-          "technique": "id-vs-label-split",
-          "verdict": "conformant",
-          "evidence": "src/components/org/shared/CreditsControl.sections.tsx:26 Human-facing tier text uses the model-derived display label rather than the persisted enterprise identifier."
-        },
-        {
-          "technique": "inherited-tier-not-cloned-tier",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/db/credits.ts:140 This context records independent quantity grants and their provenance; searches found no bespoke commercial record that clones a tier."
-        },
-        {
-          "technique": "price-book-authority",
-          "verdict": "not-applicable",
-          "evidence": "src/components/org/shared/CreditsControl.sections.tsx:60 The pack control renders a catalog-derived credit quantity label and delegates pricing to checkout; it does not render a currency price."
-        },
-        {
-          "technique": "provider-publishes-state-not-decision",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/entitlement.ts:126 This module enforces the product's own scan semantics rather than interpreting another product's operator-defined vocabulary."
-        },
-        {
-          "technique": "subtractive-entitlement",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/db/credits.ts:178 Negative adjustments subtract wallet quantities, not inherited capabilities; searches found no per-subscription capability-removal layer."
+          "evidence": "src/lib/db/credits.ts:132 The quantity-adding grant is keyed on the Polar order id; balances are separate from the tier, and tier downgrades never touch scanCredits."
         },
         {
           "technique": "tier-model-single-source",
           "verdict": "conformant",
-          "evidence": "src/lib/db/credits.ts:363 The debit path uses the same plan-model resolver as checkScanEntitlement instead of implementing a separate tier-to-charge mapping."
+          "evidence": "src/lib/db/credits.ts:12 The credit ledger reads unlimited status and allowance from the plan model, not from local constants."
+        },
+        {
+          "technique": "id-vs-label-split",
+          "verdict": "conformant",
+          "evidence": "src/components/shared/credits/CreditsControl.sections.tsx:26 The label is derived from the model at render time rather than typed into the chip."
+        },
+        {
+          "technique": "price-book-authority",
+          "verdict": "conformant",
+          "evidence": "src/components/shared/credits/CreditsControl.autorechargeUi.tsx:6 Auto-recharge copy promises only a warning, because no off-session charge path exists (money copy gated on real capability)."
+        },
+        {
+          "technique": "provider-publishes-state-not-decision",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/entitlement.ts:79 An in-repo enforcing gate over a self-authored vocabulary; nothing is served to an outside consumer."
+        },
+        {
+          "technique": "inherited-tier-not-cloned-tier",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/credits.ts:140 This context records independent quantity grants and their provenance; searches found no bespoke commercial record that clones a tier.",
+          "carriedFrom": "2026-10-13"
+        },
+        {
+          "technique": "subtractive-entitlement",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/credits.ts:178 Negative adjustments subtract wallet quantities, not inherited capabilities; searches found no per-subscription capability-removal layer.",
+          "carriedFrom": "2026-10-13"
         }
       ],
       "superseded": [
@@ -3086,6 +3100,13 @@
           "evaluatedAt": "2026-08-23",
           "worker": null,
           "reason": "replaced by fd1cee79-4be4-4738-b614-44eea3062276"
+        },
+        {
+          "state": "deviation",
+          "evidence": "src/components/shared/credits/CreditsControl.sections.tsx:29 Self-hosted orgs receive unlimited access regardless of tier, but this chip attributes that access to the Custom plan instead of the deployment mode.",
+          "evaluatedAt": "2026-10-13T13:25:44.181Z",
+          "worker": "fd1cee79-4be4-4738-b614-44eea3062276",
+          "reason": "replaced by 9f6dae05-1009-44b0-9037-7576250e6723"
         }
       ]
     },

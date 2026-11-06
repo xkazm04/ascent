@@ -9352,12 +9352,11 @@
           "changedAt": "2026-10-25",
           "confidence": "strong",
           "state": "deviation",
-          "evidence": "src/app/api/billing/webhook/route.ts:180 Revocation checks tier rank but not the currently granting subscription's identity, so a stale revoke can remove a replacement subscription at the same tier.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:58f21c0561a86e45",
-          "evaluatedRevision": 7,
-          "revisionsBehind": 1,
-          "stale": true
+          "evidence": "src/app/api/billing/webhook/route.ts:15 The earlier stale-revoke finding is fixed (tierRevocationModel.ts:67 now keeps the tier when a different live subscription granted it), but the delivered webhook events are still the only thing that changes a tier: no periodic reconciliation of Polar's active subscriptions against Organization.plan exists (a search for subscriptions.list/reconcile in src found none), so a missed revoke keeps a paid tier forever and only a customer can notice. Separately, the live price-drift check runs only when someone opens the operator KPI route.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:66961f93b3ce02ba",
+          "evaluatedRevision": 8,
+          "revisionsBehind": 1
         },
         {
           "subject": "agent-memory",
@@ -9627,12 +9626,11 @@
           "changedAt": "2026-10-25",
           "confidence": "probable",
           "state": "deviation",
-          "evidence": "src/components/shared/credits/CreditsControl.sections.tsx:29 Self-hosted orgs receive unlimited access regardless of tier, but this chip attributes that access to the Custom plan instead of the deployment mode.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:58f21c0561a86e45",
-          "evaluatedRevision": 7,
-          "revisionsBehind": 1,
-          "stale": true
+          "evidence": "src/components/shared/credits/CreditsControl.sections.tsx:29 getCreditState marks every org unlimited when selfHosted() (via isUnlimitedPlan), and OrgShellActions renders CreditsControl's UnlimitedChip from that flag, so a self-hosted install tells every org its unlimited scans come from the Custom plan; the copy names a paid tier instead of following the deployment mode.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:66961f93b3ce02ba",
+          "evaluatedRevision": 8,
+          "revisionsBehind": 1
         },
         {
           "subject": "cost-metering",

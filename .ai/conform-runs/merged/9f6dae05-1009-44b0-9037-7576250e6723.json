@@ -1,0 +1,159 @@
+{
+ "schema": "conform-run/1",
+ "worker": "9f6dae05-1009-44b0-9037-7576250e6723",
+ "subject": "plan-entitlements",
+ "evaluatedAt": "2026-11-06T00:52:09.082267+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Checkout & Plans (Polar)",
+   "subject": "plan-entitlements",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/billing/webhook/route.ts:15 The earlier stale-revoke finding is fixed (tierRevocationModel.ts:67 now keeps the tier when a different live subscription granted it), but the delivered webhook events are still the only thing that changes a tier: no periodic reconciliation of Polar's active subscriptions against Organization.plan exists (a search for subscriptions.list/reconcile in src found none), so a missed revoke keeps a paid tier forever and only a customer can notice. Separately, the live price-drift check runs only when someone opens the operator KPI route.",
+   "techniques": [
+    {
+     "technique": "tier-model-single-source",
+     "verdict": "conformant",
+     "evidence": "src/app/pricing/page.tsx:160 /pricing renders cards from PLAN_ORDER/PLAN_FEATURES; card bullets come from PLAN_CAPABILITIES, the same table planAllows indexes."
+    },
+    {
+     "technique": "id-vs-label-split",
+     "verdict": "conformant",
+     "evidence": "src/lib/plans.ts:26 Stored ids pro/enterprise are shown as Starter/Custom; the asymmetry is stated at the model."
+    },
+    {
+     "technique": "capability-gate-predicates",
+     "verdict": "conformant",
+     "evidence": "src/lib/plans.ts:385 Pure decideScanCharge returns an enumerated decision; resolveScanCharge is shared by the read and write gates; an unknown tier floors to free, and an unknown tenant is refused elsewhere."
+    },
+    {
+     "technique": "entitlement-lifecycle-revocation",
+     "verdict": "deviation",
+     "evidence": "src/app/api/billing/webhook/route.ts:15 Already in place: a closed set of entitling statuses, grantor-scoped plus rank revocation, a fetch of the current subscription before granting, a retry when the org is missing, and retention as a read floor. Missing: the required periodic reconciliation against the payment system."
+    },
+    {
+     "technique": "price-book-authority",
+     "verdict": "deviation",
+     "evidence": "src/lib/price-drift.ts:17 The duplicate is named and the granted amount is derived server-side. But the only check that reads Polar runs when someone requests it (a script, not a gate per the technique). The CI test compares against a hand-copied transcript, and the comparison is keyed on product rather than price id."
+    },
+    {
+     "technique": "deployment-mode-short-circuit",
+     "verdict": "conformant",
+     "evidence": "src/lib/plans.ts:500 The single short-circuit sits in planAllows, with the same check in scanAllowance, isUnlimitedPlan and retentionCutoff; /pricing switches to SelfHostPricingBlueprint when selfHosted() (page.tsx:98)."
+    },
+    {
+     "technique": "live-catalog-edit-is-a-lifecycle-event",
+     "verdict": "conformant",
+     "evidence": "src/lib/plans.test.ts:80 The catalog lives in code; pinned per-tier allowance, retention and capability tests act as the acknowledged cap baseline, so any narrowing has to be decided in the diff."
+    },
+    {
+     "technique": "provider-publishes-state-not-decision",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/plans.ts:485 Single repository: the gate and the vocabulary live together, and no entitlement read contract is served to another product."
+    },
+    {
+     "technique": "inherited-tier-not-cloned-tier",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/org/plan/route.ts:43 A tenant carries only a tier id; no per-customer derived price or capability record exists."
+    },
+    {
+     "technique": "subtractive-entitlement",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/plans.ts:501 Capabilities resolve from the tier alone; there is no per-subscription override or removal layer."
+    }
+   ]
+  },
+  {
+   "context": "Credits & Entitlements",
+   "subject": "plan-entitlements",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/components/shared/credits/CreditsControl.sections.tsx:29 getCreditState marks every org unlimited when selfHosted() (via isUnlimitedPlan), and OrgShellActions renders CreditsControl's UnlimitedChip from that flag, so a self-hosted install tells every org its unlimited scans come from the Custom plan; the copy names a paid tier instead of following the deployment mode.",
+   "techniques": [
+    {
+     "technique": "capability-gate-predicates",
+     "verdict": "conformant",
+     "evidence": "src/lib/entitlement.ts:82 The read gate (checkScanEntitlement) and the write gate (consumeScanCredit) share resolveScanCharge; an unknown org is refused as not_found (404), distinct from 402; allowanceRemaining is returned for batch sizing. Unknown-tenant refusals are not counted anywhere I found."
+    },
+    {
+     "technique": "deployment-mode-short-circuit",
+     "verdict": "deviation",
+     "evidence": "src/components/shared/credits/CreditsControl.sections.tsx:29 The root short-circuit is correct (isMeteredLane, entitlement.ts:48), but the UI copy does not follow the mode: self-hosted unlimited access is attributed to the Custom plan."
+    },
+    {
+     "technique": "entitlement-lifecycle-revocation",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/credits.ts:132 The quantity-adding grant is keyed on the Polar order id; balances are separate from the tier, and tier downgrades never touch scanCredits."
+    },
+    {
+     "technique": "tier-model-single-source",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/credits.ts:12 The credit ledger reads unlimited status and allowance from the plan model, not from local constants."
+    },
+    {
+     "technique": "id-vs-label-split",
+     "verdict": "conformant",
+     "evidence": "src/components/shared/credits/CreditsControl.sections.tsx:26 The label is derived from the model at render time rather than typed into the chip."
+    },
+    {
+     "technique": "price-book-authority",
+     "verdict": "conformant",
+     "evidence": "src/components/shared/credits/CreditsControl.autorechargeUi.tsx:6 Auto-recharge copy promises only a warning, because no off-session charge path exists (money copy gated on real capability)."
+    },
+    {
+     "technique": "provider-publishes-state-not-decision",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/entitlement.ts:79 An in-repo enforcing gate over a self-authored vocabulary; nothing is served to an outside consumer."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-11-06T00:52:09.082267+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "plan-entitlements"
+   ],
+   "techniques": [
+    "capability-gate-predicates",
+    "deployment-mode-short-circuit",
+    "entitlement-lifecycle-revocation",
+    "id-vs-label-split",
+    "inherited-tier-not-cloned-tier",
+    "live-catalog-edit-is-a-lifecycle-event",
+    "price-book-authority",
+    "provider-publishes-state-not-decision",
+    "subtractive-entitlement",
+    "tier-model-single-source"
+   ],
+   "deviations": 1,
+   "context": "Checkout & Plans (Polar)",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-06T00:52:09.082267+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "plan-entitlements"
+   ],
+   "techniques": [
+    "capability-gate-predicates",
+    "deployment-mode-short-circuit",
+    "entitlement-lifecycle-revocation",
+    "id-vs-label-split",
+    "price-book-authority",
+    "provider-publishes-state-not-decision",
+    "tier-model-single-source"
+   ],
+   "deviations": 1,
+   "context": "Credits & Entitlements",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
