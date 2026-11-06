@@ -9329,7 +9329,11 @@
           "revision": 14,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "scripts/docs/feature-doc-map.json:212 src/lib/org/portfolioBookModel.ts (and portfolio.ts) match only the org-intelligence entry, so an edit to them names org-intelligence.md, which never describes the book model. The doc that does describe resolveBook, bookToggleHref and showPortfolioEntry is report.md.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:fd96220db75846a1",
+          "evaluatedRevision": 14
         },
         {
           "subject": "quality-gates",

@@ -9334,6 +9334,27 @@
       "evaluatedTs": "2026-11-06T02:49:06.876Z",
       "worker": "1f8c02bf-cdde-4515-b8f1-ff00ba4c8962",
       "techniques": []
+    },
+    "Reporting & Visualization/Portfolio & Public Leaderboard/docs-sync": {
+      "context": "Portfolio & Public Leaderboard",
+      "subject": "docs-sync",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T03:13:51.552Z",
+      "worker": "30dea2fb-e826-4f03-b4db-44d5784a42c5",
+      "techniques": [
+        {
+          "technique": "source-doc-mapping",
+          "verdict": "deviation",
+          "evidence": "scripts/docs/feature-doc-map.json:212 The checker's glob logic sends portfolioBookModel.ts to org-intelligence.md. That doc has no mention of the book model (grep 'portfolio' finds only an unrelated passports line and a passing portfolio.ts mention)."
+        },
+        {
+          "technique": "coupled-surface-inventory",
+          "verdict": "deviation",
+          "evidence": "docs/features/reporting/report.md:137 The doc that actually holds the claims about this module is not the one the map names, so the nag points the author at the wrong surface."
+        }
+      ]
     }
   }
 }
