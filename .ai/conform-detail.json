@@ -4130,59 +4130,62 @@
       "subject": "audit-logging",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-15",
-      "evaluatedTs": "2026-10-15T01:42:44.310Z",
-      "worker": "f3c55fb5-a171-4dbf-9a19-89790cba3d5c",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T01:34:25.732Z",
+      "worker": "ad61f263-6232-4291-a4dc-a534a69f2a2c",
       "techniques": [
+        {
+          "technique": "write-path-sanitization",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/audit-append.ts:49 Free-form meta is stored as-is: no allowlist, scrubber or truncation marker inside the door (searched audit-append.ts and audit-integrity.ts for sanitize/scrub/cap and found none)."
+        },
+        {
+          "technique": "write-chokepoint",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/scans-audit.ts:28 recordAudit, claimOrgAuditOnce and releaseAuditClaim all write through appendAudit. The only direct AuditLog create/createMany calls are inside audit-append.ts, and audit-writes.contract.test.ts guards against bypasses."
+        },
+        {
+          "technique": "best-effort-with-accounting",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/scans-audit.ts:33 A failed write returns false without failing the action, and it is counted in audit-health.ts and shown by AuditHealthNotice on the Audit tab. The claim path fails closed (claimed:false), as the technique's claim exception requires."
+        },
         {
           "technique": "append-only-design",
           "verdict": "deviation",
-          "evidence": "src/lib/db/retention.ts:1525 The erasure path updates existing audit rows and re-signs their replacement metadata, violating the standard's prohibition on in-place mutation; claim release itself now correctly appends a record."
+          "evidence": "src/lib/db/audit-append.ts:90 Claim release is now a new claim.released record (good), but the door itself exports redactAuditRow, an in-place update of actorId and meta. That is a mutation surface the technique says must be absent."
+        },
+        {
+          "technique": "tamper-evidence",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/scans-audit.ts:388 The per-row HMAC is recomputed on every read. Verdicts are ok, tampered, unsigned or no-secret, and they appear in the API and the CSV export. The rung (per-row, no chain) is stated honestly in audit-integrity.ts."
         },
         {
           "technique": "audit-querying",
           "verdict": "deviation",
-          "evidence": "prisma/schema.prisma:879 Subject references reside in JSON metadata rather than structured indexed columns; the inspected API and getAuditLog support action, actor and time filters but provide no subject filter."
+          "evidence": "src/lib/db/scans-audit.ts:355 Actor, action and time are structured filters, but the subject only exists inside the meta JSON string. There is no subject or outcome column or filter (AuditLogQuery has action/actorId/since/until), which is the 'facts buried in a payload blob' failure."
         },
         {
-          "technique": "best-effort-with-accounting",
-          "verdict": "deviation",
-          "evidence": "src/lib/db/audit-health.ts:30 Failed writes are now counted and surfaced, but accounting exists only in process memory and resets on restart, falling short of the required durable counter by ledger and failure class."
+          "technique": "two-clock-records",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/scans-audit.ts:26 This ledger records actions the system itself performs, so one clock stamped at the door is correct."
         },
         {
           "technique": "decision-records",
           "verdict": "deviation",
-          "evidence": "src/lib/db/org-decisions.ts:264 Security decisions have separate mutable state and stable finding keys, but their audit acts omit the previous status, rationale and contemporaneous title, so overwriting state loses essential decision history."
+          "evidence": "src/lib/db/org-decisions.ts:264 Security decisions have separate mutable state and stable finding keys, but their audit acts omit the previous status, rationale and contemporaneous title, so overwriting state loses essential decision history.",
+          "carriedFrom": "2026-10-15"
         },
         {
           "technique": "record-axis-predicate",
           "verdict": "not-applicable",
-          "evidence": "src/lib/db/scans-audit.ts:363 This action ledger ranges over its single insertion timestamp; it has no recorded/invalidated validity interval requiring a bitemporal replay predicate."
+          "evidence": "src/lib/db/scans-audit.ts:363 This action ledger ranges over its single insertion timestamp; it has no recorded/invalidated validity interval requiring a bitemporal replay predicate.",
+          "carriedFrom": "2026-10-15"
         },
         {
           "technique": "retention-and-partitioning",
           "verdict": "deviation",
-          "evidence": "src/lib/db/retention.ts:1034 Scheduled purging applies one org-wide horizon across all audit actions, while inserts perform no retention enforcement; safety floors and post-deletion self-records do not supply domain-specific admission-time bounds."
-        },
-        {
-          "technique": "tamper-evidence",
-          "verdict": "deviation",
-          "evidence": "src/features/admin/audit/AuditLogTable.tsx:30 HMAC verification runs on read and exports carry verdicts, but the dashboard hides integrity status when no signing key exists instead of explicitly showing that the trail is unverifiable."
-        },
-        {
-          "technique": "two-clock-records",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/db/scans-persist.ts:803 The inspected audit writes record actions performed here, such as scan persistence and human decisions; live advisory totals are not ingested as historical audit events requiring a separate effective clock."
-        },
-        {
-          "technique": "write-chokepoint",
-          "verdict": "deviation",
-          "evidence": "src/lib/db/scans-recommendations.ts:158 Recommendation mutations insert directly into AuditLog, as do scan persistence and conformance reporting; shared signing does not establish one insert door enforcing every ledger invariant."
-        },
-        {
-          "technique": "write-path-sanitization",
-          "verdict": "deviation",
-          "evidence": "src/lib/db/scans-audit.ts:30 Caller metadata passes directly to a signature helper that preserves its values, with no write-path allowlist, secret scrubbing or payload cap before insertion."
+          "evidence": "src/lib/db/retention.ts:1034 Scheduled purging applies one org-wide horizon across all audit actions, while inserts perform no retention enforcement; safety floors and post-deletion self-records do not supply domain-specific admission-time bounds.",
+          "carriedFrom": "2026-10-15"
         }
       ],
       "superseded": [
@@ -4192,6 +4195,13 @@
           "evaluatedAt": "2026-08-24",
           "worker": null,
           "reason": "replaced by f3c55fb5-a171-4dbf-9a19-89790cba3d5c"
+        },
+        {
+          "state": "deviation",
+          "evidence": "src/lib/db/scans-audit.ts:34 The audit writer persists arbitrary caller metadata after signing without sanitization or size limits, allowing sensitive values to become durable audit evidence.",
+          "evaluatedAt": "2026-10-15T01:42:44.310Z",
+          "worker": "f3c55fb5-a171-4dbf-9a19-89790cba3d5c",
+          "reason": "replaced by ad61f263-6232-4291-a4dc-a534a69f2a2c"
         }
       ]
     },
@@ -9073,6 +9083,43 @@
       "evaluatedTs": "2026-11-06T01:17:26.458Z",
       "worker": "a09cb523-a8b2-41a2-aa6a-50ff76fa5641",
       "techniques": []
+    },
+    "Data & Persistence/Data Retention & Purge/audit-logging": {
+      "context": "Data Retention & Purge",
+      "subject": "audit-logging",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T01:34:25.732Z",
+      "worker": "ad61f263-6232-4291-a4dc-a534a69f2a2c",
+      "techniques": [
+        {
+          "technique": "append-only-design",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/retention.ts:1165 In-place update of existing ledger rows during erasure. The standard's answer is to keep personal data out at the door, not to edit history afterwards."
+        },
+        {
+          "technique": "write-path-sanitization",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/retention.ts:1096 Personal data is scrubbed from stored rows after the fact, the failure the technique names, because nothing kept it out of meta at insert."
+        },
+        {
+          "technique": "retention-and-partitioning",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/retention.ts:405 One pooled AuditLog plus other ledgers share a single horizon, trimmed by the nightly cron (pruneAudit deleteMany) rather than the insert path. Two parts do conform: windows below the floor are refused (line 747), and the trim's self-record is written after the deletes, only when something was deleted."
+        },
+        {
+          "technique": "best-effort-with-accounting",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/retention.ts:930 A lost retention.purged self-record turns the run degraded (207) instead of green."
+        },
+        {
+          "technique": "write-chokepoint",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/retention.ts:925 The purge audits itself through the shared recordAudit door, not a private insert."
+        }
+      ],
+      "registryProposal": "Erasure against a signed, append-only ledger: the corpus says to keep PII out at the door, but gives no rule for a ledger that already holds PII when an Art.17 request arrives. This repo redacts in place and re-signs. A technique-level rule for the legacy-data case (crypto-shred vs re-signed redaction record vs supersession) would settle whether this is a deviation or the sanctioned exception."
     }
   }
 }

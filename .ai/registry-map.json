@@ -4059,12 +4059,11 @@
           "changedAt": "2026-10-27",
           "confidence": "strong",
           "state": "deviation",
-          "evidence": "src/lib/db/scans-audit.ts:34 The audit writer persists arbitrary caller metadata after signing without sanitization or size limits, allowing sensitive values to become durable audit evidence.",
-          "evaluatedAt": "2026-10-15",
-          "evaluatedAgainst": "sha256-b2:154304c5d9578971",
-          "evaluatedRevision": 10,
-          "revisionsBehind": 1,
-          "stale": true
+          "evidence": "src/lib/db/audit-append.ts:49 The one write door (auditRowData) signs and stringifies the caller's arbitrary meta with no allowlist, secret-pattern scrub or size cap, so whatever a writer passes becomes durable, signed, exported audit evidence.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:b867761d55d912d1",
+          "evaluatedRevision": 11,
+          "revisionsBehind": 1
         },
         {
           "subject": "supply-chain",
@@ -10085,7 +10084,11 @@
           "revision": 11,
           "changedAt": "2026-10-27",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/db/retention.ts:1165 Erasure with the redact disposition rewrites and re-signs every stored audit row for the org in place, a targeted content mutation rather than horizon retirement. The audit horizon is also enforced by a scheduled sweep instead of at insert.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:b867761d55d912d1",
+          "evaluatedRevision": 11
         },
         {
           "subject": "feed",

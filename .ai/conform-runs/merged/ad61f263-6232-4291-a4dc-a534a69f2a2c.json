@@ -1,0 +1,136 @@
+{
+ "schema": "conform-run/1",
+ "worker": "ad61f263-6232-4291-a4dc-a534a69f2a2c",
+ "subject": "audit-logging",
+ "evaluatedAt": "2026-11-06T01:34:25.732800+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Security Posture & Audit Log",
+   "subject": "audit-logging",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/db/audit-append.ts:49 The one write door (auditRowData) signs and stringifies the caller's arbitrary meta with no allowlist, secret-pattern scrub or size cap, so whatever a writer passes becomes durable, signed, exported audit evidence.",
+   "techniques": [
+    {
+     "technique": "write-path-sanitization",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/audit-append.ts:49 Free-form meta is stored as-is: no allowlist, scrubber or truncation marker inside the door (searched audit-append.ts and audit-integrity.ts for sanitize/scrub/cap and found none)."
+    },
+    {
+     "technique": "write-chokepoint",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/scans-audit.ts:28 recordAudit, claimOrgAuditOnce and releaseAuditClaim all write through appendAudit. The only direct AuditLog create/createMany calls are inside audit-append.ts, and audit-writes.contract.test.ts guards against bypasses."
+    },
+    {
+     "technique": "best-effort-with-accounting",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/scans-audit.ts:33 A failed write returns false without failing the action, and it is counted in audit-health.ts and shown by AuditHealthNotice on the Audit tab. The claim path fails closed (claimed:false), as the technique's claim exception requires."
+    },
+    {
+     "technique": "append-only-design",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/audit-append.ts:90 Claim release is now a new claim.released record (good), but the door itself exports redactAuditRow, an in-place update of actorId and meta. That is a mutation surface the technique says must be absent."
+    },
+    {
+     "technique": "tamper-evidence",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/scans-audit.ts:388 The per-row HMAC is recomputed on every read. Verdicts are ok, tampered, unsigned or no-secret, and they appear in the API and the CSV export. The rung (per-row, no chain) is stated honestly in audit-integrity.ts."
+    },
+    {
+     "technique": "audit-querying",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/scans-audit.ts:355 Actor, action and time are structured filters, but the subject only exists inside the meta JSON string. There is no subject or outcome column or filter (AuditLogQuery has action/actorId/since/until), which is the 'facts buried in a payload blob' failure."
+    },
+    {
+     "technique": "two-clock-records",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/scans-audit.ts:26 This ledger records actions the system itself performs, so one clock stamped at the door is correct."
+    }
+   ]
+  },
+  {
+   "context": "Data Retention & Purge",
+   "subject": "audit-logging",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/db/retention.ts:1165 Erasure with the redact disposition rewrites and re-signs every stored audit row for the org in place, a targeted content mutation rather than horizon retirement. The audit horizon is also enforced by a scheduled sweep instead of at insert.",
+   "techniques": [
+    {
+     "technique": "append-only-design",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/retention.ts:1165 In-place update of existing ledger rows during erasure. The standard's answer is to keep personal data out at the door, not to edit history afterwards."
+    },
+    {
+     "technique": "write-path-sanitization",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/retention.ts:1096 Personal data is scrubbed from stored rows after the fact, the failure the technique names, because nothing kept it out of meta at insert."
+    },
+    {
+     "technique": "retention-and-partitioning",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/retention.ts:405 One pooled AuditLog plus other ledgers share a single horizon, trimmed by the nightly cron (pruneAudit deleteMany) rather than the insert path. Two parts do conform: windows below the floor are refused (line 747), and the trim's self-record is written after the deletes, only when something was deleted."
+    },
+    {
+     "technique": "best-effort-with-accounting",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/retention.ts:930 A lost retention.purged self-record turns the run degraded (207) instead of green."
+    },
+    {
+     "technique": "write-chokepoint",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/retention.ts:925 The purge audits itself through the shared recordAudit door, not a private insert."
+    }
+   ],
+   "registryProposal": "Erasure against a signed, append-only ledger: the corpus says to keep PII out at the door, but gives no rule for a ledger that already holds PII when an Art.17 request arrives. This repo redacts in place and re-signs. A technique-level rule for the legacy-data case (crypto-shred vs re-signed redaction record vs supersession) would settle whether this is a deviation or the sanctioned exception."
+  }
+ ],
+ "declined": [
+  {
+   "subject": "audit-logging",
+   "context": "Fleet Rollups & Insights",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-06T01:34:25.732800+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "audit-logging"
+   ],
+   "techniques": [
+    "append-only-design",
+    "audit-querying",
+    "best-effort-with-accounting",
+    "tamper-evidence",
+    "two-clock-records",
+    "write-chokepoint",
+    "write-path-sanitization"
+   ],
+   "deviations": 1,
+   "context": "Security Posture & Audit Log",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-06T01:34:25.732800+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "audit-logging"
+   ],
+   "techniques": [
+    "append-only-design",
+    "best-effort-with-accounting",
+    "retention-and-partitioning",
+    "write-chokepoint",
+    "write-path-sanitization"
+   ],
+   "deviations": 1,
+   "context": "Data Retention & Purge",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
