@@ -8635,7 +8635,11 @@
           "revision": 28,
           "changedAt": "2026-10-15",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/components/report/Charts.tsx:1 Pure SVG score rendering plus a provenance helper with no agent sessions. A search of src/components/report and src/lib/scoring for hibernat, subagent, dispatcher and fanOut found zero hits, so the subject's precondition does not hold.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:93bd71853ab468b1",
+          "evaluatedRevision": 28
         },
         {
           "subject": "quality-gates",
@@ -11102,7 +11106,11 @@
           "revision": 28,
           "changedAt": "2026-10-15",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/about/page.tsx:9 A static marketing page. The 'fleet' in FleetGrid is a heatmap of scanned repositories, not agent sessions, and a search of src/app/about and src/components/about for hibernat, subagent, dispatcher, spawn and fanOut found zero hits, so there are no agent sessions to register, dispatch or harvest.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:93bd71853ab468b1",
+          "evaluatedRevision": 28
         },
         {
           "subject": "test-input-generation",

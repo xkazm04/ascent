@@ -9161,6 +9161,26 @@
           "evidence": "src/lib/auth.ts:9 This is a hosted web app holding its own service credentials, not a local app acting with the person's ambient login."
         }
       ]
+    },
+    "Marketing Site & Design System/Marketing About Page/fleet-orchestration": {
+      "context": "Marketing About Page",
+      "subject": "fleet-orchestration",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T01:59:42.525Z",
+      "worker": "3bb6512e-531c-4718-aeb7-d818712a05aa",
+      "techniques": []
+    },
+    "Reporting & Visualization/Score Charts & Visuals/fleet-orchestration": {
+      "context": "Score Charts & Visuals",
+      "subject": "fleet-orchestration",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T01:59:42.525Z",
+      "worker": "3bb6512e-531c-4718-aeb7-d818712a05aa",
+      "techniques": []
     }
   }
 }
