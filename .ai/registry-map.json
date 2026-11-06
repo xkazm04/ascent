@@ -7350,12 +7350,11 @@
           "changedAt": "2026-10-31",
           "confidence": "strong",
           "state": "deviation",
-          "evidence": "src/lib/org/registry-view.ts:259 The live loader supplies zero adoption counts without comparing fleet artifacts against the catalog, leaving the required sync states unmeasured.",
-          "evaluatedAt": "2026-10-19",
-          "evaluatedAgainst": "sha256-b2:08227ed9be7fc676",
-          "evaluatedRevision": 11,
-          "revisionsBehind": 2,
-          "stale": true
+          "evidence": "src/lib/org/registry-view.ts:259 The catalog itself is a proper sync key (envelope, normalized sha256-n1 digest, one shared digest function), but nothing compares fleet copies against it: the live view sends hard zeros for all four adoption states, so the consumer-facing in-sync/stale/diverged/local-only answer is never produced, and 'unmeasured' is carried as zeros that the UI has to infer from an all-zero sum (absence encoded as a value).",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:6c7d2c16b9fe5b9b",
+          "evaluatedRevision": 13,
+          "revisionsBehind": 2
         },
         {
           "subject": "agent-memory",

@@ -6223,49 +6223,60 @@
       "subject": "knowledge-registry",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-19",
-      "evaluatedTs": "2026-10-19T10:07:19.663Z",
-      "worker": "f296cdbc-85cf-44a1-9075-82ba69aff9f1",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T03:25:09.036Z",
+      "worker": "cc7e6ca0-faad-4d4f-a785-9628f92a0666",
       "techniques": [
         {
           "technique": "catalog-as-sync-key",
           "verdict": "deviation",
-          "evidence": "src/features/shared/registry/RegistryFleetSync.tsx:111 Catalog generation and normalized digests exist, but this fleet surface never computes the four comparison states; it explicitly discloses that omission."
+          "evidence": "src/lib/org/registry-view.ts:114 Catalog side conforms (src/lib/registry/catalog.ts: envelope, normalized digest, single contentDigest function), but the four-state report the technique requires is never computed, and absence travels as zero rather than as an absent field."
         },
         {
-          "technique": "consumer-overlays",
-          "verdict": "deviation",
-          "evidence": "src/lib/registry/policy.test.ts:15 Reference-alignment tests use a checked-in fixture and serializer/parser round trips rather than the actual reference declaration, which the technique explicitly identifies as insufficient to detect scaffold drift."
+          "technique": "propose-then-adopt",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/[slug]/registry/migrate/route.ts:2 Migration stops at a draft PR. Merging (a CODEOWNER act) is the adoption step, and ascent never merges."
         },
         {
           "technique": "deterministic-seeding",
           "verdict": "conformant",
-          "evidence": "src/lib/registry/layout.test.ts:15 The inspected generator derives seed bytes from the normalized org slug, seeds an empty catalog with a null timestamp and telemetry off, includes CODEOWNERS, and distinguishes spine collisions from later-file collisions."
-        },
-        {
-          "technique": "lane-contracts",
-          "verdict": "deviation",
-          "evidence": "src/lib/registry/layout.ts:26 The complete seed treats the consumer overlay as the registry marker and emits no neutral root declaration carrying lane paths, specifications and gates; the overlay's reader/writer roles do not supply those contracts."
+          "evidence": "src/app/api/org/[slug]/registry/migrate/route.ts:9 Existing content moves one artifact kind per proposal, each on a stable branch (src/lib/registry/migrate.ts). The scaffold (src/lib/registry/scaffold.ts, outside this context) also handles the spine collision and later-file collisions as two separate cases."
         },
         {
           "technique": "per-contributor-aggregation",
-          "verdict": "deviation",
-          "evidence": "src/app/api/org/[slug]/registry/signals/route.ts:100 The endpoint aggregates signals already imported from registry contributors and republishes their totals under this installation's contributor ID, allowing the same measurements to be counted again."
+          "verdict": "conformant",
+          "evidence": "src/lib/org/registry-view.ts:332 The usage/ lane's contributor count is published beside invokes30d, so 'nobody reporting' and 'nobody using' are kept apart."
         },
         {
-          "technique": "propose-then-adopt",
+          "technique": "verification-is-contributed",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/registry-view.ts:351 The signals lane is read per subject with a contributor count. summarizeSignals (src/lib/registry/signals.ts) sums all three citation verdicts (resolved/moved/gone) and leaves unreported keys null, and signals-contribution.ts emits them, so the channel is not half-consumed."
+        },
+        {
+          "technique": "lane-contracts",
+          "verdict": "conformant",
+          "evidence": "src/lib/registry/catalog.ts:110 The catalog write the index route triggers carries forward keys owned by the registry's second producer (bundles, usage-derived invokes) instead of rebuilding from scratch. Anchor is outside the listed files, in the module the index pass writes with."
+        },
+        {
+          "technique": "consumer-overlays",
           "verdict": "deviation",
-          "evidence": "src/lib/registry/scaffold.ts:87 The automated scaffold opens a GitHub draft PR instead of stopping at a branch commit as the technique explicitly requires; human merge remains required."
+          "evidence": "src/lib/registry/policy.test.ts:15 Reference-alignment tests use a checked-in fixture and serializer/parser round trips rather than the actual reference declaration, which the technique explicitly identifies as insufficient to detect scaffold drift.",
+          "carriedFrom": "2026-10-19"
         },
         {
           "technique": "standard-versus-consumer-split",
           "verdict": "conformant",
-          "evidence": "src/app/api/org/[slug]/registry/signals/route.ts:118 The publication path builds slug-keyed aggregate counts without local evidence fields and rejects path-, URL- and address-shaped payloads before writing."
-        },
+          "evidence": "src/app/api/org/[slug]/registry/signals/route.ts:118 The publication path builds slug-keyed aggregate counts without local evidence fields and rejects path-, URL- and address-shaped payloads before writing.",
+          "carriedFrom": "2026-10-19"
+        }
+      ],
+      "superseded": [
         {
-          "technique": "verification-is-contributed",
-          "verdict": "deviation",
-          "evidence": "src/app/api/org/[slug]/registry/signals/route.ts:105 Outgoing citation verdicts are copied from mirrored registry signals rather than produced by checking consumer evidence pointers; the inspected sweep ingests maps without generating fresh citation verification."
+          "state": "deviation",
+          "evidence": "src/lib/org/registry-view.ts:259 The live loader supplies zero adoption counts without comparing fleet artifacts against the catalog, leaving the required sync states unmeasured.",
+          "evaluatedAt": "2026-10-19T10:07:19.663Z",
+          "worker": "f296cdbc-85cf-44a1-9075-82ba69aff9f1",
+          "reason": "replaced by cc7e6ca0-faad-4d4f-a785-9628f92a0666"
         }
       ]
     },
