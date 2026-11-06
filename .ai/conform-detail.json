@@ -4833,69 +4833,90 @@
       "subject": "translation-pipeline-topology",
       "bundle": "localization",
       "state": "not-applicable",
-      "evaluatedAt": "2026-10-15",
-      "evaluatedTs": "2026-10-15T21:57:47.629Z",
-      "worker": "2a5f1c6b-d902-4a7d-a5bd-ed3d68cdcd0a",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T00:38:31.605Z",
+      "worker": "5d68a637-0e6e-4e95-9559-f32907a3bf89",
       "techniques": [
         {
           "technique": "canonical-and-derived-split",
           "verdict": "not-applicable",
-          "evidence": "src/lib/org/security.ts:275 The brief assembles English report text; no machine-translated artifacts were found."
+          "evidence": "src/lib/org/security.ts:275 The brief assembles English report text; no machine-translated artifacts were found.",
+          "carriedFrom": "2026-10-15"
         },
         {
           "technique": "canonical-fallback-serving",
           "verdict": "not-applicable",
-          "evidence": "src/lib/org/security.ts:336 This handles unavailable advisory data, not unpublished translations."
+          "evidence": "src/lib/org/security.ts:336 This handles unavailable advisory data, not unpublished translations.",
+          "carriedFrom": "2026-10-15"
         },
         {
           "technique": "fuzzy-reuse-under-a-threshold",
           "verdict": "not-applicable",
-          "evidence": "src/lib/org/security.ts:259 The selected units are gate-failing repositories; no translation-memory reuse was found."
+          "evidence": "src/lib/org/security.ts:259 The selected units are gate-failing repositories; no translation-memory reuse was found.",
+          "carriedFrom": "2026-10-15"
         },
         {
           "technique": "hand-authored-exception-contract",
           "verdict": "not-applicable",
-          "evidence": "src/lib/pdf/security-document.tsx:64 This is an English report template, with no hand-authored translated exception."
+          "evidence": "src/lib/pdf/security-document.tsx:64 This is an English report template, with no hand-authored translated exception.",
+          "carriedFrom": "2026-10-15"
         },
         {
           "technique": "language-registry-single-source",
           "verdict": "not-applicable",
-          "evidence": "src/features/standing/security/SecurityBandSpectrum.tsx:23 The enumerated registry contains security bands; no supported-locale list or switcher was found."
+          "evidence": "src/features/standing/security/SecurityBandSpectrum.tsx:23 The enumerated registry contains security bands; no supported-locale list or switcher was found.",
+          "carriedFrom": "2026-10-15"
         },
         {
           "technique": "non-translatable-value-classification",
           "verdict": "not-applicable",
-          "evidence": "src/app/api/audit/route.ts:28 These fields are audit-export columns, not catalog values dispatched to a translation engine."
+          "evidence": "src/app/api/audit/route.ts:28 These fields are audit-export columns, not catalog values dispatched to a translation engine.",
+          "carriedFrom": "2026-10-15"
         },
         {
           "technique": "prompt-context-contract",
           "verdict": "not-applicable",
-          "evidence": "src/lib/org/security.ts:351 The prompt requests security remediation, not translation."
+          "evidence": "src/lib/org/security.ts:351 The prompt requests security remediation, not translation.",
+          "carriedFrom": "2026-10-15"
         },
         {
           "technique": "pseudo-localization-readiness",
           "verdict": "not-applicable",
-          "evidence": "src/features/standing/security/SecurityRiskRegister.tsx:81 The register renders inline English labels; no localization-readiness workflow or source catalog was found."
+          "evidence": "src/features/standing/security/SecurityRiskRegister.tsx:81 The register renders inline English labels; no localization-readiness workflow or source catalog was found.",
+          "carriedFrom": "2026-10-15"
         },
         {
           "technique": "serialization-transport-safety",
           "verdict": "not-applicable",
-          "evidence": "src/app/api/audit/route.ts:56 The serialization boundary exports audit data as CSV, not batch machine translations."
+          "evidence": "src/app/api/audit/route.ts:56 The serialization boundary exports audit data as CSV, not batch machine translations.",
+          "carriedFrom": "2026-10-15"
         },
         {
           "technique": "sharded-translation-ci",
           "verdict": "not-applicable",
-          "evidence": "src/lib/security/supply-chain.ts:175 This is runtime advisory-fetch concurrency, not translation CI."
+          "evidence": "src/lib/security/supply-chain.ts:175 This is runtime advisory-fetch concurrency, not translation CI.",
+          "carriedFrom": "2026-10-15"
         },
         {
           "technique": "source-hash-translation-cache",
           "verdict": "not-applicable",
-          "evidence": "src/lib/security/supply-chain.ts:149 The cache stores advisory results by organization and scope, not derived translations."
+          "evidence": "src/lib/security/supply-chain.ts:149 The cache stores advisory results by organization and scope, not derived translations.",
+          "carriedFrom": "2026-10-15"
         },
         {
           "technique": "source-identical-value-audit",
           "verdict": "not-applicable",
-          "evidence": "src/lib/db/scans-audit.ts:416 The audit verifies event integrity; no translated catalog exists here to compare with a source locale."
+          "evidence": "src/lib/db/scans-audit.ts:416 The audit verifies event integrity; no translated catalog exists here to compare with a source locale.",
+          "carriedFrom": "2026-10-15"
+        }
+      ],
+      "superseded": [
+        {
+          "state": "not-applicable",
+          "evidence": "src/lib/org/security.ts:351 Context and repository searches found no translation infrastructure; this module constructs a security-remediation brief rather than moving content between locales.",
+          "evaluatedAt": "2026-10-15T21:57:47.629Z",
+          "worker": "2a5f1c6b-d902-4a7d-a5bd-ed3d68cdcd0a",
+          "reason": "replaced by 5d68a637-0e6e-4e95-9559-f32907a3bf89"
         }
       ]
     },
@@ -4904,69 +4925,90 @@
       "subject": "translation-pipeline-topology",
       "bundle": "localization",
       "state": "not-applicable",
-      "evaluatedAt": "2026-10-15",
-      "evaluatedTs": "2026-10-15T21:57:47.629Z",
-      "worker": "2a5f1c6b-d902-4a7d-a5bd-ed3d68cdcd0a",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T00:38:31.605Z",
+      "worker": "5d68a637-0e6e-4e95-9559-f32907a3bf89",
       "techniques": [
         {
           "technique": "canonical-and-derived-split",
           "verdict": "not-applicable",
-          "evidence": "src/app/api/org/memory/route.ts:138 The write stores submitted memory content; no derived translation store was found."
+          "evidence": "src/app/api/org/memory/route.ts:138 The write stores submitted memory content; no derived translation store was found.",
+          "carriedFrom": "2026-10-15"
         },
         {
           "technique": "canonical-fallback-serving",
           "verdict": "not-applicable",
-          "evidence": "src/features/shared/memory/MemoryCard.tsx:146 The card renders stored content directly, without translated-unit lookup or locale fallback."
+          "evidence": "src/features/shared/memory/MemoryCard.tsx:146 The card renders stored content directly, without translated-unit lookup or locale fallback.",
+          "carriedFrom": "2026-10-15"
         },
         {
           "technique": "fuzzy-reuse-under-a-threshold",
           "verdict": "not-applicable",
-          "evidence": "src/app/api/org/memory/check/route.ts:63 Similarity checks compare knowledge notes for duplication or correction, not translation-memory pairs."
+          "evidence": "src/app/api/org/memory/check/route.ts:63 Similarity checks compare knowledge notes for duplication or correction, not translation-memory pairs.",
+          "carriedFrom": "2026-10-15"
         },
         {
           "technique": "hand-authored-exception-contract",
           "verdict": "not-applicable",
-          "evidence": "src/features/shared/memory/MemoryAuthorForm.tsx:143 This is a memory-authoring action, with no translated-page exception to a machine pipeline."
+          "evidence": "src/features/shared/memory/MemoryAuthorForm.tsx:143 This is a memory-authoring action, with no translated-page exception to a machine pipeline.",
+          "carriedFrom": "2026-10-15"
         },
         {
           "technique": "language-registry-single-source",
           "verdict": "not-applicable",
-          "evidence": "src/app/api/org/memory/route.ts:83 The browse response enumerates memory kinds and namespaces; no locale registry or language switcher was found."
+          "evidence": "src/app/api/org/memory/route.ts:83 The browse response enumerates memory kinds and namespaces; no locale registry or language switcher was found.",
+          "carriedFrom": "2026-10-15"
         },
         {
           "technique": "non-translatable-value-classification",
           "verdict": "not-applicable",
-          "evidence": "src/features/shared/memory/MemoryAuthorForm.tsx:98 The form collects knowledge prose, not catalog values being classified for translation requests."
+          "evidence": "src/features/shared/memory/MemoryAuthorForm.tsx:98 The form collects knowledge prose, not catalog values being classified for translation requests.",
+          "carriedFrom": "2026-10-15"
         },
         {
           "technique": "prompt-context-contract",
           "verdict": "not-applicable",
-          "evidence": "src/lib/memory/consolidation.ts:205 The declared task is knowledge consolidation, not machine translation."
+          "evidence": "src/lib/memory/consolidation.ts:205 The declared task is knowledge consolidation, not machine translation.",
+          "carriedFrom": "2026-10-15"
         },
         {
           "technique": "pseudo-localization-readiness",
           "verdict": "not-applicable",
-          "evidence": "src/features/shared/memory/MemoryCoverageStrip.tsx:65 Coverage concerns repository memories; no source catalog or localization-readiness workflow was found."
+          "evidence": "src/features/shared/memory/MemoryCoverageStrip.tsx:65 Coverage concerns repository memories; no source catalog or localization-readiness workflow was found.",
+          "carriedFrom": "2026-10-15"
         },
         {
           "technique": "serialization-transport-safety",
           "verdict": "not-applicable",
-          "evidence": "src/features/shared/memory/memoryCheck.ts:42 This transports a duplicate-check request, not a batch of translation units."
+          "evidence": "src/features/shared/memory/memoryCheck.ts:42 This transports a duplicate-check request, not a batch of translation units.",
+          "carriedFrom": "2026-10-15"
         },
         {
           "technique": "sharded-translation-ci",
           "verdict": "not-applicable",
-          "evidence": "src/app/api/org/memory/reflect/route.ts:176 Reflection is an interactive knowledge-consolidation pass; no translation CI workload was found."
+          "evidence": "src/app/api/org/memory/reflect/route.ts:176 Reflection is an interactive knowledge-consolidation pass; no translation CI workload was found.",
+          "carriedFrom": "2026-10-15"
         },
         {
           "technique": "source-hash-translation-cache",
           "verdict": "not-applicable",
-          "evidence": "src/app/api/org/memory/recall/route.ts:115 Recall returns ranked stored notes, not cached target-language artifacts."
+          "evidence": "src/app/api/org/memory/recall/route.ts:115 Recall returns ranked stored notes, not cached target-language artifacts.",
+          "carriedFrom": "2026-10-15"
         },
         {
           "technique": "source-identical-value-audit",
           "verdict": "not-applicable",
-          "evidence": "src/features/shared/memory/MemoryCard.tsx:113 Copying exposes the stored note verbatim; there are no parallel locale values to audit."
+          "evidence": "src/features/shared/memory/MemoryCard.tsx:113 Copying exposes the stored note verbatim; there are no parallel locale values to audit.",
+          "carriedFrom": "2026-10-15"
+        }
+      ],
+      "superseded": [
+        {
+          "state": "not-applicable",
+          "evidence": "src/lib/memory/consolidation.ts:205 Context and repository searches found no translation infrastructure; Org Memory checks and consolidates engineering knowledge rather than maintaining source-target translation pairs.",
+          "evaluatedAt": "2026-10-15T21:57:47.629Z",
+          "worker": "2a5f1c6b-d902-4a7d-a5bd-ed3d68cdcd0a",
+          "reason": "replaced by 5d68a637-0e6e-4e95-9559-f32907a3bf89"
         }
       ]
     },
@@ -8902,6 +8944,16 @@
       "evaluatedAt": "2026-11-06",
       "evaluatedTs": "2026-11-06T00:28:59.423Z",
       "worker": "9c7bde72-677f-4ab1-b7d1-7567d82a363f",
+      "techniques": []
+    },
+    "Marketing Site & Design System/Landing Page/translation-pipeline-topology": {
+      "context": "Landing Page",
+      "subject": "translation-pipeline-topology",
+      "bundle": "localization",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T00:38:31.605Z",
+      "worker": "5d68a637-0e6e-4e95-9559-f32907a3bf89",
       "techniques": []
     }
   }

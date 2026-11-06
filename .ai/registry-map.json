@@ -4217,12 +4217,11 @@
           "changedAt": "2026-10-25",
           "confidence": "probable",
           "state": "not-applicable",
-          "evidence": "src/lib/org/security.ts:351 Context and repository searches found no translation infrastructure; this module constructs a security-remediation brief rather than moving content between locales.",
-          "evaluatedAt": "2026-10-15",
-          "evaluatedAgainst": "sha256-b2:678c2208c5b0dfc0",
-          "evaluatedRevision": 12,
-          "revisionsBehind": 1,
-          "stale": true
+          "evidence": "src/lib/pdf/security-document.tsx:39 The security PDF and posture pages hard-code English copy inline, and searching src and package.json for i18n, useTranslations, next-intl and hreflang found nothing, so this context has no translated content, catalog, derived store or MT pipeline for the subject to govern.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:7a5b5afa04e7f7ad",
+          "evaluatedRevision": 13,
+          "revisionsBehind": 1
         },
         {
           "subject": "settings",
@@ -7086,12 +7085,11 @@
           "changedAt": "2026-10-25",
           "confidence": "probable",
           "state": "not-applicable",
-          "evidence": "src/lib/memory/consolidation.ts:205 Context and repository searches found no translation infrastructure; Org Memory checks and consolidates engineering knowledge rather than maintaining source-target translation pairs.",
-          "evaluatedAt": "2026-10-15",
-          "evaluatedAgainst": "sha256-b2:678c2208c5b0dfc0",
-          "evaluatedRevision": 12,
-          "revisionsBehind": 1,
-          "stale": true
+          "evidence": "src/features/shared/memory/MemoryAuthorForm.tsx:72 Org Memory UI labels are English literals inline in JSX with no message catalog or locale lookup, and searching the repo for i18n, useTranslations, next-intl and hreflang found no hits, so no translation pipeline exists here to judge.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:7a5b5afa04e7f7ad",
+          "evaluatedRevision": 13,
+          "revisionsBehind": 1
         },
         {
           "subject": "bounded-enumeration",
@@ -10874,8 +10872,12 @@
           "revision": 13,
           "changedAt": "2026-10-25",
           "confidence": "probable",
-          "state": "unknown",
-          "priorNotApplicable": 2
+          "state": "not-applicable",
+          "priorNotApplicable": 2,
+          "evidence": "src/components/landing/prism/PrismHero.tsx:48 The landing hero copy is hard-coded English JSX with no per-language landing pages, language switcher or catalog, and searching for i18n, useTranslations, next-intl and hreflang found nothing (the only 'translat' hits in this directory are SVG transform=\"translate(...)\" attributes), so the subject's precondition does not hold.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:7a5b5afa04e7f7ad",
+          "evaluatedRevision": 13
         },
         {
           "subject": "test-harness",
