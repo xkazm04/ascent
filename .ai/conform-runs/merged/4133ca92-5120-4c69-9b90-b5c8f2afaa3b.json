@@ -1,0 +1,104 @@
+{
+ "schema": "conform-run/1",
+ "worker": "4133ca92-5120-4c69-9b90-b5c8f2afaa3b",
+ "subject": "app-shell",
+ "evaluatedAt": "2026-11-06T01:07:15.762515+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Org Overview & Standing",
+   "subject": "app-shell",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/components/org/shell/OrgTabChunks.tsx:28 The overview panel (and PersonalOverview with its client AddRepoForm draft at PersonalWatchControls.tsx:29) is wrapped in a per-tab keyed div, so every return to the tab remounts the subtree, replays the fade-in entrance and discards local form state, which is the cold-load choreography on warm return that lazy-section-loading forbids (the comment on lines 26-27 records the trade but does not discharge it; the earlier citation of line 55 is stale, the file is now 33 lines).",
+   "techniques": [
+    {
+     "technique": "lazy-section-loading",
+     "verdict": "deviation",
+     "evidence": "src/components/org/shell/OrgTabChunks.tsx:28 Re-keying the whole section per location throws away warm return to get an entrance animation. There is no restore or keep-alive path for panel-local state like the AddRepoForm draft (useState at PersonalWatchControls.tsx:29). The error boundary already resets on resetKey={tab}, so the remount is not needed to contain crashes."
+    },
+    {
+     "technique": "navigation-model",
+     "verdict": "conformant",
+     "evidence": "src/app/org/page.tsx:13 Bare /org restores the last location (the remembered org cookie). resolveViewerWorkspace checks it against canReadOrg and falls back to the public org, and the server redirect replaces history instead of pushing a new entry."
+    }
+   ]
+  },
+  {
+   "context": "App Shell, SEO & Error Pages",
+   "subject": "app-shell",
+   "bundle": "software-engineering",
+   "state": "conformant",
+   "evidence": "src/app/layout.tsx:72 The root layout hosts the single app-wide dialog host as a sibling of {children}, above the swap point. Unknown addresses land on a branded 404 that reuses the shared nav link list. Route failures render a stated failure with a retry. The org-demo link is gated by the same isDbConfigured check the header uses.",
+   "techniques": [
+    {
+     "technique": "shell-hosted-services",
+     "verdict": "conformant",
+     "evidence": "src/app/layout.tsx:72 One global surface is mounted at the layer root beside children, never inside the part rebuilt per route, so dialogs outlive navigation. The repo has no second ModalRoot mount."
+    },
+    {
+     "technique": "navigation-model",
+     "verdict": "conformant",
+     "evidence": "src/app/not-found.tsx:19 An unrecognized address falls back to a defined surface with links back into the product. Its nav reads the same link list as SiteHeader, so there is one vocabulary instead of a hand-copied one."
+    },
+    {
+     "technique": "lazy-section-loading",
+     "verdict": "conformant",
+     "evidence": "src/app/error.tsx:21 A failure is stated with a retry, never left blank. RouteError calls router.refresh() before reset(), and global-error falls back to a hard reload, which is the refresh cure for version skew."
+    },
+    {
+     "technique": "entitlement-gating",
+     "verdict": "conformant",
+     "evidence": "src/app/not-found.tsx:58 The org-demo entry is hidden on DB-less deployments, where the feature does not apply, using the same isDbConfigured authority as the header. The /org destination itself explains the missing DB instead of rendering blank."
+    }
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "app-shell",
+   "context": "Repo Report Shell & Tabs",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "app-shell",
+   "context": "Design System: UI Primitives & Deck",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-06T01:07:15.762515+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "app-shell"
+   ],
+   "techniques": [
+    "lazy-section-loading",
+    "navigation-model"
+   ],
+   "deviations": 1,
+   "context": "Org Overview & Standing",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-06T01:07:15.762515+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "app-shell"
+   ],
+   "techniques": [
+    "entitlement-gating",
+    "lazy-section-loading",
+    "navigation-model",
+    "shell-hosted-services"
+   ],
+   "deviations": 0,
+   "context": "App Shell, SEO & Error Pages",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

@@ -2592,7 +2592,11 @@
           "revision": 8,
           "changedAt": "2026-10-27",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "conformant",
+          "evidence": "src/app/layout.tsx:72 The root layout hosts the single app-wide dialog host as a sibling of {children}, above the swap point. Unknown addresses land on a branded 404 that reuses the shared nav link list. Route failures render a stated failure with a retry. The org-demo link is gated by the same isDbConfigured check the header uses.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:b55c5172e3d9fac0",
+          "evaluatedRevision": 8
         },
         {
           "subject": "guest-language-introspection",
@@ -5103,12 +5107,11 @@
           "changedAt": "2026-10-27",
           "confidence": "probable",
           "state": "deviation",
-          "evidence": "src/components/org/shell/OrgTabChunks.tsx:55 Switching tabs remounts the overview subtree and replays its entrance animation, discarding local form state instead of providing warm return.",
-          "evaluatedAt": "2026-10-18",
-          "evaluatedAgainst": "sha256-b2:62a9a7fc993ea8b5",
-          "evaluatedRevision": 6,
-          "revisionsBehind": 2,
-          "stale": true
+          "evidence": "src/components/org/shell/OrgTabChunks.tsx:28 The overview panel (and PersonalOverview with its client AddRepoForm draft at PersonalWatchControls.tsx:29) is wrapped in a per-tab keyed div, so every return to the tab remounts the subtree, replays the fade-in entrance and discards local form state, which is the cold-load choreography on warm return that lazy-section-loading forbids (the comment on lines 26-27 records the trade but does not discharge it; the earlier citation of line 55 is stale, the file is now 33 lines).",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:b55c5172e3d9fac0",
+          "evaluatedRevision": 8,
+          "revisionsBehind": 2
         },
         {
           "subject": "prompt-assembly",

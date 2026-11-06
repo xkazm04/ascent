@@ -5690,39 +5690,52 @@
       "subject": "app-shell",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-18",
-      "evaluatedTs": "2026-10-18T21:18:41.630Z",
-      "worker": "6c3f3717-3d5a-4386-806b-a753f205d794",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T01:07:15.762Z",
+      "worker": "4133ca92-5120-4c69-9b90-b5c8f2afaa3b",
       "techniques": [
+        {
+          "technique": "lazy-section-loading",
+          "verdict": "deviation",
+          "evidence": "src/components/org/shell/OrgTabChunks.tsx:28 Re-keying the whole section per location throws away warm return to get an entrance animation. There is no restore or keep-alive path for panel-local state like the AddRepoForm draft (useState at PersonalWatchControls.tsx:29). The error boundary already resets on resetKey={tab}, so the remount is not needed to contain crashes."
+        },
+        {
+          "technique": "navigation-model",
+          "verdict": "conformant",
+          "evidence": "src/app/org/page.tsx:13 Bare /org restores the last location (the remembered org cookie). resolveViewerWorkspace checks it against canReadOrg and falls back to the public org, and the server redirect replaces history instead of pushing a new entry."
+        },
         {
           "technique": "badge-and-attention",
           "verdict": "deviation",
-          "evidence": "src/lib/db/org-nav-counts.ts:47 The personal rail receives follow-up counts from personal-org scans, whereas PersonalBacklog displays public-corpus recommendations merged with personal overlays; the badge derivation does not count the work its destination displays."
+          "evidence": "src/lib/db/org-nav-counts.ts:47 The personal rail receives follow-up counts from personal-org scans, whereas PersonalBacklog displays public-corpus recommendations merged with personal overlays; the badge derivation does not count the work its destination displays.",
+          "carriedFrom": "2026-10-18"
         },
         {
           "technique": "entitlement-gating",
           "verdict": "deviation",
-          "evidence": "src/components/org/shell/OrgTabNav.tsx:99 Personal-workspace restrictions filter the rail inline, but OrgDashboardPage validates only the tab vocabulary; a hidden Teams destination still renders through ?tab=teams without consulting PERSONAL_TAB_IDS."
-        },
-        {
-          "technique": "lazy-section-loading",
-          "verdict": "deviation",
-          "evidence": "src/components/org/shell/OrgTabChunks.tsx:55 Re-keying the whole panel forces teardown and entrance choreography on every return; PersonalWatchControls keeps its input in component-local useState without restoration."
+          "evidence": "src/components/org/shell/OrgTabNav.tsx:99 Personal-workspace restrictions filter the rail inline, but OrgDashboardPage validates only the tab vocabulary; a hidden Teams destination still renders through ?tab=teams without consulting PERSONAL_TAB_IDS.",
+          "carriedFrom": "2026-10-18"
         },
         {
           "technique": "nav-hierarchy",
           "verdict": "conformant",
-          "evidence": "src/components/ui/SectionRailNav.tsx:143 The second level renders only the selected group's stable destinations; changing location resets the temporary group preview."
-        },
-        {
-          "technique": "navigation-model",
-          "verdict": "deviation",
-          "evidence": "src/lib/org/orgTabs.ts:457 Route availability is manually enumerated separately from ORG_TAB_IDS and ORG_NAV_GROUPS, so adding a destination requires synchronizing parallel lists rather than deriving consumers from one registry."
+          "evidence": "src/components/ui/SectionRailNav.tsx:143 The second level renders only the selected group's stable destinations; changing location resets the temporary group preview.",
+          "carriedFrom": "2026-10-18"
         },
         {
           "technique": "shell-hosted-services",
           "verdict": "deviation",
-          "evidence": "src/components/org/shared/useRunnerNotifier.ts:68 The shell-resident notification worker converts unsuccessful polling responses into null without reporting degraded health, making a failing worker indistinguishable from a quiet one."
+          "evidence": "src/components/org/shared/useRunnerNotifier.ts:68 The shell-resident notification worker converts unsuccessful polling responses into null without reporting degraded health, making a failing worker indistinguishable from a quiet one.",
+          "carriedFrom": "2026-10-18"
+        }
+      ],
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "src/components/org/shell/OrgTabChunks.tsx:55 Switching tabs remounts the overview subtree and replays its entrance animation, discarding local form state instead of providing warm return.",
+          "evaluatedAt": "2026-10-18T21:18:41.630Z",
+          "worker": "6c3f3717-3d5a-4386-806b-a753f205d794",
+          "reason": "replaced by 4133ca92-5120-4c69-9b90-b5c8f2afaa3b"
         }
       ]
     },
@@ -8976,6 +8989,37 @@
       "evaluatedTs": "2026-11-06T00:38:31.605Z",
       "worker": "5d68a637-0e6e-4e95-9559-f32907a3bf89",
       "techniques": []
+    },
+    "Onboarding, Shell & AI Standard/App Shell, SEO & Error Pages/app-shell": {
+      "context": "App Shell, SEO & Error Pages",
+      "subject": "app-shell",
+      "bundle": "software-engineering",
+      "state": "conformant",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T01:07:15.762Z",
+      "worker": "4133ca92-5120-4c69-9b90-b5c8f2afaa3b",
+      "techniques": [
+        {
+          "technique": "shell-hosted-services",
+          "verdict": "conformant",
+          "evidence": "src/app/layout.tsx:72 One global surface is mounted at the layer root beside children, never inside the part rebuilt per route, so dialogs outlive navigation. The repo has no second ModalRoot mount."
+        },
+        {
+          "technique": "navigation-model",
+          "verdict": "conformant",
+          "evidence": "src/app/not-found.tsx:19 An unrecognized address falls back to a defined surface with links back into the product. Its nav reads the same link list as SiteHeader, so there is one vocabulary instead of a hand-copied one."
+        },
+        {
+          "technique": "lazy-section-loading",
+          "verdict": "conformant",
+          "evidence": "src/app/error.tsx:21 A failure is stated with a retry, never left blank. RouteError calls router.refresh() before reset(), and global-error falls back to a hard reload, which is the refresh cure for version skew."
+        },
+        {
+          "technique": "entitlement-gating",
+          "verdict": "conformant",
+          "evidence": "src/app/not-found.tsx:58 The org-demo entry is hidden on DB-less deployments, where the feature does not apply, using the same isDbConfigured authority as the header. The /org destination itself explains the missing DB instead of rendering blank."
+        }
+      ]
     }
   }
 }
