@@ -9485,6 +9485,43 @@
       "evaluatedTs": "2026-11-06T04:13:24.903Z",
       "worker": "8aa25a56-34d4-4717-9acd-eee55b2d0397",
       "techniques": []
+    },
+    "Org Knowledge & Skills/MCP Server/fleet-orchestration": {
+      "context": "MCP Server",
+      "subject": "fleet-orchestration",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T04:36:50.069Z",
+      "worker": "5c02777b-4259-466e-8089-2a07a681ebf5",
+      "techniques": [
+        {
+          "technique": "session-registry",
+          "verdict": "deviation",
+          "evidence": "src/lib/mcp/work-tools.ts:362 The fence (claim generation) is optional and only logged as deprecated, so a fence-less late report from an earlier session of the same holder is accepted."
+        },
+        {
+          "technique": "outbound-compute-plane",
+          "verdict": "conformant",
+          "evidence": "src/lib/mcp/tools.ts:150 Executors pull work through the authenticated MCP door and run it in their own harness. Ascent executes nothing and needs no ingress to them."
+        },
+        {
+          "technique": "completion-claim-verification",
+          "verdict": "conformant",
+          "evidence": "src/lib/mcp/tools.ts:21 A delegate's 'resolved' is only an account. Done is decided server-side by a default-branch rescan that measures the dimension moving."
+        },
+        {
+          "technique": "brief-carries-the-session",
+          "verdict": "conformant",
+          "evidence": "src/lib/mcp/work-tools.ts:305 Each brief carries the org's standard, autonomy tier, review text, human-review requirement, lease and stance, and admission is re-checked when the brief is issued."
+        },
+        {
+          "technique": "result-harvest",
+          "verdict": "conformant",
+          "evidence": "src/lib/mcp/work-tools.ts:350 Each per-row report passes one validation door (closed verdict enum, required reason), and skipped/needs_human make failure a first-class result. Roster-level accounting is not in this context."
+        }
+      ],
+      "registryProposal": "session-registry could name the transitional case explicitly: a generation fence added as optional for backward compatibility leaves the late-signal race open for fence-less clients until the fence is mandatory."
     }
   }
 }

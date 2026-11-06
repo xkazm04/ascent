@@ -7935,7 +7935,11 @@
           "revision": 28,
           "changedAt": "2026-10-15",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/mcp/work-tools.ts:362 The MCP work protocol (claim under a lease, brief, report) runs remote agents as a pull-queue fleet, but report_attempt accepts a report that carries no fence, so a superseded session on the same token can still write into a newer claim. That is exactly the 'late finished signal races a lost verdict' case session-registry exists to close; only an explicitly stale fence is refused.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:93bd71853ab468b1",
+          "evaluatedRevision": 28
         },
         {
           "subject": "eval-harness",
