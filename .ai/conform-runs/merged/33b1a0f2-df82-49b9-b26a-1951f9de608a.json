@@ -1,0 +1,145 @@
+{
+ "schema": "conform-run/1",
+ "worker": "33b1a0f2-df82-49b9-b26a-1951f9de608a",
+ "subject": "agent-runtime-assembly",
+ "evaluatedAt": "2026-11-06T05:31:58.422008+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Live War Room",
+   "subject": "agent-runtime-assembly",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/features/inflight/live/LiveWarRoom.tsx:55 The context is a client dashboard that renders scan history, a leaderboard and a ship-loop poll snapshot; it composes no hook chain around model or tool calls, loads no contributed code and holds no conversation checkpoints, and a recursive search of src/features/inflight/live and src/app/org/[slug]/live (and all of src) found no registerHook, loadPlugin, wrapToolCall or parentRunId (the only 'hook' hits are React hooks and a useShipLoop comment).",
+   "techniques": [],
+   "absenceTerms": [
+    "registerHook",
+    "loadPlugin",
+    "wrapToolCall",
+    "parentRunId"
+   ]
+  },
+  {
+   "context": "AI Registry Repo (Onboarding & Index)",
+   "subject": "agent-runtime-assembly",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/org/registry-view.ts:263 The context indexes a registry repository's skills/practices/memory into mirror rows and renders an onboarding view; it reports skill invoke counts but never assembles or runs an agent loop, so no hook placement, code-loading tier or checkpoint custody exists here, and searching src/lib/org, src/features/shared/registry and the registry routes (and all of src) found no registerHook, loadPlugin, wrapToolCall, parentRunId or toolCall.",
+   "techniques": [],
+   "absenceTerms": [
+    "registerHook",
+    "loadPlugin",
+    "wrapToolCall",
+    "parentRunId",
+    "toolCall"
+   ]
+  },
+  {
+   "context": "Provider Integrations",
+   "subject": "agent-runtime-assembly",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/integrations/otlp.ts:3 The context receives OTLP metrics and logs exported by an external agent (Claude Code) and folds them into usage records; it observes another runtime's telemetry and assembles no runtime of its own, and searching src/lib/integrations, src/app/api/integrations, src/lib/db and the integrations page (and all of src) found no registerHook, loadPlugin, wrapToolCall, parentRunId or tool_use.",
+   "techniques": [],
+   "absenceTerms": [
+    "registerHook",
+    "loadPlugin",
+    "wrapToolCall",
+    "parentRunId",
+    "tool_use"
+   ]
+  },
+  {
+   "context": "Checkout & Plans (Polar)",
+   "subject": "agent-runtime-assembly",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/app/api/billing/webhook/route.ts:2 The context is checkout, webhook fulfilment and plan-tier routes for Polar billing, with no agent loop, hook chain, contributed extension or durable conversation state, and a search of all of src (which covers src/lib, src/app/api/billing, src/app/api/org/plan, src/app/pricing and src/features/admin/settings) found no registerHook, loadPlugin, wrapToolCall or parentRunId.",
+   "techniques": [],
+   "absenceTerms": [
+    "registerHook",
+    "loadPlugin",
+    "wrapToolCall",
+    "parentRunId"
+   ]
+  },
+  {
+   "context": "GitHub OAuth & Session",
+   "subject": "agent-runtime-assembly",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/auth.ts:2 The context is GitHub/Supabase OAuth sign-in plus a signed session cookie with session-version revocation; it authenticates people and runs no agent, so none of the assembly concerns apply, and a search of all of src (which covers src/app/api/auth, src/app/auth, src/lib, src/lib/db and src/lib/supabase) found no registerHook, loadPlugin, wrapToolCall or parentRunId.",
+   "techniques": [],
+   "absenceTerms": [
+    "registerHook",
+    "loadPlugin",
+    "wrapToolCall",
+    "parentRunId"
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-11-06T05:31:58.422008+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-runtime-assembly"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Live War Room",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-06T05:31:58.422008+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-runtime-assembly"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "AI Registry Repo (Onboarding & Index)",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-06T05:31:58.422008+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-runtime-assembly"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Provider Integrations",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-06T05:31:58.422008+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-runtime-assembly"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Checkout & Plans (Polar)",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-06T05:31:58.422008+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-runtime-assembly"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "GitHub OAuth & Session",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

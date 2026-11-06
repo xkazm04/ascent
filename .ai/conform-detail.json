@@ -9601,6 +9601,56 @@
         }
       ],
       "registryProposal": "The standard assumes a key-value store. Many apps keep per-entity configuration as typed columns on a domain row (here: OrgRegistry.mode/telemetrySink). Typed-accessors and settings-audit still apply there, but key-registry and read-batching do not. A sentence on 'settings as columns of a domain row' would make that boundary explicit."
+    },
+    "Org Planning & Execution/Live War Room/agent-runtime-assembly": {
+      "context": "Live War Room",
+      "subject": "agent-runtime-assembly",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T05:31:58.422Z",
+      "worker": "33b1a0f2-df82-49b9-b26a-1951f9de608a",
+      "techniques": []
+    },
+    "Org Knowledge & Skills/AI Registry Repo (Onboarding & Index)/agent-runtime-assembly": {
+      "context": "AI Registry Repo (Onboarding & Index)",
+      "subject": "agent-runtime-assembly",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T05:31:58.422Z",
+      "worker": "33b1a0f2-df82-49b9-b26a-1951f9de608a",
+      "techniques": []
+    },
+    "Org Dashboard & Analytics/Provider Integrations/agent-runtime-assembly": {
+      "context": "Provider Integrations",
+      "subject": "agent-runtime-assembly",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T05:31:58.422Z",
+      "worker": "33b1a0f2-df82-49b9-b26a-1951f9de608a",
+      "techniques": []
+    },
+    "Billing, Credits & Metering/Checkout & Plans (Polar)/agent-runtime-assembly": {
+      "context": "Checkout & Plans (Polar)",
+      "subject": "agent-runtime-assembly",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T05:31:58.422Z",
+      "worker": "33b1a0f2-df82-49b9-b26a-1951f9de608a",
+      "techniques": []
+    },
+    "Identity & GitHub Connectivity/GitHub OAuth & Session/agent-runtime-assembly": {
+      "context": "GitHub OAuth & Session",
+      "subject": "agent-runtime-assembly",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T05:31:58.422Z",
+      "worker": "33b1a0f2-df82-49b9-b26a-1951f9de608a",
+      "techniques": []
     }
   }
 }
