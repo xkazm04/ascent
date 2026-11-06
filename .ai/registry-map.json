@@ -1956,7 +1956,11 @@
           "revision": 37,
           "changedAt": "2026-09-29",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/app/webhook/route.ts:1 This context handles webhook ingestion (HMAC verification, replay claim, dispatch to arms), installation setup and repo listing. Nothing in it runs models or agents against scenarios or scores their outputs. A search of src/app/api/app, src/lib/github and src/lib/db for trials, passRate, goldenSet, judgeModel and eval-harness found nothing; the 'evaluate' hits are the PR maturity gate's evaluateGate.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:7ccead00b7f92aba",
+          "evaluatedRevision": 37
         },
         {
           "subject": "test-harness",
@@ -7941,7 +7945,11 @@
           "revision": 37,
           "changedAt": "2026-09-29",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/mcp/write-gate.ts:106 The MCP server is a tool surface. It serves registry reads and lets an agent record its own account (report_attempt, skill invokes, memory citations). It deliberately cannot write a verdict ('done' comes only from a rescan), so it scores no candidate and runs no scenario suite. A search of src/app/api/mcp and src/lib/mcp for trials, passRate, goldenSet, judgeModel and eval-harness found nothing; the 'evaluate' hits are the CI-gate evaluator (evaluateGateLite), not an eval harness.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:7ccead00b7f92aba",
+          "evaluatedRevision": 37
         }
       ],
       "governance": "governed"
