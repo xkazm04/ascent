@@ -5541,17 +5541,16 @@
           ],
           "grounding": "use_when",
           "confidence": "probable",
-          "state": "deviation",
-          "evidence": "src/lib/athena/turn.ts:247 Developer home's shell exposes Athena, whose failed model calls send raw provider error messages, including upstream response-body excerpts, to the browser.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:d3eef10e9ed8459f",
+          "state": "not-applicable",
+          "evidence": "src/features/developer/careShareClient.ts:2 The context's only browser-originated request is a same-origin POST/DELETE to its own owner-self route carrying just the app session cookie, and its data is loaded server-side through Prisma, so no dependency credential reaches the bundle and no broker, public-role grant, loopback gate or courier seal is called for; searches of the context's directories (src/features/developer, src/lib/org, src/app/org/developer, src/app/org/[slug]/developer, src/components/org/shell, src/app/api/me/mentor) for createBrowserClient, anon_key, x-api-key, createHmac and 127.0.0.1 found nothing.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:8c4e4cc37445b46c",
           "digest": "sha256-b2:8c4e4cc37445b46c",
           "source": "retained",
           "revision": 4,
           "changedAt": "2026-10-27",
-          "evaluatedRevision": 3,
-          "revisionsBehind": 1,
-          "stale": true
+          "evaluatedRevision": 4,
+          "revisionsBehind": 1
         }
       ],
       "governance": "governed"

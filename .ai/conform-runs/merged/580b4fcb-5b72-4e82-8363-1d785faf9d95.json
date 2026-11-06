@@ -1,0 +1,78 @@
+{
+ "schema": "conform-run/1",
+ "worker": "580b4fcb-5b72-4e82-8363-1d785faf9d95",
+ "subject": "browser-credential-boundary",
+ "evaluatedAt": "2026-11-06T04:00:28.776095+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Developer home (UC3 individual care)",
+   "subject": "browser-credential-boundary",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/features/developer/careShareClient.ts:2 The context's only browser-originated request is a same-origin POST/DELETE to its own owner-self route carrying just the app session cookie, and its data is loaded server-side through Prisma, so no dependency credential reaches the bundle and no broker, public-role grant, loopback gate or courier seal is called for; searches of the context's directories (src/features/developer, src/lib/org, src/app/org/developer, src/app/org/[slug]/developer, src/components/org/shell, src/app/api/me/mentor) for createBrowserClient, anon_key, x-api-key, createHmac and 127.0.0.1 found nothing.",
+   "techniques": [
+    {
+     "technique": "broker-proxy-attaches-secret",
+     "verdict": "not-applicable",
+     "evidence": "src/features/developer/careShareClient.ts:2 No privileged upstream is reached from this context's browser code. The share route is the app's own endpoint, and the browser carries only its session."
+    },
+    {
+     "technique": "outbound-fetch-destination-validation",
+     "verdict": "not-applicable",
+     "evidence": "src/features/developer/careShareClient.ts:37 The only fetch runs in the browser against a fixed same-origin constant. No server fetch takes its address from data."
+    },
+    {
+     "technique": "opaque-upstream-errors",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/me/mentor/share/route.ts:70 No upstream is brokered here. The route's own failures still log the error on the server and return a fixed message ('Failed to store your share.'), so no internal detail reaches the browser."
+    },
+    {
+     "technique": "server-sealed-client-roundtrip",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/me/mentor/share/route.ts:62 The browser preview is advisory. The client writes its own share and is the authority over it, so nothing needs a seal, and the server re-runs the validator on every POST rather than trusting the preview's result."
+    },
+    {
+     "technique": "aggregate-view-not-base-table",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/org/developer-view-load.ts:11 Contributor rows are read in a server-only loader through the server DB client. No public role reaches a table, so regime one does not hold."
+    },
+    {
+     "technique": "default-deny-plus-defaulted-owner",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/org/developer-view-load.ts:35 No row-level policies are involved because the browser never writes to the store directly. The same instinct applies anyway: the owner key comes from the server-resolved identity, never from the request."
+    }
+   ],
+   "absenceTerms": [
+    "createBrowserClient",
+    "anon_key",
+    "x-api-key",
+    "createHmac",
+    "127.0.0.1"
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-11-06T04:00:28.776095+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "browser-credential-boundary"
+   ],
+   "techniques": [
+    "aggregate-view-not-base-table",
+    "broker-proxy-attaches-secret",
+    "default-deny-plus-defaulted-owner",
+    "opaque-upstream-errors",
+    "outbound-fetch-destination-validation",
+    "server-sealed-client-roundtrip"
+   ],
+   "deviations": 0,
+   "context": "Developer home (UC3 individual care)",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

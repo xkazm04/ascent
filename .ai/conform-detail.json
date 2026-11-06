@@ -387,40 +387,52 @@
       "context": "Developer home (UC3 individual care)",
       "subject": "browser-credential-boundary",
       "bundle": "software-engineering",
-      "state": "deviation",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T12:43:57.977Z",
-      "worker": "00de936c-9e69-450e-8a18-7a6e03f71d45",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T04:00:28.776Z",
+      "worker": "580b4fcb-5b72-4e82-8363-1d785faf9d95",
       "techniques": [
+        {
+          "technique": "broker-proxy-attaches-secret",
+          "verdict": "not-applicable",
+          "evidence": "src/features/developer/careShareClient.ts:2 No privileged upstream is reached from this context's browser code. The share route is the app's own endpoint, and the browser carries only its session."
+        },
+        {
+          "technique": "outbound-fetch-destination-validation",
+          "verdict": "not-applicable",
+          "evidence": "src/features/developer/careShareClient.ts:37 The only fetch runs in the browser against a fixed same-origin constant. No server fetch takes its address from data."
+        },
+        {
+          "technique": "opaque-upstream-errors",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/me/mentor/share/route.ts:70 No upstream is brokered here. The route's own failures still log the error on the server and return a fixed message ('Failed to store your share.'), so no internal detail reaches the browser."
+        },
+        {
+          "technique": "server-sealed-client-roundtrip",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/me/mentor/share/route.ts:62 The browser preview is advisory. The client writes its own share and is the authority over it, so nothing needs a seal, and the server re-runs the validator on every POST rather than trusting the preview's result."
+        },
         {
           "technique": "aggregate-view-not-base-table",
           "verdict": "not-applicable",
-          "evidence": "src/lib/org/developer-view-load.ts:58 The personal activity projection is assembled from server-side reads, rather than browser queries over a publicly granted identifying table."
-        },
-        {
-          "technique": "allowlisted-operator-stream",
-          "verdict": "not-applicable",
-          "evidence": "src/features/developer/CareBits.tsx:47 These controls log local action intent and payload, rather than credential-bearing outbound request records."
-        },
-        {
-          "technique": "broker-proxy-attaches-secret",
-          "verdict": "deviation",
-          "evidence": "src/app/api/athena/[id]/message/route.ts:85 The shell-mounted Athena broker forwards events unchanged, including the raw model-error message constructed at src/lib/athena/turn.ts:247, violating the constrained-response requirement despite its org gate."
+          "evidence": "src/lib/org/developer-view-load.ts:11 Contributor rows are read in a server-only loader through the server DB client. No public role reaches a table, so regime one does not hold."
         },
         {
           "technique": "default-deny-plus-defaulted-owner",
           "verdict": "not-applicable",
-          "evidence": "src/lib/org/developer-view-load.ts:59 Personal rows are scoped and read by the server; the browser does not insert rows through a database policy engine."
+          "evidence": "src/lib/org/developer-view-load.ts:35 No row-level policies are involved because the browser never writes to the store directly. The same instinct applies anyway: the owner key comes from the server-resolved identity, never from the request."
+        },
+        {
+          "technique": "allowlisted-operator-stream",
+          "verdict": "not-applicable",
+          "evidence": "src/features/developer/CareBits.tsx:47 These controls log local action intent and payload, rather than credential-bearing outbound request records.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "omit-the-column-not-the-value",
           "verdict": "not-applicable",
-          "evidence": "src/app/org/developer/page.tsx:58 The client receives a resolved view model, not direct access to a publicly granted database schema containing secrets."
-        },
-        {
-          "technique": "opaque-upstream-errors",
-          "verdict": "deviation",
-          "evidence": "src/lib/athena/turn.ts:247 src/lib/llm/transports.ts:157 embeds the upstream status and first 200 response-body characters in LlmHttpError; tool-loop.ts:225 rethrows it, this generator emits its message, and useAthenaThread.ts:131 stores it for display."
+          "evidence": "src/app/org/developer/page.tsx:58 The client receives a resolved view model, not direct access to a publicly granted database schema containing secrets.",
+          "carriedFrom": "2026-10-13"
         }
       ],
       "superseded": [
@@ -430,6 +442,13 @@
           "evaluatedAt": "2026-08-31",
           "worker": null,
           "reason": "replaced by 00de936c-9e69-450e-8a18-7a6e03f71d45"
+        },
+        {
+          "state": "deviation",
+          "evidence": "src/lib/athena/turn.ts:247 Developer home's shell exposes Athena, whose failed model calls send raw provider error messages, including upstream response-body excerpts, to the browser.",
+          "evaluatedAt": "2026-10-13T12:43:57.977Z",
+          "worker": "00de936c-9e69-450e-8a18-7a6e03f71d45",
+          "reason": "replaced by 580b4fcb-5b72-4e82-8363-1d785faf9d95"
         }
       ]
     },
