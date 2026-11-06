@@ -5671,7 +5671,11 @@
           "revision": 4,
           "changedAt": "2026-10-27",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "conformant",
+          "evidence": "src/app/api/org/briefing/pdf/route.ts:76 The briefing routes keep every secret on the server, authenticate before spending the model credential, guard the logo fetch, send only fixed error messages to the browser while the cause goes to Sentry, and HMAC-seal the share capability bound to its org and expiry, so no browser-side value can forge or reveal anything.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:8c4e4cc37445b46c",
+          "evaluatedRevision": 4
         }
       ],
       "governance": "governed"

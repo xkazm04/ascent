@@ -1,0 +1,77 @@
+{
+ "schema": "conform-run/1",
+ "worker": "e33d90f2-fc8f-40cd-8b8f-e106dec45fc4",
+ "subject": "browser-credential-boundary",
+ "evaluatedAt": "2026-11-06T02:39:15.918299+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Executive Briefing",
+   "subject": "browser-credential-boundary",
+   "bundle": "software-engineering",
+   "state": "conformant",
+   "evidence": "src/app/api/org/briefing/pdf/route.ts:76 The briefing routes keep every secret on the server, authenticate before spending the model credential, guard the logo fetch, send only fixed error messages to the browser while the cause goes to Sentry, and HMAC-seal the share capability bound to its org and expiry, so no browser-side value can forge or reveal anything.",
+   "techniques": [
+    {
+     "technique": "opaque-upstream-errors",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/briefing/pdf/route.ts:76 Each failure gets a fixed message and a derived status (400/404/503/500). The cause goes only to Sentry. A model-provider failure in briefing-narrative.ts:359-363 falls back to the deterministic template, so no upstream detail crosses."
+    },
+    {
+     "technique": "broker-proxy-attaches-secret",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/briefing/pdf/route.ts:35 The caller is authenticated before the server-side narrative pass spends the org's or platform's model credential. The browser sends only query parameters (org, range, segment, stack) and never an upstream request or a credential."
+    },
+    {
+     "technique": "outbound-fetch-destination-validation",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/briefing/pdf/route.ts:91 The tenant's logo URL is data. It is rendered from a validated data: snapshot, and a stale snapshot is refreshed only through fetchSafeLogo (https only, resolved addresses checked for private ranges, address pinned, no redirects)."
+    },
+    {
+     "technique": "public-vs-server-env-split",
+     "verdict": "conformant",
+     "evidence": "src/lib/briefing-share.ts:33 The signing secret is unprefixed and read only on the server. The client button only POSTs to the route. The module has no server-only marker, but its node:crypto import keeps it out of client bundles."
+    },
+    {
+     "technique": "server-sealed-client-roundtrip",
+     "verdict": "conformant",
+     "evidence": "src/lib/briefing-share.ts:285 The share token the browser carries back is an HMAC over a payload bound to org, scope, expiry and a per-grant jti. It is verified timing-safe and checked against revocation on read (line 319)."
+    },
+    {
+     "technique": "aggregate-view-not-base-table",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/org/briefing/pdf/route.ts:12 The store is read server-side through Prisma. No browser-held role reaches a base table."
+    }
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "browser-credential-boundary",
+   "context": "Developer home (UC3 individual care)",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-06T02:39:15.918299+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "browser-credential-boundary"
+   ],
+   "techniques": [
+    "aggregate-view-not-base-table",
+    "broker-proxy-attaches-secret",
+    "opaque-upstream-errors",
+    "outbound-fetch-destination-validation",
+    "public-vs-server-env-split",
+    "server-sealed-client-roundtrip"
+   ],
+   "deviations": 0,
+   "context": "Executive Briefing",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
