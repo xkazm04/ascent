@@ -9232,6 +9232,27 @@
       "evaluatedTs": "2026-11-06T02:11:55.792Z",
       "worker": "ee9030c6-b044-40cf-8f10-f9107cedd92c",
       "techniques": []
+    },
+    "Onboarding, Shell & AI Standard/Launch Fleet Map/readiness-passports": {
+      "context": "Launch Fleet Map",
+      "subject": "readiness-passports",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T02:29:44.350Z",
+      "worker": "e3dafb29-a03e-4565-a1ff-2c73be5da71f",
+      "techniques": [
+        {
+          "technique": "audit-the-live-system-not-the-plan",
+          "verdict": "not-applicable",
+          "evidence": "src/app/launch/page.tsx:1 The registry-map matched on the lexical 'launch'. This page is a sign-in landing visualization, not a pre-release audit."
+        },
+        {
+          "technique": "two-axis-readiness",
+          "verdict": "not-applicable",
+          "evidence": "src/app/launch/page.tsx:3 It shows only the maturity level as star brightness (with a separate unscanned band in fleetMapDerive) and never a passport fingerprint."
+        }
+      ]
     }
   }
 }

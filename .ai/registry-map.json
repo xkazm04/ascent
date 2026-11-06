@@ -2975,7 +2975,11 @@
           "revision": 4,
           "changedAt": "2026-10-27",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/launch/page.tsx:1 /launch is the post-sign-in star-map that renders each repo as a star brightened by its maturity level. A grep of src/app/launch and src/components/launch for passport, declin, blocker, productionReadiness and fingerprint found zero hits. No readiness passport, finding, decline or blocker rollup is computed or rendered here, and 'launch' is a route name, not a release crossing.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:ae6d093363f5067e",
+          "evaluatedRevision": 4
         },
         {
           "subject": "test-input-generation",
