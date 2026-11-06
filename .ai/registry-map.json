@@ -958,7 +958,11 @@
           "revision": 37,
           "changedAt": "2026-09-29",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/scoring/gate.ts:1 The gate is a deterministic strictest-wins threshold policy over an already-persisted scan report; it runs no agent or model against declared scenarios, so the eval-harness precondition (repeatable scored runs of a candidate) does not hold — searching src/lib/scoring, src/lib/github, src/lib/db, src/app/api/gate, src/app/api/org/gate-policy and src/features/standing/governance for the terms below found zero hits (the only near-terms are 'evaluateGate' and 'judged', which mean policy evaluation, not model judgment).",
+          "evaluatedAt": "2026-11-05",
+          "evaluatedAgainst": "sha256-b2:7ccead00b7f92aba",
+          "evaluatedRevision": 37
         },
         {
           "subject": "admission-queue",
@@ -2816,7 +2820,11 @@
           "revision": 37,
           "changedAt": "2026-09-29",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/standard/types.ts:69 The standard names an eval harness only as an optional manifest pointer (`paths.evals`). The doctor only checks that the pointer resolves, and nothing here runs, scores or aggregates evaluations, so the subject's techniques have nothing to govern. A search of src/lib/standard found only those pointer mentions ('eval harness', 'evals') and none of the terms below. 'judge' appears as well, but it refers to doctor clauses being judged or unchecked, not to a model judge.",
+          "evaluatedAt": "2026-11-05",
+          "evaluatedAgainst": "sha256-b2:7ccead00b7f92aba",
+          "evaluatedRevision": 37
         },
         {
           "subject": "untrusted-extension-host",
@@ -9868,7 +9876,11 @@
           "revision": 37,
           "changedAt": "2026-09-29",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/db/usage.ts:1 This context aggregates persisted Scan rows into billing/usage summaries and charts them; nothing here runs or scores a candidate model against scenarios, and a search of src/app/usage, src/app/api/usage, src/components/usage and src/lib/db for the terms below found none (src/lib/db does say 'trial', but in KPI and loop-run code outside this context, which is why that word is not among the terms).",
+          "evaluatedAt": "2026-11-05",
+          "evaluatedAgainst": "sha256-b2:7ccead00b7f92aba",
+          "evaluatedRevision": 37
         },
         {
           "subject": "usage-aggregation-semantics",
@@ -11010,7 +11022,11 @@
           "revision": 37,
           "changedAt": "2026-09-29",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/about/page.tsx:3 The About route is a marketing landing page that composes presentational components over a public scan gallery read; it contains no evaluation machinery, and a search of src/app/about and src/components/about for the terms below (and for 'judge'/'trial') found zero hits.",
+          "evaluatedAt": "2026-11-05",
+          "evaluatedAgainst": "sha256-b2:7ccead00b7f92aba",
+          "evaluatedRevision": 37
         },
         {
           "subject": "prompt-assembly",

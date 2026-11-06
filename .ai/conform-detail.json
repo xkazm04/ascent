@@ -8793,6 +8793,46 @@
       "evaluatedTs": "2026-11-05T23:38:44.323Z",
       "worker": "4ce28162-ba85-4d0f-95b4-bc8ee5c9a4c5",
       "techniques": []
+    },
+    "Repository Scanning & Scoring/CI Gate & Status Checks/eval-harness": {
+      "context": "CI Gate & Status Checks",
+      "subject": "eval-harness",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-05",
+      "evaluatedTs": "2026-11-05T23:59:36.591Z",
+      "worker": "d7e6a0c2-5a4d-459f-ba5c-4bd81c2a9558",
+      "techniques": []
+    },
+    "Billing, Credits & Metering/Usage Metering/eval-harness": {
+      "context": "Usage Metering",
+      "subject": "eval-harness",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-05",
+      "evaluatedTs": "2026-11-05T23:59:36.591Z",
+      "worker": "d7e6a0c2-5a4d-459f-ba5c-4bd81c2a9558",
+      "techniques": []
+    },
+    "Onboarding, Shell & AI Standard/AI-Native Standard & Onboarding Skill/eval-harness": {
+      "context": "AI-Native Standard & Onboarding Skill",
+      "subject": "eval-harness",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-05",
+      "evaluatedTs": "2026-11-05T23:59:36.591Z",
+      "worker": "d7e6a0c2-5a4d-459f-ba5c-4bd81c2a9558",
+      "techniques": []
+    },
+    "Marketing Site & Design System/Marketing About Page/eval-harness": {
+      "context": "Marketing About Page",
+      "subject": "eval-harness",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-05",
+      "evaluatedTs": "2026-11-05T23:59:36.591Z",
+      "worker": "d7e6a0c2-5a4d-459f-ba5c-4bd81c2a9558",
+      "techniques": []
     }
   }
 }

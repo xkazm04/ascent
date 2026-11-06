@@ -1,0 +1,138 @@
+{
+ "schema": "conform-run/1",
+ "worker": "d7e6a0c2-5a4d-459f-ba5c-4bd81c2a9558",
+ "subject": "eval-harness",
+ "evaluatedAt": "2026-11-05T23:59:36.591845+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "CI Gate & Status Checks",
+   "subject": "eval-harness",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/scoring/gate.ts:1 The gate is a deterministic strictest-wins threshold policy over an already-persisted scan report; it runs no agent or model against declared scenarios, so the eval-harness precondition (repeatable scored runs of a candidate) does not hold \u2014 searching src/lib/scoring, src/lib/github, src/lib/db, src/app/api/gate, src/app/api/org/gate-policy and src/features/standing/governance for the terms below found zero hits (the only near-terms are 'evaluateGate' and 'judged', which mean policy evaluation, not model judgment).",
+   "techniques": [],
+   "absenceTerms": [
+    "holdout",
+    "pass@k",
+    "golden set"
+   ]
+  },
+  {
+   "context": "Usage Metering",
+   "subject": "eval-harness",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/db/usage.ts:1 This context aggregates persisted Scan rows into billing/usage summaries and charts them; nothing here runs or scores a candidate model against scenarios, and a search of src/app/usage, src/app/api/usage, src/components/usage and src/lib/db for the terms below found none (src/lib/db does say 'trial', but in KPI and loop-run code outside this context, which is why that word is not among the terms).",
+   "techniques": [],
+   "absenceTerms": [
+    "holdout",
+    "pass@k",
+    "golden set"
+   ]
+  },
+  {
+   "context": "Repo Report Shell & Tabs",
+   "subject": "eval-harness",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/app/report/[owner]/[repo]/page.tsx:1 The report shell serves a pinned persisted scan snapshot (or a cold-scan gate) and renders it; it is a read/render surface with no scenario runs, judges or trial aggregation, and a search of src/app/report and src/components/report for the terms below found zero hits.",
+   "techniques": [],
+   "absenceTerms": [
+    "holdout",
+    "pass@k",
+    "golden set"
+   ]
+  },
+  {
+   "context": "AI-Native Standard & Onboarding Skill",
+   "subject": "eval-harness",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/standard/types.ts:69 The standard names an eval harness only as an optional manifest pointer (`paths.evals`). The doctor only checks that the pointer resolves, and nothing here runs, scores or aggregates evaluations, so the subject's techniques have nothing to govern. A search of src/lib/standard found only those pointer mentions ('eval harness', 'evals') and none of the terms below. 'judge' appears as well, but it refers to doctor clauses being judged or unchecked, not to a model judge.",
+   "techniques": [],
+   "absenceTerms": [
+    "holdout",
+    "pass@k",
+    "golden set"
+   ]
+  },
+  {
+   "context": "Marketing About Page",
+   "subject": "eval-harness",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/app/about/page.tsx:3 The About route is a marketing landing page that composes presentational components over a public scan gallery read; it contains no evaluation machinery, and a search of src/app/about and src/components/about for the terms below (and for 'judge'/'trial') found zero hits.",
+   "techniques": [],
+   "absenceTerms": [
+    "holdout",
+    "pass@k",
+    "golden set"
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-11-05T23:59:36.591845+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "eval-harness"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "CI Gate & Status Checks",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-05T23:59:36.591845+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "eval-harness"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Usage Metering",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-05T23:59:36.591845+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "eval-harness"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Repo Report Shell & Tabs",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-05T23:59:36.591845+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "eval-harness"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "AI-Native Standard & Onboarding Skill",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-05T23:59:36.591845+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "eval-harness"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Marketing About Page",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
