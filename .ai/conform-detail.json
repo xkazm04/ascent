@@ -9475,6 +9475,16 @@
       "evaluatedTs": "2026-11-06T03:51:27.859Z",
       "worker": "641d252b-c92b-4c52-83dc-f91b22c4455b",
       "techniques": []
+    },
+    "Org Scanning & Fleet Rollups/Org Import, Scan & Watchlist/agent-cli-transport": {
+      "context": "Org Import, Scan & Watchlist",
+      "subject": "agent-cli-transport",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T04:13:24.903Z",
+      "worker": "8aa25a56-34d4-4717-9acd-eee55b2d0397",
+      "techniques": []
     }
   }
 }

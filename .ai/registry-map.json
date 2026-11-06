@@ -3821,7 +3821,11 @@
           "revision": 10,
           "changedAt": "2026-10-27",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/cron/rescan/route.ts:23 These routes enqueue or run scans (import calls scanRepository, and scan/rescan drain the job queue). They hand off to whatever LLM_PROVIDER is configured and never spawn or configure an agent CLI themselves. A recursive grep of their directories and src/lib/db found no node:child_process, permission-mode, dangerously-skip-permissions or --print, so the transport techniques belong to the provider layer, not this context.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:75415727a875a42a",
+          "evaluatedRevision": 10
         },
         {
           "subject": "runner-fleet",
