@@ -1,0 +1,143 @@
+{
+ "schema": "conform-run/1",
+ "worker": "a09cb523-a8b2-41a2-aa6a-50ff76fa5641",
+ "subject": "voice-io",
+ "evaluatedAt": "2026-11-06T01:17:26.458231+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Live War Room",
+   "subject": "voice-io",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/features/inflight/live/liveWarRoomCelebrate.ts:18 The only audio in the Live War Room is a Web Audio oscillator chime (scheduleTones / theaterSound.ts) that is opt-in and off by default; that is sound design, which voice-io's own boundary rule excludes. Searching the context's directories for speechSynthesis, SpeechRecognition, getUserMedia and MediaRecorder found no matches. The 'voice'/'utterance' hits are metaphors or comments about screen-reader live regions (warRoomAnnounce.ts), not product speech synthesis or capture.",
+   "techniques": [],
+   "absenceTerms": [
+    "speechSynthesis",
+    "SpeechRecognition",
+    "getUserMedia",
+    "MediaRecorder"
+   ]
+  },
+  {
+   "context": "Maturity Model & Scoring Engine",
+   "subject": "voice-io",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/maturity/model.ts:1 This context is a rubric/config and signal-analysis module that does no audio work. Searching src/lib/maturity, src/lib/analyze and src/lib/practices.ts for speechSynthesis, SpeechRecognition, getUserMedia and MediaRecorder found no matches; the only 'voice' hits are comments about copy tone (model.ts:177, forecast.ts).",
+   "techniques": [],
+   "absenceTerms": [
+    "speechSynthesis",
+    "SpeechRecognition",
+    "getUserMedia",
+    "MediaRecorder"
+   ]
+  },
+  {
+   "context": "Org Import, Scan & Watchlist",
+   "subject": "voice-io",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/app/api/org/import/route.ts:1 These are server routes for bulk repo import, scan, watch and schedule, with no audio capture or synthesis. Searching src/app/api/org, src/app/api/cron and src/lib/db/org.ts for speechSynthesis, SpeechRecognition, getUserMedia and MediaRecorder found no matches.",
+   "techniques": [],
+   "absenceTerms": [
+    "speechSynthesis",
+    "SpeechRecognition",
+    "getUserMedia",
+    "MediaRecorder"
+   ]
+  },
+  {
+   "context": "MCP Server",
+   "subject": "voice-io",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/mcp/tools.ts:1 The MCP tool catalog exposes org standing reads and four work-queue/telemetry writes; no tool synthesizes speech or captures audio, so the unattended-caller-attribution and caller-scoped-voice-binding preconditions do not hold. Searching src/lib/mcp and src/app/api/mcp for speechSynthesis, SpeechRecognition, getUserMedia and MediaRecorder found no matches; the only 'speak' hits are figures of speech (route.ts:344, handlers.ts:355).",
+   "techniques": [],
+   "absenceTerms": [
+    "speechSynthesis",
+    "SpeechRecognition",
+    "getUserMedia",
+    "MediaRecorder"
+   ]
+  },
+  {
+   "context": "Data Retention & Purge",
+   "subject": "voice-io",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/db/retention.ts:1 This context handles retention policy, the cron purge and the org-erasure UI. It stores and handles no voice audio or transcripts. Searching retention.ts, the purge/erase routes, cron-auth and src/features/admin/settings for speechSynthesis, SpeechRecognition, getUserMedia and MediaRecorder found no matches.",
+   "techniques": [],
+   "absenceTerms": [
+    "speechSynthesis",
+    "SpeechRecognition",
+    "getUserMedia",
+    "MediaRecorder"
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-11-06T01:17:26.458231+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "voice-io"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Live War Room",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-06T01:17:26.458231+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "voice-io"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Maturity Model & Scoring Engine",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-06T01:17:26.458231+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "voice-io"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Org Import, Scan & Watchlist",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-06T01:17:26.458231+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "voice-io"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "MCP Server",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-06T01:17:26.458231+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "voice-io"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Data Retention & Purge",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

@@ -1959,29 +1959,42 @@
       "subject": "voice-io",
       "bundle": "software-engineering",
       "state": "not-applicable",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T04:39:10.721Z",
-      "worker": "89808012-4ebf-4d45-82e4-710c81c75f6c",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T01:17:26.458Z",
+      "worker": "a09cb523-a8b2-41a2-aa6a-50ff76fa5641",
       "techniques": [
         {
           "technique": "tts-pipeline",
           "verdict": "not-applicable",
-          "evidence": "src/features/inflight/live/liveWarRoomCelebrate.ts:12 Audio generation is limited to scheduled oscillator pitches for celebration earcons rather than text-to-speech synthesis queues or speaker playback lifecycles."
+          "evidence": "src/features/inflight/live/liveWarRoomCelebrate.ts:12 Audio generation is limited to scheduled oscillator pitches for celebration earcons rather than text-to-speech synthesis queues or speaker playback lifecycles.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "voice-ux-integration",
           "verdict": "not-applicable",
-          "evidence": "src/features/inflight/live/LiveWarRoomCelebrations.tsx:6 Celebrations are displayed visually using toast containers marked with aria-live polite regions, with no read-aloud controls or spoken narration."
+          "evidence": "src/features/inflight/live/LiveWarRoomCelebrations.tsx:6 Celebrations are displayed visually using toast containers marked with aria-live polite regions, with no read-aloud controls or spoken narration.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "stt-pipeline",
           "verdict": "not-applicable",
-          "evidence": "src/features/inflight/live/theater/theaterSound.ts:24 Audio handling only unlocks the browser AudioContext on user gesture for earcon playback, containing no microphone acquisition or STT pipeline."
+          "evidence": "src/features/inflight/live/theater/theaterSound.ts:24 Audio handling only unlocks the browser AudioContext on user gesture for earcon playback, containing no microphone acquisition or STT pipeline.",
+          "carriedFrom": "2026-10-13"
         },
         {
           "technique": "caller-scoped-voice-binding",
           "verdict": "not-applicable",
-          "evidence": "src/features/inflight/live/theater/theaterSound.ts:17 Audio cues derive fixed oscillator frequencies from CHIME_TONES rather than resolving caller-scoped voice persona bindings."
+          "evidence": "src/features/inflight/live/theater/theaterSound.ts:17 Audio cues derive fixed oscillator frequencies from CHIME_TONES rather than resolving caller-scoped voice persona bindings.",
+          "carriedFrom": "2026-10-13"
+        }
+      ],
+      "superseded": [
+        {
+          "state": "not-applicable",
+          "evidence": "src/features/inflight/live/liveWarRoomCelebrate.ts:18 A grep search across Live War Room files found audio limited to Web Audio API oscillator chime earcons (`scheduleTones`), which voice-io explicitly classifies as sound design outside the scope of speech recognition and voice synthesis.",
+          "evaluatedAt": "2026-10-13T04:39:10.721Z",
+          "worker": "89808012-4ebf-4d45-82e4-710c81c75f6c",
+          "reason": "replaced by a09cb523-a8b2-41a2-aa6a-50ff76fa5641"
         }
       ]
     },
@@ -9020,6 +9033,46 @@
           "evidence": "src/app/not-found.tsx:58 The org-demo entry is hidden on DB-less deployments, where the feature does not apply, using the same isDbConfigured authority as the header. The /org destination itself explains the missing DB instead of rendering blank."
         }
       ]
+    },
+    "Repository Scanning & Scoring/Maturity Model & Scoring Engine/voice-io": {
+      "context": "Maturity Model & Scoring Engine",
+      "subject": "voice-io",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T01:17:26.458Z",
+      "worker": "a09cb523-a8b2-41a2-aa6a-50ff76fa5641",
+      "techniques": []
+    },
+    "Org Scanning & Fleet Rollups/Org Import, Scan & Watchlist/voice-io": {
+      "context": "Org Import, Scan & Watchlist",
+      "subject": "voice-io",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T01:17:26.458Z",
+      "worker": "a09cb523-a8b2-41a2-aa6a-50ff76fa5641",
+      "techniques": []
+    },
+    "Org Knowledge & Skills/MCP Server/voice-io": {
+      "context": "MCP Server",
+      "subject": "voice-io",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T01:17:26.458Z",
+      "worker": "a09cb523-a8b2-41a2-aa6a-50ff76fa5641",
+      "techniques": []
+    },
+    "Data & Persistence/Data Retention & Purge/voice-io": {
+      "context": "Data Retention & Purge",
+      "subject": "voice-io",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T01:17:26.458Z",
+      "worker": "a09cb523-a8b2-41a2-aa6a-50ff76fa5641",
+      "techniques": []
     }
   }
 }

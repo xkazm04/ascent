@@ -1423,8 +1423,12 @@
           "revision": 23,
           "changedAt": "2026-10-18",
           "confidence": "probable",
-          "state": "unknown",
-          "priorNotApplicable": 5
+          "state": "not-applicable",
+          "priorNotApplicable": 5,
+          "evidence": "src/lib/maturity/model.ts:1 This context is a rubric/config and signal-analysis module that does no audio work. Searching src/lib/maturity, src/lib/analyze and src/lib/practices.ts for speechSynthesis, SpeechRecognition, getUserMedia and MediaRecorder found no matches; the only 'voice' hits are comments about copy tone (model.ts:177, forecast.ts).",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:29f8b158c4d44054",
+          "evaluatedRevision": 23
         },
         {
           "subject": "docs-sync",
@@ -3699,8 +3703,12 @@
           "revision": 23,
           "changedAt": "2026-10-18",
           "confidence": "probable",
-          "state": "unknown",
-          "priorNotApplicable": 5
+          "state": "not-applicable",
+          "priorNotApplicable": 5,
+          "evidence": "src/app/api/org/import/route.ts:1 These are server routes for bulk repo import, scan, watch and schedule, with no audio capture or synthesis. Searching src/app/api/org, src/app/api/cron and src/lib/db/org.ts for speechSynthesis, SpeechRecognition, getUserMedia and MediaRecorder found no matches.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:29f8b158c4d44054",
+          "evaluatedRevision": 23
         },
         {
           "subject": "prompt-assembly",
@@ -5781,12 +5789,11 @@
           "changedAt": "2026-10-18",
           "confidence": "probable",
           "state": "not-applicable",
-          "evidence": "src/features/inflight/live/liveWarRoomCelebrate.ts:18 A grep search across Live War Room files found audio limited to Web Audio API oscillator chime earcons (`scheduleTones`), which voice-io explicitly classifies as sound design outside the scope of speech recognition and voice synthesis.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:fa1c8ca716f872dc",
-          "evaluatedRevision": 20,
-          "revisionsBehind": 3,
-          "stale": true
+          "evidence": "src/features/inflight/live/liveWarRoomCelebrate.ts:18 The only audio in the Live War Room is a Web Audio oscillator chime (scheduleTones / theaterSound.ts) that is opt-in and off by default; that is sound design, which voice-io's own boundary rule excludes. Searching the context's directories for speechSynthesis, SpeechRecognition, getUserMedia and MediaRecorder found no matches. The 'voice'/'utterance' hits are metaphors or comments about screen-reader live regions (warRoomAnnounce.ts), not product speech synthesis or capture.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:29f8b158c4d44054",
+          "evaluatedRevision": 23,
+          "revisionsBehind": 3
         },
         {
           "subject": "concurrency-guards",
@@ -7870,8 +7877,12 @@
           "revision": 23,
           "changedAt": "2026-10-18",
           "confidence": "probable",
-          "state": "unknown",
-          "priorNotApplicable": 5
+          "state": "not-applicable",
+          "priorNotApplicable": 5,
+          "evidence": "src/lib/mcp/tools.ts:1 The MCP tool catalog exposes org standing reads and four work-queue/telemetry writes; no tool synthesizes speech or captures audio, so the unattended-caller-attribution and caller-scoped-voice-binding preconditions do not hold. Searching src/lib/mcp and src/app/api/mcp for speechSynthesis, SpeechRecognition, getUserMedia and MediaRecorder found no matches; the only 'speak' hits are figures of speech (route.ts:344, handlers.ts:355).",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:29f8b158c4d44054",
+          "evaluatedRevision": 23
         },
         {
           "subject": "fleet-orchestration",
@@ -10111,8 +10122,12 @@
           "revision": 23,
           "changedAt": "2026-10-18",
           "confidence": "probable",
-          "state": "unknown",
-          "priorNotApplicable": 5
+          "state": "not-applicable",
+          "priorNotApplicable": 5,
+          "evidence": "src/lib/db/retention.ts:1 This context handles retention policy, the cron purge and the org-erasure UI. It stores and handles no voice audio or transcripts. Searching retention.ts, the purge/erase routes, cron-auth and src/features/admin/settings for speechSynthesis, SpeechRecognition, getUserMedia and MediaRecorder found no matches.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:29f8b158c4d44054",
+          "evaluatedRevision": 23
         },
         {
           "subject": "test-harness",
