@@ -7084,39 +7084,53 @@
       "subject": "trust-base",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-21",
-      "evaluatedTs": "2026-10-21T22:31:50.476Z",
-      "worker": "8f184be6-be2b-4047-9fa8-f646952ffd15",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T05:18:45.035Z",
+      "worker": "7e13bca9-4eb8-40b4-969a-4c296aa41499",
       "techniques": [
-        {
-          "technique": "assumptions-are-build-errors",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/db/members.ts:234 The membership invariant uses an explicit database isolation setting; no proof or type-level argument assuming platform width, endianness, or another environmental fact was identified."
-        },
         {
           "technique": "census-counts-unmarked-members",
           "verdict": "deviation",
-          "evidence": "src/app/api/org/members/route.ts:58 Unchecked decoder results occur here and in both invite POST handlers; their asserted shapes bypass validation through unknown, and the resolved ESLint configuration enables none of the five unsafe-flow rules required for this census."
+          "evidence": "src/app/api/org/invites/accept/route.ts:49 A standard decoder's `any` result is asserted to a shape with no check. The same shape appears at src/app/api/org/members/route.ts:58, src/app/api/org/invites/route.ts:95 and src/app/invite/[token]/AcceptInviteForm.tsx:53 (res.json() cast to AcceptResult). The technique's cure (decode to `unknown`, then one checking function) is not used in this context."
+        },
+        {
+          "technique": "assumptions-are-build-errors",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/members.ts:234 The membership invariant uses an explicit database isolation setting; no proof or type-level argument assuming platform width, endianness, or another environmental fact was identified.",
+          "carriedFrom": "2026-10-21"
         },
         {
           "technique": "leaf-spec-states-what-callers-read",
           "verdict": "not-applicable",
-          "evidence": "src/lib/db/members.ts:29 The explicit type predicate checks the complete OrgRole vocabulary; it has no deliberately weaker contract or omitted result property of the kind this technique addresses."
+          "evidence": "src/lib/db/members.ts:29 The explicit type predicate checks the complete OrgRole vocabulary; it has no deliberately weaker contract or omitted result property of the kind this technique addresses.",
+          "carriedFrom": "2026-10-21"
         },
         {
           "technique": "marker-impl-names-its-exclusion",
           "verdict": "not-applicable",
-          "evidence": "src/components/OrgSwitcher.tsx:38 The switcher uses browser event callbacks; inspection and searches found no manual thread-transfer or shared-access assertion in the supplied context."
+          "evidence": "src/components/OrgSwitcher.tsx:38 The switcher uses browser event callbacks; inspection and searches found no manual thread-transfer or shared-access assertion in the supplied context.",
+          "carriedFrom": "2026-10-21"
         },
         {
           "technique": "trusted-leaf-gets-an-outside-test",
           "verdict": "not-applicable",
-          "evidence": "src/app/api/org/invites/accept/route.public.test.ts:74 This is an ordinary executable regression test of the real accept implementation; no body marked trusted for downstream proofs was identified in the context."
+          "evidence": "src/app/api/org/invites/accept/route.public.test.ts:74 This is an ordinary executable regression test of the real accept implementation; no body marked trusted for downstream proofs was identified in the context.",
+          "carriedFrom": "2026-10-21"
         },
         {
           "technique": "verifier-footprint-stays-contained",
           "verdict": "not-applicable",
-          "evidence": "package.json:4 The package is a private application, matching the technique's unpublished-application exception, and its manifest declares no prover or specification tooling."
+          "evidence": "package.json:4 The package is a private application, matching the technique's unpublished-application exception, and its manifest declares no prover or specification tooling.",
+          "carriedFrom": "2026-10-21"
+        }
+      ],
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "src/app/api/org/invites/accept/route.ts:49 The accept route asserts a shape on an unchecked JSON result without validation through unknown, and the configured lint does not inventory this unsafe flow.",
+          "evaluatedAt": "2026-10-21T22:31:50.476Z",
+          "worker": "8f184be6-be2b-4047-9fa8-f646952ffd15",
+          "reason": "replaced by 7e13bca9-4eb8-40b4-969a-4c296aa41499"
         }
       ]
     },

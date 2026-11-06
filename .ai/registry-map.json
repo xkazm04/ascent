@@ -3442,13 +3442,12 @@
           "changedAt": "2026-10-27",
           "confidence": "probable",
           "state": "deviation",
-          "evidence": "src/app/api/org/invites/accept/route.ts:49 The accept route asserts a shape on an unchecked JSON result without validation through unknown, and the configured lint does not inventory this unsafe flow.",
-          "evaluatedAt": "2026-10-21",
-          "evaluatedAgainst": "sha256-b2:3ad9d5604e9627ce",
-          "evaluatedRevision": 5,
+          "evidence": "src/app/api/org/invites/accept/route.ts:49 The route takes the `any` that request.json() returns and casts it straight to a shape, with no decode through `unknown` and no checker. That makes it a trust-base member nothing spells: a census of directives and explicit `any` counts zero here, and a non-string token (for example {\"token\":1}) reaches `body.token?.trim()` on line 50 and throws a TypeError instead of returning the 400.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:0fd52192b37a88e4",
+          "evaluatedRevision": 6,
           "source": "retained",
-          "revisionsBehind": 1,
-          "stale": true
+          "revisionsBehind": 1
         }
       ],
       "governance": "governed"

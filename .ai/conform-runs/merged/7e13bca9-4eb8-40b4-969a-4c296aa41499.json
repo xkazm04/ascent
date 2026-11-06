@@ -1,0 +1,41 @@
+{
+ "schema": "conform-run/1",
+ "worker": "7e13bca9-4eb8-40b4-969a-4c296aa41499",
+ "subject": "trust-base",
+ "evaluatedAt": "2026-11-06T05:18:45.035986+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Members & Access Control",
+   "subject": "trust-base",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/org/invites/accept/route.ts:49 The route takes the `any` that request.json() returns and casts it straight to a shape, with no decode through `unknown` and no checker. That makes it a trust-base member nothing spells: a census of directives and explicit `any` counts zero here, and a non-string token (for example {\"token\":1}) reaches `body.token?.trim()` on line 50 and throws a TypeError instead of returning the 400.",
+   "techniques": [
+    {
+     "technique": "census-counts-unmarked-members",
+     "verdict": "deviation",
+     "evidence": "src/app/api/org/invites/accept/route.ts:49 A standard decoder's `any` result is asserted to a shape with no check. The same shape appears at src/app/api/org/members/route.ts:58, src/app/api/org/invites/route.ts:95 and src/app/invite/[token]/AcceptInviteForm.tsx:53 (res.json() cast to AcceptResult). The technique's cure (decode to `unknown`, then one checking function) is not used in this context."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-11-06T05:18:45.035986+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "trust-base"
+   ],
+   "techniques": [
+    "census-counts-unmarked-members"
+   ],
+   "deviations": 1,
+   "context": "Members & Access Control",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
