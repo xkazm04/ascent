@@ -9380,6 +9380,82 @@
           "evidence": "docs/features/reporting/report.md:137 The doc that actually holds the claims about this module is not the one the map names, so the nag points the author at the wrong surface."
         }
       ]
+    },
+    "Reporting & Visualization/AI-Native Passports/table": {
+      "context": "AI-Native Passports",
+      "subject": "table",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T03:51:27.859Z",
+      "worker": "641d252b-c92b-4c52-83dc-f91b22c4455b",
+      "techniques": []
+    },
+    "Reporting & Visualization/Trends & Comparison/table": {
+      "context": "Trends & Comparison",
+      "subject": "table",
+      "bundle": "software-engineering",
+      "state": "conformant",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T03:51:27.859Z",
+      "worker": "641d252b-c92b-4c52-83dc-f91b22c4455b",
+      "techniques": [
+        {
+          "technique": "grid-keyboard-model",
+          "verdict": "conformant",
+          "evidence": "src/components/report/TrendChart.SrTable.tsx:20 Read-only cells plus real links stay a native table with caption and th headers, not a grid role."
+        },
+        {
+          "technique": "export-escapes-for-its-consumer",
+          "verdict": "conformant",
+          "evidence": "src/lib/export/csv.ts:31 Guard before quoting, full trigger set including full-width forms, signed-number exemption; every text/csv route (history included) imports the one encoder. Not done: no structural test fails a route that bypasses the encoder, and the file recipient is never told the guard is only an export-time mitigation."
+        },
+        {
+          "technique": "sorting",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/scans-read.ts:494 The history read orders by scannedAt, then createdAt, then id, so the order is total and ties are broken by row identity (rationale at scans-read.ts:56)."
+        },
+        {
+          "technique": "loading-and-empty-states",
+          "verdict": "conformant",
+          "evidence": "src/components/report/DimensionTrendsGrid.tsx:70 Error state has its own Retry and is distinct from the shimmer loading placeholder and from the empty state that names its cause ('No scans in the selected range', DimensionTrends.tsx:190)."
+        },
+        {
+          "technique": "filtering",
+          "verdict": "conformant",
+          "evidence": "src/components/report/DimensionTrends.tsx:45 A range change keeps only the selections whose record ids are still inside the range, and the count is shown as 'N scans shown'."
+        },
+        {
+          "technique": "pagination",
+          "verdict": "conformant",
+          "evidence": "src/lib/history/limits.ts:29 Bounded window with an honest note that the count is capped, and the export covers the same window."
+        },
+        {
+          "technique": "performance",
+          "verdict": "conformant",
+          "evidence": "src/app/trends/page.tsx:74 Rung 1: first paint reads only the overall series; per-dimension rows load lazily on the client."
+        }
+      ]
+    },
+    "Onboarding, Shell & AI Standard/App Shell, SEO & Error Pages/table": {
+      "context": "App Shell, SEO & Error Pages",
+      "subject": "table",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T03:51:27.859Z",
+      "worker": "641d252b-c92b-4c52-83dc-f91b22c4455b",
+      "techniques": []
+    },
+    "Marketing Site & Design System/Landing Page/table": {
+      "context": "Landing Page",
+      "subject": "table",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T03:51:27.859Z",
+      "worker": "641d252b-c92b-4c52-83dc-f91b22c4455b",
+      "techniques": []
     }
   }
 }

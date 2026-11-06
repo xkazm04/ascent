@@ -2592,7 +2592,11 @@
           "revision": 14,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/components/EmptyState.tsx:24 This context is the root layout, error/not-found pages, SEO metadata routes, a health route and a generic page-level EmptyState; a search of its 12 files for <table, <thead, aria-sort, csv, .sort( and pagin found zero hits, and the table-library terms listed have zero hits anywhere in src.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:c587a204413d5373",
+          "evaluatedRevision": 14
         },
         {
           "subject": "app-shell",
@@ -8438,7 +8442,11 @@
           "revision": 14,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "conformant",
+          "evidence": "src/components/report/TrendChart.SrTable.tsx:20 Trends shows its data as charts and small-multiple cards (the right form for a trend question), backed by a native read-only screen-reader table and a CSV export that goes through the shared formula-guarding encoder, with a deterministic server order, honest cap counts and separate loading, error and empty states.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:c587a204413d5373",
+          "evaluatedRevision": 14
         },
         {
           "subject": "eval-harness",
@@ -9093,7 +9101,11 @@
           "revision": 14,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/components/github/CreateIssueModal.tsx:138 The only multi-record surface in this context is a checkbox list of repository names (one label plus a status), which is a list and not a table; a search of the 12 context files and their parent dirs (src/app/api/org, src/app/api/report, src/app/org, src/components/github) for <table, <thead, aria-sort, role=\"grid\" and columnheader found zero hits, and the passports page.tsx is just a redirect to the ?tab= shell.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:c587a204413d5373",
+          "evaluatedRevision": 14
         },
         {
           "subject": "hitl-approval",
@@ -10905,7 +10917,11 @@
           "revision": 14,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/components/landing/prism/PrismBench.tsx:15 The landing components are a narrative marketing surface (illustrated steps, hero archetypes, an evidence code panel) with no tabular dataset; a search of src/components/landing for <table, <thead, aria-sort and role=\"grid\" found zero hits (the only .sort( calls are in co-located tests).",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:c587a204413d5373",
+          "evaluatedRevision": 14
         },
         {
           "subject": "copy-quality-gates",
