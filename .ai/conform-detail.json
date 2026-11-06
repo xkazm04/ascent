@@ -6755,39 +6755,52 @@
       "subject": "standards-layered-runtime",
       "bundle": "software-engineering",
       "state": "not-applicable",
-      "evaluatedAt": "2026-10-19",
-      "evaluatedTs": "2026-10-19T12:10:05.903Z",
-      "worker": "c7653625-4c3e-453f-8606-9eb330438657",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T04:54:40.523Z",
+      "worker": "f80372f9-584a-48b1-a1dd-1fcf6c556db3",
       "techniques": [
-        {
-          "technique": "backend-parameterised-web-api",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/standard/doctor.ts:490 The generated checker consumes fetch to report results; it does not implement a guest-facing fetch API."
-        },
         {
           "technique": "baseline-plus-extension-tuple",
           "verdict": "not-applicable",
-          "evidence": "src/lib/standard/index.ts:38 The entry point returns generated files, rather than registering APIs into a guest context."
-        },
-        {
-          "technique": "cli-as-thin-assembler",
-          "verdict": "not-applicable",
-          "evidence": "src/lib/standard/maintain.ts:219 This command-line tool maintains repository artifacts; it is not the front end of an embeddable runtime."
+          "evidence": "src/lib/standard/index.ts:38 This is a fixed list of file generators, not a registrar that installs APIs into a guest context for outside embedders. The technique's own 'When not to use it' section excludes the single-embedder case."
         },
         {
           "technique": "crate-per-standards-body",
           "verdict": "not-applicable",
-          "evidence": "src/lib/standard/manifest.ts:324 The generated manifest declares repository capabilities, not runtime portability through dependencies on standards packages."
+          "evidence": "src/lib/standard/index.ts:1 Here 'standard' means Ascent's own repo-manifest contract, not an external platform standards body that packages could map to."
+        },
+        {
+          "technique": "backend-parameterised-web-api",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/standard/index.ts:38 No standard web API (console, fetch, timers) is implemented over a host backend here."
+        },
+        {
+          "technique": "cli-as-thin-assembler",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/standard/maintain.ts:219 This command-line tool maintains repository artifacts; it is not the front end of an embeddable runtime.",
+          "carriedFrom": "2026-10-19"
         },
         {
           "technique": "re-export-preserves-import-path",
           "verdict": "not-applicable",
-          "evidence": "src/lib/standard/pr.ts:23 A compatibility re-export exists for a branch constant, but no runtime API migration between extras and standards packages was found."
+          "evidence": "src/lib/standard/pr.ts:23 A compatibility re-export exists for a branch constant, but no runtime API migration between extras and standards packages was found.",
+          "carriedFrom": "2026-10-19"
         },
         {
           "technique": "status-header-per-api",
           "verdict": "not-applicable",
-          "evidence": "src/lib/standard/spec.ts:24 The shipped specification concerns repository practices, not partially implemented platform APIs in a runtime standards package."
+          "evidence": "src/lib/standard/spec.ts:24 The shipped specification concerns repository practices, not partially implemented platform APIs in a runtime standards package.",
+          "carriedFrom": "2026-10-19"
+        }
+      ],
+      "registryProposal": "The context matched only on the token 'standard'. This subject's use_when could say it needs an embeddable guest-language runtime, so repo-conformance 'standards' tooling stops being mapped to it.",
+      "superseded": [
+        {
+          "state": "not-applicable",
+          "evidence": "src/lib/standard/index.ts:65 Context and repository searches found no registrar or WinterCG matches, and this entry point generates repository artifacts rather than assembling an embeddable language runtime.",
+          "evaluatedAt": "2026-10-19T12:10:05.903Z",
+          "worker": "c7653625-4c3e-453f-8606-9eb330438657",
+          "reason": "replaced by f80372f9-584a-48b1-a1dd-1fcf6c556db3"
         }
       ]
     },

@@ -2794,12 +2794,11 @@
           "changedAt": "2026-10-31",
           "confidence": "probable",
           "state": "not-applicable",
-          "evidence": "src/lib/standard/index.ts:65 Context and repository searches found no registrar or WinterCG matches, and this entry point generates repository artifacts rather than assembling an embeddable language runtime.",
-          "evaluatedAt": "2026-10-19",
-          "evaluatedAgainst": "sha256-b2:9cfe5aba03ea1a19",
-          "evaluatedRevision": 1,
-          "revisionsBehind": 2,
-          "stale": true
+          "evidence": "src/lib/standard/index.ts:38 The context's entry point turns a ScanReport into GeneratedFile[] repo artifacts (manifest, spec, doctor, guardrails, memory, context scaffold), so no guest-language runtime, standards package or embedder registration exists here; a grep of src/lib/standard for wintercg/polyfill/embedder/registrar found nothing, and the only 'engine' hits are the scan-engine provider and package.json engines; package.json has no embedded JS runtime dependency (quickjs/isolated-vm/vm2/deno)",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:72be2b66c8d50db7",
+          "evaluatedRevision": 3,
+          "revisionsBehind": 2
         },
         {
           "subject": "repo-manifest-standard",
