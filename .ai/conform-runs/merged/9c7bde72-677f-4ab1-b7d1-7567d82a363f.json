@@ -1,0 +1,138 @@
+{
+ "schema": "conform-run/1",
+ "worker": "9c7bde72-677f-4ab1-b7d1-7567d82a363f",
+ "subject": "agent-cli-transport",
+ "evaluatedAt": "2026-11-06T00:28:59.423410+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Local Autopilot & Loop Engine",
+   "subject": "agent-cli-transport",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/local/transport/claude.ts:197 The planning (read-only) session applies only two of the three required layers (plan mode and a reading allowlist); there is no --disallowedTools write-tool deny layer and no validation that raises on a conflicting allowlist, so the read-only promise rests on policy plus a post-hoc clean-tree check rather than the standard's belt-braces-deny posture.",
+   "techniques": [
+    {
+     "technique": "permission-stance-enforcement",
+     "verdict": "deviation",
+     "evidence": "src/lib/local/transport/claude.ts:197 Plan stance has session mode + allowlist but no write-tool denylist (repo-wide grep finds no disallowedTools). The edit stance does conform: acceptEdits, never bypass, behind the ASCENT_AUTOPILOT opt-in."
+    },
+    {
+     "technique": "subscription-auth-selection",
+     "verdict": "conformant",
+     "evidence": "src/lib/local/transport/claude.ts:261 The metering key is stripped unconditionally in the one env builder, which the spawn door uses (agent.ts:288). The stripped list is exported and pinned by a test."
+    },
+    {
+     "technique": "availability-probe",
+     "verdict": "conformant",
+     "evidence": "src/lib/local/transport/probe.ts:285 Zero-token `claude auth status` runs through the same spawn door and env (shell:true, agentSpawnEnv), separately from the binary/version check, and the result records version and timestamp."
+    },
+    {
+     "technique": "dated-capability-matrix",
+     "verdict": "conformant",
+     "evidence": "src/lib/local/transport/claude.ts:90 claudeProfile caps carry verifiedAt, version 2.1.278, method live-run and the exact invocation for each cell."
+    },
+    {
+     "technique": "output-normalization",
+     "verdict": "conformant",
+     "evidence": "src/lib/local/agent-envelope.ts:160 The stream-json final result line is parsed in a pure envelope module. The in-envelope error flag and subtype become a typed failure, and stderr is sanitized separately."
+    },
+    {
+     "technique": "fallback-ladder",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/local/autopilot/route.ts:76 The editing agent has no deterministic substitute, so the route uses the honest-refusal rung (409 naming the fix) instead of arming a job that would fail."
+    },
+    {
+     "technique": "child-observed-posture",
+     "verdict": "deviation",
+     "evidence": "src/lib/local/transport/claude.ts:133 The child's reported permissionMode/apiKeySource was checked once, at matrix-verification time. Per run, the stream parser never reads the init line's stance or billing source (grep finds no runtime permissionMode/apiKeySource read), so a downgraded stance or a metered run passes silently. The only per-run evidence is the plan lane's porcelain clean-tree check."
+    },
+    {
+     "technique": "thread-custody-across-resume",
+     "verdict": "conformant",
+     "evidence": "src/lib/local/lane-plan.ts:327 The host's own copy of the plan always travels in the execution prompt, so a resume that cannot be honoured (an invalid id drops the flag, or a split arm) rebuilds from the host record, not from a fresh thread."
+    },
+    {
+     "technique": "host-routed-approval-round-trip",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/local/agent.ts:16 The sessions are unattended overnight lanes with no human within the child's turn, so a pre-set stance is the right shape."
+    },
+    {
+     "technique": "derived-bash-allowlist",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/local/lane-commit.ts:12 The edit session is granted no shell at all (no Bash allow rules or settings file anywhere in src/lib/local). The host lane runs git and gates itself, so there is no allowlist to derive. Whether the agent should be able to see its own gates go red to green is a design gap worth noting."
+    }
+   ],
+   "registryProposal": "permission-stance-enforcement could recognise a host-side post-run proof (clean porcelain plus an unchanged HEAD, with restore on failure, as lane-plan does) as a compensating control. It should say whether that control can substitute for the deny layer or only supplements it."
+  },
+  {
+   "context": "GitHub Repo Data Access",
+   "subject": "agent-cli-transport",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/github/graphql.ts:18 The context is a GitHub REST/GraphQL HTTP client. A grep of src/lib/github for child_process, permission-mode, allowedTools and 'claude -p' found nothing, so no agent CLI is spawned here and the subject's precondition does not hold.",
+   "techniques": [],
+   "absenceTerms": [
+    "child_process",
+    "permission-mode",
+    "allowedTools",
+    "claude -p"
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "agent-cli-transport",
+   "context": "Checkout & Plans (Polar)",
+   "reason": "None of the context's files spawn an agent CLI (grep for child_process/spawn/permission-mode/claude-cli found nothing). But src/lib/polar.ts and src/lib/plans.ts sit at the src/lib root, and a recursive absence re-search there would hit src/lib/local/transport, so a not-applicable verdict cannot be proved by that check."
+  },
+  {
+   "subject": "agent-cli-transport",
+   "context": "GitHub OAuth & Session",
+   "reason": "Same problem: no agent-CLI code in the files, but src/lib/auth.ts and src/lib/access.ts sit at the src/lib root, so the absence re-search would hit the transport modules under src/lib/local."
+  },
+  {
+   "subject": "agent-cli-transport",
+   "context": "Org Import, Scan & Watchlist",
+   "reason": "The routes spawn nothing themselves, but scan/rescan reach the scan engine, which can use the local claude-cli assessment seam (the cron/rescan route.ts:23 comment says 'claude-cli is local-only'), and src/lib/db mentions 'claude -p'. Applicability depends on code outside the listed files that I did not judge."
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-06T00:28:59.423410+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-cli-transport"
+   ],
+   "techniques": [
+    "availability-probe",
+    "child-observed-posture",
+    "dated-capability-matrix",
+    "derived-bash-allowlist",
+    "fallback-ladder",
+    "host-routed-approval-round-trip",
+    "output-normalization",
+    "permission-stance-enforcement",
+    "subscription-auth-selection",
+    "thread-custody-across-resume"
+   ],
+   "deviations": 1,
+   "context": "Local Autopilot & Loop Engine",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-06T00:28:59.423410+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-cli-transport"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "GitHub Repo Data Access",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

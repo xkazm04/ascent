@@ -2696,49 +2696,69 @@
       "subject": "agent-cli-transport",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-13",
-      "evaluatedTs": "2026-10-13T11:24:06.642Z",
-      "worker": "ef824da9-b06d-4031-bd48-31351fb383d5",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T00:28:59.423Z",
+      "worker": "9c7bde72-677f-4ab1-b7d1-7567d82a363f",
       "techniques": [
         {
-          "technique": "availability-probe",
+          "technique": "permission-stance-enforcement",
           "verdict": "deviation",
-          "evidence": "src/lib/local/transport/probe.ts:244 Probe executes the profile's binary, while the real runner honors CLAUDE_CLI_PATH or PI_CLI_PATH, allowing different executables to be checked and launched."
+          "evidence": "src/lib/local/transport/claude.ts:197 Plan stance has session mode + allowlist but no write-tool denylist (repo-wide grep finds no disallowedTools). The edit stance does conform: acceptEdits, never bypass, behind the ASCENT_AUTOPILOT opt-in."
+        },
+        {
+          "technique": "subscription-auth-selection",
+          "verdict": "conformant",
+          "evidence": "src/lib/local/transport/claude.ts:261 The metering key is stripped unconditionally in the one env builder, which the spawn door uses (agent.ts:288). The stripped list is exported and pinned by a test."
+        },
+        {
+          "technique": "availability-probe",
+          "verdict": "conformant",
+          "evidence": "src/lib/local/transport/probe.ts:285 Zero-token `claude auth status` runs through the same spawn door and env (shell:true, agentSpawnEnv), separately from the binary/version check, and the result records version and timestamp."
+        },
+        {
+          "technique": "dated-capability-matrix",
+          "verdict": "conformant",
+          "evidence": "src/lib/local/transport/claude.ts:90 claudeProfile caps carry verifiedAt, version 2.1.278, method live-run and the exact invocation for each cell."
+        },
+        {
+          "technique": "output-normalization",
+          "verdict": "conformant",
+          "evidence": "src/lib/local/agent-envelope.ts:160 The stream-json final result line is parsed in a pure envelope module. The in-envelope error flag and subtype become a typed failure, and stderr is sanitized separately."
+        },
+        {
+          "technique": "fallback-ladder",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/local/autopilot/route.ts:76 The editing agent has no deterministic substitute, so the route uses the honest-refusal rung (409 naming the fix) instead of arming a job that would fail."
         },
         {
           "technique": "child-observed-posture",
           "verdict": "deviation",
-          "evidence": "src/lib/local/transport/probe.ts:289 Missing auth-method and subscription fields still produce a successful finding rather than unknown or a failed expected-record check."
+          "evidence": "src/lib/local/transport/claude.ts:133 The child's reported permissionMode/apiKeySource was checked once, at matrix-verification time. Per run, the stream parser never reads the init line's stance or billing source (grep finds no runtime permissionMode/apiKeySource read), so a downgraded stance or a metered run passes silently. The only per-run evidence is the plan lane's porcelain clean-tree check."
         },
         {
-          "technique": "dated-capability-matrix",
-          "verdict": "deviation",
-          "evidence": "src/lib/local/transport/profile.ts:98 Cells carry dated live-run witnesses, but profile selection uses only transport identity; the recorded binary version is not used to mark mismatched cells stale."
+          "technique": "thread-custody-across-resume",
+          "verdict": "conformant",
+          "evidence": "src/lib/local/lane-plan.ts:327 The host's own copy of the plan always travels in the execution prompt, so a resume that cannot be honoured (an invalid id drops the flag, or a split arm) rebuilds from the host record, not from a fresh thread."
         },
         {
           "technique": "host-routed-approval-round-trip",
           "verdict": "not-applicable",
-          "evidence": "src/lib/local/transport/claude.ts:198 These are unattended autopilot sessions with a preset stance, rather than an attended conversation that can answer child approval requests."
+          "evidence": "src/lib/local/agent.ts:16 The sessions are unattended overnight lanes with no human within the child's turn, so a pre-set stance is the right shape."
         },
         {
-          "technique": "output-normalization",
-          "verdict": "deviation",
-          "evidence": "src/lib/local/agent.ts:439 The prompt is written without an input-stream error handler; a child that exits early can emit an unhandled broken-pipe error."
-        },
+          "technique": "derived-bash-allowlist",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/local/lane-commit.ts:12 The edit session is granted no shell at all (no Bash allow rules or settings file anywhere in src/lib/local). The host lane runs git and gates itself, so there is no allowlist to derive. Whether the agent should be able to see its own gates go red to green is a design gap worth noting."
+        }
+      ],
+      "registryProposal": "permission-stance-enforcement could recognise a host-side post-run proof (clean porcelain plus an unchanged HEAD, with restore on failure, as lane-plan does) as a compensating control. It should say whether that control can substitute for the deny layer or only supplements it.",
+      "superseded": [
         {
-          "technique": "permission-stance-enforcement",
-          "verdict": "deviation",
-          "evidence": "src/lib/local/transport/claude.ts:197 The complete planning argv has no write-tool denylist; the later clean-tree check detects changes after execution rather than supplying that prevention layer."
-        },
-        {
-          "technique": "subscription-auth-selection",
-          "verdict": "deviation",
-          "evidence": "src/lib/local/transport/claude.ts:260 An agent processing repository files inherits the host environment minus three named variables, exposing unrelated application secrets instead of using an allowlist."
-        },
-        {
-          "technique": "thread-custody-across-resume",
-          "verdict": "deviation",
-          "evidence": "src/lib/local/transport/claude.ts:205 A malformed supplied resume identifier is silently omitted, starting a fresh session without a typed thread-loss outcome or re-thread lineage; the behavior is explicitly pinned by claude.test.ts."
+          "state": "deviation",
+          "evidence": "src/lib/local/transport/claude.ts:197 The planning invocation sets plan mode and a reading allowlist but omits the independent write-tool deny layer required for read-only enforcement.",
+          "evaluatedAt": "2026-10-13T11:24:06.642Z",
+          "worker": "ef824da9-b06d-4031-bd48-31351fb383d5",
+          "reason": "replaced by 9c7bde72-677f-4ab1-b7d1-7567d82a363f"
         }
       ]
     },
@@ -8872,6 +8892,16 @@
       "evaluatedAt": "2026-11-06",
       "evaluatedTs": "2026-11-06T00:13:08.404Z",
       "worker": "e6bf199e-5057-44ba-b3a1-b73429debbf0",
+      "techniques": []
+    },
+    "Identity & GitHub Connectivity/GitHub Repo Data Access/agent-cli-transport": {
+      "context": "GitHub Repo Data Access",
+      "subject": "agent-cli-transport",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T00:28:59.423Z",
+      "worker": "9c7bde72-677f-4ab1-b7d1-7567d82a363f",
       "techniques": []
     }
   }

@@ -1792,7 +1792,11 @@
           "revision": 10,
           "changedAt": "2026-10-27",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/github/graphql.ts:18 The context is a GitHub REST/GraphQL HTTP client. A grep of src/lib/github for child_process, permission-mode, allowedTools and 'claude -p' found nothing, so no agent CLI is spawned here and the subject's precondition does not hold.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:75415727a875a42a",
+          "evaluatedRevision": 10
         },
         {
           "subject": "settings",
@@ -6875,12 +6879,11 @@
           "changedAt": "2026-10-27",
           "confidence": "probable",
           "state": "deviation",
-          "evidence": "src/lib/local/transport/claude.ts:197 The planning invocation sets plan mode and a reading allowlist but omits the independent write-tool deny layer required for read-only enforcement.",
-          "evaluatedAt": "2026-10-13",
-          "evaluatedAgainst": "sha256-b2:5791230ffb7d9fad",
-          "evaluatedRevision": 9,
-          "revisionsBehind": 1,
-          "stale": true
+          "evidence": "src/lib/local/transport/claude.ts:197 The planning (read-only) session applies only two of the three required layers (plan mode and a reading allowlist); there is no --disallowedTools write-tool deny layer and no validation that raises on a conflicting allowlist, so the read-only promise rests on policy plus a post-hoc clean-tree check rather than the standard's belt-braces-deny posture.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:75415727a875a42a",
+          "evaluatedRevision": 10,
+          "revisionsBehind": 1
         },
         {
           "subject": "mcp-tools",
