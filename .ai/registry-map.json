@@ -3352,12 +3352,11 @@
           "changedAt": "2026-10-27",
           "confidence": "probable",
           "state": "deviation",
-          "evidence": "src/features/admin/members/MembersTable.tsx:68 The roster renders machine role tokens directly instead of resolving them through a label catalog.",
-          "evaluatedAt": "2026-10-19",
-          "evaluatedAgainst": "sha256-b2:bea7b30fd48d528d",
-          "evaluatedRevision": 5,
-          "revisionsBehind": 1,
-          "stale": true
+          "evidence": "src/features/admin/members/MembersTable.tsx:68 The read-only roster shows the machine role token (`owner`, `viewer`) as the visible label, and the role select does the same with `{r}`. No label catalog keyed by OrgRole exists; only a hint table (ROLE_HINT) does, so the internal vocabulary reaches the user's eye.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:6a9ab99285e2cac0",
+          "evaluatedRevision": 6,
+          "revisionsBehind": 1
         },
         {
           "subject": "invariant-placement",

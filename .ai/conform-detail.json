@@ -6809,34 +6809,49 @@
       "subject": "status-vocabulary",
       "bundle": "software-engineering",
       "state": "deviation",
-      "evaluatedAt": "2026-10-19",
-      "evaluatedTs": "2026-10-19T12:17:18.437Z",
-      "worker": "a6d0f9d6-3700-45ab-ac59-8ab8f687c1e4",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T05:07:06.802Z",
+      "worker": "84036169-cdbd-4324-b920-4d21e9aa6388",
       "techniques": [
         {
-          "technique": "number-formatting",
+          "technique": "vocabulary-chain-integrity",
           "verdict": "deviation",
-          "evidence": "src/features/admin/members/memberTime.ts:44 Expiry quantities interpolate an unformatted integer and an English unit instead of using locale-aware formatting."
+          "evidence": "src/features/admin/members/MembersTable.tsx:68 OrgRole is a closed union (src/lib/db/members.ts:18), and coerceStoredRole handles unknown stored values. But layer 3 (label catalog) is missing: the token is rendered raw here, in the select options (line 81 `{r}`), in InviteList.tsx:53 and in AcceptInviteForm.tsx:85."
         },
         {
-          "technique": "status-color-mapping",
+          "technique": "vocabulary-evolution-checklist",
           "verdict": "deviation",
-          "evidence": "src/features/admin/members/MemberInvites.tsx:30 The delivery presentation table combines labels and colors, but maps skipped delivery directly to a palette shade rather than a semantic warning role."
+          "evidence": "src/app/invite/[token]/page.tsx:46 The reason-to-copy table is keyed by `string`, not by InvitePeek's reason union (src/lib/db/invites.ts:76). Adding a reason member does not fail the compile; it falls through silently to the `db` copy. AcceptInviteForm.tsx:14 repeats this for acceptInvite's union."
         },
         {
           "technique": "timestamp-display",
           "verdict": "deviation",
-          "evidence": "src/features/admin/members/memberTime.ts:20 Absolute tooltips use the host locale instead of resolving the application's active locale internally."
+          "evidence": "src/features/admin/members/memberTime.ts:20 Relative-by-default with absolute on hover is realized (MembersTable.tsx:111-112 title={absoluteMoment} + timeAgo). But the absolute form takes its locale and timezone from whatever host renders it. timeAgo is also called without nowMs in a client component that is server-rendered first, and it clamps the future to \"today\" without reporting skew."
         },
         {
           "technique": "untrusted-label-rendering",
-          "verdict": "deviation",
-          "evidence": "src/features/admin/members/MembersTable.tsx:63 React escapes the imported name, but its bare span supplies neither bidi isolation nor truncation with full-value recovery."
+          "verdict": "conformant",
+          "evidence": "src/components/OrgSwitcher.tsx:164 Org names (not authored by the repo) render as React text children with truncation. Identity and selection key on the slug, not on display content."
         },
         {
-          "technique": "vocabulary-chain-integrity",
+          "technique": "status-color-mapping",
+          "verdict": "not-applicable",
+          "evidence": "src/features/admin/members/InviteList.tsx:53 Roles render as uniformly neutral pills. No per-member colour exists in this context, so there is no status-to-colour-role table to judge."
+        },
+        {
+          "technique": "number-formatting",
           "verdict": "deviation",
-          "evidence": "src/app/invite/[token]/AcceptInviteForm.tsx:11 The acceptance consumer widens the producer's closed OrgRole vocabulary to string and subsequently renders the role directly."
+          "evidence": "src/features/admin/members/memberTime.ts:44 Expiry quantities interpolate an unformatted integer and an English unit instead of using locale-aware formatting.",
+          "carriedFrom": "2026-10-19"
+        }
+      ],
+      "superseded": [
+        {
+          "state": "deviation",
+          "evidence": "src/features/admin/members/MembersTable.tsx:68 The roster renders machine role tokens directly instead of resolving them through a label catalog.",
+          "evaluatedAt": "2026-10-19T12:17:18.437Z",
+          "worker": "a6d0f9d6-3700-45ab-ac59-8ab8f687c1e4",
+          "reason": "replaced by 84036169-cdbd-4324-b920-4d21e9aa6388"
         }
       ]
     },

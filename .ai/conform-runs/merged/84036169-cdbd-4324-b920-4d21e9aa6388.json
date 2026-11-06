@@ -1,0 +1,65 @@
+{
+ "schema": "conform-run/1",
+ "worker": "84036169-cdbd-4324-b920-4d21e9aa6388",
+ "subject": "status-vocabulary",
+ "evaluatedAt": "2026-11-06T05:07:06.802172+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Members & Access Control",
+   "subject": "status-vocabulary",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/features/admin/members/MembersTable.tsx:68 The read-only roster shows the machine role token (`owner`, `viewer`) as the visible label, and the role select does the same with `{r}`. No label catalog keyed by OrgRole exists; only a hint table (ROLE_HINT) does, so the internal vocabulary reaches the user's eye.",
+   "techniques": [
+    {
+     "technique": "vocabulary-chain-integrity",
+     "verdict": "deviation",
+     "evidence": "src/features/admin/members/MembersTable.tsx:68 OrgRole is a closed union (src/lib/db/members.ts:18), and coerceStoredRole handles unknown stored values. But layer 3 (label catalog) is missing: the token is rendered raw here, in the select options (line 81 `{r}`), in InviteList.tsx:53 and in AcceptInviteForm.tsx:85."
+    },
+    {
+     "technique": "vocabulary-evolution-checklist",
+     "verdict": "deviation",
+     "evidence": "src/app/invite/[token]/page.tsx:46 The reason-to-copy table is keyed by `string`, not by InvitePeek's reason union (src/lib/db/invites.ts:76). Adding a reason member does not fail the compile; it falls through silently to the `db` copy. AcceptInviteForm.tsx:14 repeats this for acceptInvite's union."
+    },
+    {
+     "technique": "timestamp-display",
+     "verdict": "deviation",
+     "evidence": "src/features/admin/members/memberTime.ts:20 Relative-by-default with absolute on hover is realized (MembersTable.tsx:111-112 title={absoluteMoment} + timeAgo). But the absolute form takes its locale and timezone from whatever host renders it. timeAgo is also called without nowMs in a client component that is server-rendered first, and it clamps the future to \"today\" without reporting skew."
+    },
+    {
+     "technique": "untrusted-label-rendering",
+     "verdict": "conformant",
+     "evidence": "src/components/OrgSwitcher.tsx:164 Org names (not authored by the repo) render as React text children with truncation. Identity and selection key on the slug, not on display content."
+    },
+    {
+     "technique": "status-color-mapping",
+     "verdict": "not-applicable",
+     "evidence": "src/features/admin/members/InviteList.tsx:53 Roles render as uniformly neutral pills. No per-member colour exists in this context, so there is no status-to-colour-role table to judge."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-11-06T05:07:06.802172+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "status-vocabulary"
+   ],
+   "techniques": [
+    "status-color-mapping",
+    "timestamp-display",
+    "untrusted-label-rendering",
+    "vocabulary-chain-integrity",
+    "vocabulary-evolution-checklist"
+   ],
+   "deviations": 1,
+   "context": "Members & Access Control",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
