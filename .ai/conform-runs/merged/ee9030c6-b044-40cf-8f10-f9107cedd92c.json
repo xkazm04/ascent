@@ -1,0 +1,149 @@
+{
+ "schema": "conform-run/1",
+ "worker": "ee9030c6-b044-40cf-8f10-f9107cedd92c",
+ "subject": "native-shell-integration",
+ "evaluatedAt": "2026-11-06T02:11:55.792378+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "First-Run Onboarding Wizard",
+   "subject": "native-shell-integration",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/app/onboarding/page.tsx:23 The onboarding wizard is a server-rendered Next.js page plus client React steps that talk to the app's own HTTP routes. A case-sensitive search of all of src for electron, ipcRenderer, @tauri-apps, BrowserWindow and contextBridge found nothing, and there is no src-tauri directory, so no native process exists for this subject to govern.",
+   "techniques": [],
+   "absenceTerms": [
+    "electron",
+    "ipcRenderer",
+    "@tauri-apps",
+    "BrowserWindow",
+    "contextBridge"
+   ]
+  },
+  {
+   "context": "App Shell, SEO & Error Pages",
+   "subject": "native-shell-integration",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/app/manifest.ts:5 The only thing that looks like a 'shell' wrapper is a Web App Manifest for PWA installability, with no service worker and no native process. The repo-wide search for electron, ipcRenderer, @tauri-apps, BrowserWindow and contextBridge found nothing, so the native-side ownership rules have nothing to apply to.",
+   "techniques": [],
+   "absenceTerms": [
+    "electron",
+    "ipcRenderer",
+    "@tauri-apps",
+    "BrowserWindow",
+    "contextBridge"
+   ],
+   "registryProposal": "An installable PWA manifest (display: standalone) can look like a native wrapper but gives no capability beyond the document sandbox. The golden path's discriminator could name the PWA case outright, so seats don't treat 'standalone' as a native shell."
+  },
+  {
+   "context": "Fleet Alerts & Digests",
+   "subject": "native-shell-integration",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/components/org/shell/alerts/AlertsControl.tsx:4 Alerts are delivered server-side to a Slack-compatible webhook, not through OS notifications or a native stream. The context's files contain no requestPermission, navigator.permissions or visibilitychange code, and the repo has no native-process code (electron, ipcRenderer, @tauri-apps, BrowserWindow and contextBridge all absent).",
+   "techniques": [],
+   "absenceTerms": [
+    "electron",
+    "ipcRenderer",
+    "@tauri-apps",
+    "BrowserWindow",
+    "contextBridge"
+   ]
+  },
+  {
+   "context": "Org Overview & Standing",
+   "subject": "native-shell-integration",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/components/org/personal/PersonalWatchControls.tsx:4 The overview and personal watch controls are plain browser React components that POST to the app's own API routes. The repo has no native host and none of the subject's terms (electron, ipcRenderer, @tauri-apps, BrowserWindow, contextBridge) appear anywhere in src.",
+   "techniques": [],
+   "absenceTerms": [
+    "electron",
+    "ipcRenderer",
+    "@tauri-apps",
+    "BrowserWindow",
+    "contextBridge"
+   ]
+  },
+  {
+   "context": "Credits & Entitlements",
+   "subject": "native-shell-integration",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/components/shared/credits/CreditsControl.tsx:5 Credits and entitlements are server-side ledger logic plus a browser popover that POSTs to an API route, with no native capability involved. Searching src for electron, ipcRenderer, @tauri-apps, BrowserWindow and contextBridge found no hits, so the subject's precondition (a native process holding capabilities the presentation layer cannot reach) does not hold.",
+   "techniques": [],
+   "absenceTerms": [
+    "electron",
+    "ipcRenderer",
+    "@tauri-apps",
+    "BrowserWindow",
+    "contextBridge"
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-11-06T02:11:55.792378+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "native-shell-integration"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "First-Run Onboarding Wizard",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-06T02:11:55.792378+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "native-shell-integration"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "App Shell, SEO & Error Pages",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-06T02:11:55.792378+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "native-shell-integration"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Fleet Alerts & Digests",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-06T02:11:55.792378+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "native-shell-integration"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Org Overview & Standing",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-06T02:11:55.792378+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "native-shell-integration"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Credits & Entitlements",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

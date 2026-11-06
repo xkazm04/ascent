@@ -2568,7 +2568,11 @@
           "revision": 5,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/manifest.ts:5 The only thing that looks like a 'shell' wrapper is a Web App Manifest for PWA installability, with no service worker and no native process. The repo-wide search for electron, ipcRenderer, @tauri-apps, BrowserWindow and contextBridge found nothing, so the native-side ownership rules have nothing to apply to.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:9034ad02704d9c88",
+          "evaluatedRevision": 5
         },
         {
           "subject": "table",
@@ -3162,7 +3166,11 @@
           "revision": 5,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/onboarding/page.tsx:23 The onboarding wizard is a server-rendered Next.js page plus client React steps that talk to the app's own HTTP routes. A case-sensitive search of all of src for electron, ipcRenderer, @tauri-apps, BrowserWindow and contextBridge found nothing, and there is no src-tauri directory, so no native process exists for this subject to govern.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:9034ad02704d9c88",
+          "evaluatedRevision": 5
         },
         {
           "subject": "agent-instruction-files",
@@ -3290,7 +3298,11 @@
           "revision": 5,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/components/org/shell/alerts/AlertsControl.tsx:4 Alerts are delivered server-side to a Slack-compatible webhook, not through OS notifications or a native stream. The context's files contain no requestPermission, navigator.permissions or visibilitychange code, and the repo has no native-process code (electron, ipcRenderer, @tauri-apps, BrowserWindow and contextBridge all absent).",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:9034ad02704d9c88",
+          "evaluatedRevision": 5
         }
       ],
       "governance": "governed"
@@ -5259,7 +5271,11 @@
           "revision": 5,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/components/org/personal/PersonalWatchControls.tsx:4 The overview and personal watch controls are plain browser React components that POST to the app's own API routes. The repo has no native host and none of the subject's terms (electron, ipcRenderer, @tauri-apps, BrowserWindow, contextBridge) appear anywhere in src.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:9034ad02704d9c88",
+          "evaluatedRevision": 5
         },
         {
           "subject": "translation-quality-measurement",
@@ -9773,7 +9789,11 @@
           "revision": 5,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/components/shared/credits/CreditsControl.tsx:5 Credits and entitlements are server-side ledger logic plus a browser popover that POSTs to an API route, with no native capability involved. Searching src for electron, ipcRenderer, @tauri-apps, BrowserWindow and contextBridge found no hits, so the subject's precondition (a native process holding capabilities the presentation layer cannot reach) does not hold.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:9034ad02704d9c88",
+          "evaluatedRevision": 5
         },
         {
           "subject": "settings",

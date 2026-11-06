@@ -9181,6 +9181,57 @@
       "evaluatedTs": "2026-11-06T01:59:42.525Z",
       "worker": "3bb6512e-531c-4718-aeb7-d818712a05aa",
       "techniques": []
+    },
+    "Onboarding, Shell & AI Standard/First-Run Onboarding Wizard/native-shell-integration": {
+      "context": "First-Run Onboarding Wizard",
+      "subject": "native-shell-integration",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T02:11:55.792Z",
+      "worker": "ee9030c6-b044-40cf-8f10-f9107cedd92c",
+      "techniques": []
+    },
+    "Onboarding, Shell & AI Standard/App Shell, SEO & Error Pages/native-shell-integration": {
+      "context": "App Shell, SEO & Error Pages",
+      "subject": "native-shell-integration",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T02:11:55.792Z",
+      "worker": "ee9030c6-b044-40cf-8f10-f9107cedd92c",
+      "techniques": [],
+      "registryProposal": "An installable PWA manifest (display: standalone) can look like a native wrapper but gives no capability beyond the document sandbox. The golden path's discriminator could name the PWA case outright, so seats don't treat 'standalone' as a native shell."
+    },
+    "Org Scanning & Fleet Rollups/Fleet Alerts & Digests/native-shell-integration": {
+      "context": "Fleet Alerts & Digests",
+      "subject": "native-shell-integration",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T02:11:55.792Z",
+      "worker": "ee9030c6-b044-40cf-8f10-f9107cedd92c",
+      "techniques": []
+    },
+    "Org Dashboard & Analytics/Org Overview & Standing/native-shell-integration": {
+      "context": "Org Overview & Standing",
+      "subject": "native-shell-integration",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T02:11:55.792Z",
+      "worker": "ee9030c6-b044-40cf-8f10-f9107cedd92c",
+      "techniques": []
+    },
+    "Billing, Credits & Metering/Credits & Entitlements/native-shell-integration": {
+      "context": "Credits & Entitlements",
+      "subject": "native-shell-integration",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T02:11:55.792Z",
+      "worker": "ee9030c6-b044-40cf-8f10-f9107cedd92c",
+      "techniques": []
     }
   }
 }
