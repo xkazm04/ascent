@@ -1,0 +1,123 @@
+{
+ "schema": "conform-run/1",
+ "worker": "e6bf199e-5057-44ba-b3a1-b73429debbf0",
+ "subject": "voice-io",
+ "evaluatedAt": "2026-11-06T00:13:08.404974+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Provider Integrations",
+   "subject": "voice-io",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/integrations/providers.ts:1 These providers are usage and spend connectors for AI coding tools (OTLP metrics/logs ingest and admin pulls), not speech engines. A search of src/lib/integrations, src/app/api/integrations, src/app/org/[slug]/integrations and src/lib/db for speechSynthesis, SpeechRecognition, getUserMedia and MediaRecorder found nothing, so no voice pipeline exists here.",
+   "techniques": [],
+   "absenceTerms": [
+    "speechSynthesis",
+    "SpeechRecognition",
+    "getUserMedia",
+    "MediaRecorder"
+   ]
+  },
+  {
+   "context": "Local Autopilot & Loop Engine",
+   "subject": "voice-io",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/app/api/org/local/autopilot/route.ts:1 This context is HTTP control routes for local agent runs and pairing forms. A search of src/app/api/org/local, src/app/api/org/loop and src/features/admin/pairing for speechSynthesis, SpeechRecognition, getUserMedia and MediaRecorder found nothing, so there is no voice input or output to judge.",
+   "techniques": [],
+   "absenceTerms": [
+    "speechSynthesis",
+    "SpeechRecognition",
+    "getUserMedia",
+    "MediaRecorder"
+   ]
+  },
+  {
+   "context": "GitHub OAuth & Session",
+   "subject": "voice-io",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/auth.ts:1 This context is server-side OAuth and session cookie handling. A search of src/lib/auth.ts, src/lib/access.ts, src/lib/supabase, src/app/api/auth and src/app/auth (and the whole of src) for speechSynthesis, SpeechRecognition, getUserMedia and MediaRecorder found nothing, so there is no voice channel to judge.",
+   "techniques": [],
+   "absenceTerms": [
+    "speechSynthesis",
+    "SpeechRecognition",
+    "getUserMedia",
+    "MediaRecorder"
+   ]
+  },
+  {
+   "context": "Trends & Comparison",
+   "subject": "voice-io",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/report/compare.ts:1 This context is a pure diff engine for scans plus chart and picker components. A search of src/app/trends, src/app/report/compare, src/lib/report and src/components/report for speechSynthesis, SpeechRecognition, getUserMedia and MediaRecorder found nothing, so no speech capture or synthesis exists here.",
+   "techniques": [],
+   "absenceTerms": [
+    "speechSynthesis",
+    "SpeechRecognition",
+    "getUserMedia",
+    "MediaRecorder"
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "voice-io",
+   "context": "Live War Room",
+   "reason": "evidence leans on theater/theaterSound.ts, which is not a tracked file"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-06T00:13:08.404974+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "voice-io"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Provider Integrations",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-06T00:13:08.404974+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "voice-io"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Local Autopilot & Loop Engine",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-06T00:13:08.404974+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "voice-io"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "GitHub OAuth & Session",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-06T00:13:08.404974+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "voice-io"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Trends & Comparison",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

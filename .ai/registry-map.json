@@ -2103,8 +2103,12 @@
           "revision": 23,
           "changedAt": "2026-10-18",
           "confidence": "probable",
-          "state": "unknown",
-          "priorNotApplicable": 5
+          "state": "not-applicable",
+          "priorNotApplicable": 5,
+          "evidence": "src/lib/auth.ts:1 This context is server-side OAuth and session cookie handling. A search of src/lib/auth.ts, src/lib/access.ts, src/lib/supabase, src/app/api/auth and src/app/auth (and the whole of src) for speechSynthesis, SpeechRecognition, getUserMedia and MediaRecorder found nothing, so there is no voice channel to judge.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:29f8b158c4d44054",
+          "evaluatedRevision": 23
         },
         {
           "subject": "agent-cli-transport",
@@ -4797,8 +4801,12 @@
           "revision": 23,
           "changedAt": "2026-10-18",
           "confidence": "strong",
-          "state": "unknown",
-          "priorNotApplicable": 5
+          "state": "not-applicable",
+          "priorNotApplicable": 5,
+          "evidence": "src/lib/integrations/providers.ts:1 These providers are usage and spend connectors for AI coding tools (OTLP metrics/logs ingest and admin pulls), not speech engines. A search of src/lib/integrations, src/app/api/integrations, src/app/org/[slug]/integrations and src/lib/db for speechSynthesis, SpeechRecognition, getUserMedia and MediaRecorder found nothing, so no voice pipeline exists here.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:29f8b158c4d44054",
+          "evaluatedRevision": 23
         },
         {
           "subject": "agent-memory",
@@ -6823,8 +6831,12 @@
           "revision": 23,
           "changedAt": "2026-10-18",
           "confidence": "probable",
-          "state": "unknown",
-          "priorNotApplicable": 5
+          "state": "not-applicable",
+          "priorNotApplicable": 5,
+          "evidence": "src/app/api/org/local/autopilot/route.ts:1 This context is HTTP control routes for local agent runs and pairing forms. A search of src/app/api/org/local, src/app/api/org/loop and src/features/admin/pairing for speechSynthesis, SpeechRecognition, getUserMedia and MediaRecorder found nothing, so there is no voice input or output to judge.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:29f8b158c4d44054",
+          "evaluatedRevision": 23
         },
         {
           "subject": "fleet-orchestration",
@@ -8319,8 +8331,12 @@
           "revision": 23,
           "changedAt": "2026-10-18",
           "confidence": "probable",
-          "state": "unknown",
-          "priorNotApplicable": 5
+          "state": "not-applicable",
+          "priorNotApplicable": 5,
+          "evidence": "src/lib/report/compare.ts:1 This context is a pure diff engine for scans plus chart and picker components. A search of src/app/trends, src/app/report/compare, src/lib/report and src/components/report for speechSynthesis, SpeechRecognition, getUserMedia and MediaRecorder found nothing, so no speech capture or synthesis exists here.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:29f8b158c4d44054",
+          "evaluatedRevision": 23
         },
         {
           "subject": "test-harness",

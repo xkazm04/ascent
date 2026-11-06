@@ -8833,6 +8833,46 @@
       "evaluatedTs": "2026-11-05T23:59:36.591Z",
       "worker": "d7e6a0c2-5a4d-459f-ba5c-4bd81c2a9558",
       "techniques": []
+    },
+    "Org Dashboard & Analytics/Provider Integrations/voice-io": {
+      "context": "Provider Integrations",
+      "subject": "voice-io",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T00:13:08.404Z",
+      "worker": "e6bf199e-5057-44ba-b3a1-b73429debbf0",
+      "techniques": []
+    },
+    "Org Planning & Execution/Local Autopilot & Loop Engine/voice-io": {
+      "context": "Local Autopilot & Loop Engine",
+      "subject": "voice-io",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T00:13:08.404Z",
+      "worker": "e6bf199e-5057-44ba-b3a1-b73429debbf0",
+      "techniques": []
+    },
+    "Identity & GitHub Connectivity/GitHub OAuth & Session/voice-io": {
+      "context": "GitHub OAuth & Session",
+      "subject": "voice-io",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T00:13:08.404Z",
+      "worker": "e6bf199e-5057-44ba-b3a1-b73429debbf0",
+      "techniques": []
+    },
+    "Reporting & Visualization/Trends & Comparison/voice-io": {
+      "context": "Trends & Comparison",
+      "subject": "voice-io",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T00:13:08.404Z",
+      "worker": "e6bf199e-5057-44ba-b3a1-b73429debbf0",
+      "techniques": []
     }
   }
 }
