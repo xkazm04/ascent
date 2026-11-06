@@ -1,0 +1,22 @@
+{
+ "schema": "conform-run/1",
+ "worker": "3476527c-9640-4523-ae74-33b89d6ac9f3",
+ "subject": "agent-cli-transport",
+ "evaluatedAt": "2026-11-06T23:39:20.944036+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [],
+ "declined": [
+  {
+   "subject": "agent-cli-transport",
+   "context": "Checkout & Plans (Polar)",
+   "reason": "absence contradicted: src/lib/forge/local.ts:15 contains 'child_process' (224 hit(s) in the context's directories)"
+  },
+  {
+   "subject": "agent-cli-transport",
+   "context": "GitHub OAuth & Session",
+   "reason": "absence contradicted: src/lib/forge/local.ts:15 contains 'child_process' (224 hit(s) in the context's directories)"
+  }
+ ],
+ "consults": []
+}
