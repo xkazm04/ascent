@@ -9120,6 +9120,47 @@
         }
       ],
       "registryProposal": "Erasure against a signed, append-only ledger: the corpus says to keep PII out at the door, but gives no rule for a ledger that already holds PII when an Art.17 request arrives. This repo redacts in place and re-signs. A technique-level rule for the legacy-data case (crypto-shred vs re-signed redaction record vs supersession) would settle whether this is a deviation or the sanctioned exception."
+    },
+    "Identity & GitHub Connectivity/GitHub OAuth & Session/browser-credential-boundary": {
+      "context": "GitHub OAuth & Session",
+      "subject": "browser-credential-boundary",
+      "bundle": "software-engineering",
+      "state": "conformant",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T01:47:41.607Z",
+      "worker": "7d3b58e5-5856-4597-8ede-e17c801072b2",
+      "techniques": [
+        {
+          "technique": "server-sealed-client-roundtrip",
+          "verdict": "conformant",
+          "evidence": "src/lib/auth.ts:151 The session cookie is sealed with HMAC-SHA256 and checked in constant time. decodeSession fails closed with no secret and carries exp/rexp inside the payload."
+        },
+        {
+          "technique": "public-vs-server-env-split",
+          "verdict": "conformant",
+          "evidence": "src/lib/supabase/client.ts:11 Only NEXT_PUBLIC_ values reach the browser client, with a comment saying they are public by design. The secret-bearing auth.ts carries `import \"server-only\"` at line 9."
+        },
+        {
+          "technique": "broker-proxy-attaches-secret",
+          "verdict": "conformant",
+          "evidence": "src/lib/auth.ts:533 The GitHub client secret is attached server-side during the code exchange. The browser holds only its signed session cookie, and the GitHub token is never persisted to the client."
+        },
+        {
+          "technique": "opaque-upstream-errors",
+          "verdict": "conformant",
+          "evidence": "src/app/api/auth/callback/route.ts:150 The upstream error_description (thrown at auth.ts:543) is logged server-side only, and the browser gets a closed code (oauth_failed/denied/csrf). The Supabase callback does the same at src/app/auth/callback/route.ts:129. No correlation id is returned."
+        },
+        {
+          "technique": "aggregate-view-not-base-table",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/supabase/client.ts:3 The browser-held Supabase key is used for auth only here. App data lives in a separate Postgres reached through Prisma, so no aggregate is served to an anonymous role from this context."
+        },
+        {
+          "technique": "loopback-addressed-request-gate",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/auth.ts:9 This is a hosted web app holding its own service credentials, not a local app acting with the person's ambient login."
+        }
+      ]
     }
   }
 }
