@@ -9522,6 +9522,43 @@
         }
       ],
       "registryProposal": "session-registry could name the transitional case explicitly: a generation fence added as optional for backward compatibility leaves the late-signal race open for fence-less clients until the fence is mandatory."
+    },
+    "Org Knowledge & Skills/AI Registry Repo (Onboarding & Index)/settings": {
+      "context": "AI Registry Repo (Onboarding & Index)",
+      "subject": "settings",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-06",
+      "evaluatedTs": "2026-11-06T04:47:09.708Z",
+      "worker": "798d1ff6-27de-4422-a731-0d00f3fcd0d0",
+      "techniques": [
+        {
+          "technique": "settings-audit-and-history",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/org-registry.ts:218 A re-map overwrites mode/telemetrySink with no key/old/new/origin record. The route keeps only createdBy and has no audit call (grepped 'audit' in route.ts and org-registry.ts: no hits)."
+        },
+        {
+          "technique": "typed-accessors",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/org-registry.ts:102 The read clamp to a closed enum is there, but an unknown stored value silently becomes the default with no corruption report. The column is a free String (schema.prisma:1717), so this can happen. The write door is conformant: route.ts:49 rejects anything outside the closed set with a 400."
+        },
+        {
+          "technique": "setting-kinds",
+          "verdict": "conformant",
+          "evidence": "src/features/shared/registry/registryActionRules.ts:91 The telemetry sink acts like an opt-in flag and defaults to off. The view repeats that floor (registry-view.ts:333 `sink: row?.telemetrySink ?? \"off\"`)."
+        },
+        {
+          "technique": "save-experience",
+          "verdict": "conformant",
+          "evidence": "src/features/shared/registry/useRegistryMutation.ts:80 Explicit submit. Choices stay in local form state (no optimistic flip). A failure shows inline next to the control, and only a success runs router.refresh() to re-read stored truth (line 85)."
+        },
+        {
+          "technique": "key-registry",
+          "verdict": "not-applicable",
+          "evidence": "prisma/schema.prisma:1717 These settings are fixed typed columns on one row, not a free-string key space, so typo and orphan keys cannot occur."
+        }
+      ],
+      "registryProposal": "The standard assumes a key-value store. Many apps keep per-entity configuration as typed columns on a domain row (here: OrgRegistry.mode/telemetrySink). Typed-accessors and settings-audit still apply there, but key-registry and read-batching do not. A sentence on 'settings as columns of a domain row' would make that boundary explicit."
     }
   }
 }

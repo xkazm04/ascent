@@ -7525,7 +7525,11 @@
           "revision": 13,
           "changedAt": "2026-09-05",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/db/org-registry.ts:218 The registry's per-org configuration (mode, telemetrySink) is overwritten in place by an upsert that keeps no old value, category or origin record, and the read mapper drops an unrecognised stored value back to the default without reporting it, so 'who turned telemetry on, and what was it before' has no answer and a corrupted column reads as a deliberate choice.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:85c48ec5bdb5581f",
+          "evaluatedRevision": 13
         }
       ],
       "governance": "governed"
