@@ -7402,7 +7402,11 @@
           "revision": 10,
           "changedAt": "2026-09-23",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/features/shared/registry/registryModel.ts:87 The onboarding 'Verify the loop' check passes only on Sink B invokes (`telemetry.invokes30d`, the registry usage/ lane) and never reads Sink A (`invokesDirect30d`, the events API), so an org correctly reporting through the `api` sink is held at 'active' forever, a false fail by the checker's own crudeness.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:58a3b7c0b9efb42c",
+          "evaluatedRevision": 10
         },
         {
           "subject": "quality-gates",
