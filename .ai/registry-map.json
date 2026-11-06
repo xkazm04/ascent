@@ -3855,12 +3855,12 @@
           "revision": 12,
           "changedAt": "2026-09-23",
           "confidence": "probable",
-          "state": "conformant",
-          "evidence": "src/app/api/org/import/route.ts:456,463 explicitly records recordScanOutcome(org, repo, { ok: false, error: msg }) on a per-repo scan failure inside the bulk import/rescan loop rather than swallowing it via .catch(()=>null) — realizes sensor-pipeline's 'every sensor failure isolated and reported as skipped, never silently empty' for the org-level sweep, in contrast to the sibling 'Scan Pipeline & Ingestion' context's recorded deviation (governance/posture/exposure fetches that DO swallow with score-bearing folds).",
-          "evaluatedAt": "2026-08-31",
-          "evaluatedAgainst": "sha256:5215e21162717d59",
+          "state": "deviation",
+          "evidence": "src/app/api/org/import/route.ts:615 The import treats a `deduped` persist (same commit SHA already stored) as 'nothing billable produced'. But the dedup it relies on keys on (repoId, headSha) alone, so after a SCORING_RUBRIC_VERSION bump an unchanged commit is re-scored (the scan cache misses on the rubric fingerprint), the fresh score is thrown away at persist, the credit is refunded, and the client is still sent the new-rubric score in the `repo` frame. The stored score stays the old-rubric one, so the unit is reported as judged under a standard it was never held to.",
+          "evaluatedAt": "2026-11-06",
+          "evaluatedAgainst": "sha256-b2:06416fce13bc2342",
           "source": "retained",
-          "stale": true
+          "evaluatedRevision": 12
         }
       ],
       "governance": "governed"

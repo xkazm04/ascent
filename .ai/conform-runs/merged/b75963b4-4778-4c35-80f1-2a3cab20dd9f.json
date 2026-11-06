@@ -1,0 +1,72 @@
+{
+ "schema": "conform-run/1",
+ "worker": "b75963b4-4778-4c35-80f1-2a3cab20dd9f",
+ "subject": "codebase-scanning",
+ "evaluatedAt": "2026-11-06T03:04:07.841454+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Org Import, Scan & Watchlist",
+   "subject": "codebase-scanning",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/org/import/route.ts:615 The import treats a `deduped` persist (same commit SHA already stored) as 'nothing billable produced'. But the dedup it relies on keys on (repoId, headSha) alone, so after a SCORING_RUBRIC_VERSION bump an unchanged commit is re-scored (the scan cache misses on the rubric fingerprint), the fresh score is thrown away at persist, the credit is refunded, and the client is still sent the new-rubric score in the `repo` frame. The stored score stays the old-rubric one, so the unit is reported as judged under a standard it was never held to.",
+   "techniques": [
+    {
+     "technique": "incremental-scanning",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/scans-persist.ts:258 Change detection is content-keyed (commit SHA, good), but the third trigger is missing: findScanByCommit (scans-read.ts:77, `where: { repoId, headSha }`) ignores rubricVersion, and the only replace path is mock\u2192live. src/lib/cache.ts and src/lib/scan-cache.ts:65-68 DO invalidate on a rubric bump, so the read side re-scores and the write side discards the result."
+    },
+    {
+     "technique": "sensor-pipeline",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/import/route.ts:651 A per-repo scan failure is caught at that repo's edge, recorded as an outcome and sent as a `repo` error frame (line 652), and the sweep continues. The failure is spelled differently from an empty result. The earlier verdict cited lines 456/463; the construct has since moved to 651."
+    },
+    {
+     "technique": "llm-assisted-scanning",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/import/route.ts:607 A real-LLM scan that degraded to the mock floor is refused by persistFleetScan and reported as an error ('LLM unavailable: not persisted'). It is never stored as a clean reading, so a failed model call counts as a skipped sensor, not an empty result."
+    },
+    {
+     "technique": "ingestion-budget",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/import/route.ts:355 The fan-out cap on metered GitHub ingests (MAX_IMPORT_REPOS, plus the credit and quota caps at 392/402) is disclosed with scanning and skipped counts and a reason, never clipped silently."
+    },
+    {
+     "technique": "the-tree-is-not-the-population",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/import/route.ts:372 This is the fleet-level analogue: a repo is inferred to have vanished only from a listing enumerated to exhaustion, and a truncated listing is disclosed as `listing_truncated` (364). A partial listing is never read as the whole population."
+    }
+   ],
+   "registryProposal": "incremental-scanning should name a failure mode it currently does not: honoring the ruleset-version trigger on the READ side only (a cache key that folds in the rubric) while the WRITE side keeps a uniqueness constraint on unit identity alone (repo+commit). The read side invalidates and re-scores. The write side dedups the new result onto the old-ruler row and drops it. Every later read misses again, so the system re-scores forever and the new judgment never lands. The rule should say the ruleset version must be part of identity at every dedup horizon, not only the cache."
+  }
+ ],
+ "declined": [
+  {
+   "subject": "codebase-scanning",
+   "context": "PDF & LLM Export",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-06T03:04:07.841454+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "codebase-scanning"
+   ],
+   "techniques": [
+    "incremental-scanning",
+    "ingestion-budget",
+    "llm-assisted-scanning",
+    "sensor-pipeline",
+    "the-tree-is-not-the-population"
+   ],
+   "deviations": 1,
+   "context": "Org Import, Scan & Watchlist",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
