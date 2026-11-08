@@ -1,0 +1,104 @@
+{
+  "schema": "conform-run/1",
+  "worker": "271f5111-c8c4-4e36-83f0-22fa094fad28",
+  "subject": "quality-gates",
+  "evaluatedAt": "2026-11-08T23:24:08.594712+00:00",
+  "provider": "claude",
+  "model": "claude-opus-5-5",
+  "pairs": [
+    {
+      "context": "Org Memory",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/app/api/org/memory/reflect/route.ts:124 A failed origin lookup becomes an empty member list, so the registry-origin refusal passes without having checked anything and applyReflection, which selects no origin, supersedes mirror rows the next index pass will revert.",
+      "techniques": [
+        {
+          "technique": "unmeasurable-criteria",
+          "verdict": "deviation",
+          "evidence": "src/app/api/org/memory/reflect/route.ts:124 Could-not-check is folded into clean with no operator signal, the failure the technique names for an in-path gate; beside the work it should refuse. route.test.ts covers the refusal but no lookup rejection."
+        },
+        {
+          "technique": "refusal-names-a-reachable-remedy",
+          "verdict": "deviation",
+          "evidence": "src/app/api/org/memory/route.ts:109 getCreditState is caught to null at line 107 and a missing plan resolves to free, so on a read failure a paying Team org is told it needs the plan it already has. The check and reflect routes repeat this."
+        },
+        {
+          "technique": "severity-by-construction",
+          "verdict": "conformant",
+          "evidence": "src/features/shared/memory/memoryCheck.ts:52 The duplicate check is labelled advisory and is advisory by construction: POST /api/org/memory never reads its verdict."
+        },
+        {
+          "technique": "false-positive-economics",
+          "verdict": "conformant",
+          "evidence": "src/lib/memory/consolidation.ts:314 A word-overlap and LLM detector with unmeasured precision has not earned blocking, and the contract keeps it from refusing correct content."
+        },
+        {
+          "technique": "gate-liveness",
+          "verdict": "conformant",
+          "evidence": "src/features/shared/memory/MemoryCheckView.tsx:33 The verdict shows the population actually compared and whether a model judged it, so 'This looks new' over zero candidates cannot pass as a full check."
+        }
+      ]
+    }
+  ],
+  "declined": [
+    {
+      "subject": "quality-gates",
+      "context": "Scan Pipeline & Ingestion",
+      "reason": "the seat returned unknown"
+    },
+    {
+      "subject": "quality-gates",
+      "context": "First-Run Onboarding Wizard",
+      "reason": "the seat returned unknown"
+    },
+    {
+      "subject": "quality-gates",
+      "context": "Developer home (UC3 individual care)",
+      "reason": "the seat returned unknown"
+    },
+    {
+      "subject": "quality-gates",
+      "context": "AI Registry Repo (Onboarding & Index)",
+      "reason": "withdrawn after review: reviewer (sonnet): The claim that an org on the api or off sink can never reach done is not supported: src/lib/registry/index-registry.ts reads the usage/ lane whatever telemetrySink says, and registry-view.ts takes invokes30d from that lane's row, so an api-sink org with usage files can pass the verify bar. The fixtu"
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-11-08T23:24:08.594712+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "quality-gates"
+      ],
+      "techniques": [
+        "advancement-evidence-fields",
+        "gate-liveness",
+        "policy-projection",
+        "refusal-names-a-reachable-remedy",
+        "unmeasurable-criteria"
+      ],
+      "deviations": 1,
+      "context": "AI Registry Repo (Onboarding & Index)",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-08T23:24:08.594712+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "quality-gates"
+      ],
+      "techniques": [
+        "false-positive-economics",
+        "gate-liveness",
+        "refusal-names-a-reachable-remedy",
+        "severity-by-construction",
+        "unmeasurable-criteria"
+      ],
+      "deviations": 1,
+      "context": "Org Memory",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    }
+  ]
+}

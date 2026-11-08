@@ -9796,6 +9796,84 @@
         }
       ],
       "registryProposal": "a-test-helper-is-a-fork-of-the-driver could name the query-predicate fake explicitly: a fake that evaluates a store's where clause should throw on a key it does not model, because ignoring unknown keys is a passing default that looks like an honest evaluator."
+    },
+    "Org Knowledge & Skills/AI Registry Repo (Onboarding & Index)/quality-gates": {
+      "context": "AI Registry Repo (Onboarding & Index)",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "unknown",
+      "evaluatedAt": "2026-11-08",
+      "evaluatedTs": "2026-11-08T23:24:08.594Z",
+      "techniques": [
+        {
+          "technique": "unmeasurable-criteria",
+          "verdict": "deviation",
+          "evidence": "src/features/shared/registry/registryModel.ts:87 A surface advertising a bar whose input it cannot read for this org: no skip is declared per sink, unlike the neighbouring 'sync unmeasured' handling. The stepper blocks nothing, so the harm is a permanently unfinished step and a false zero."
+        },
+        {
+          "technique": "advancement-evidence-fields",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/registry-view.ts:52 Each artifact's migration carries a closed state vocabulary with PR pointer and moved/total, so a non-satisfied row is readable rather than blank."
+        },
+        {
+          "technique": "gate-liveness",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/registry-view.ts:337 Never-swept, swept-without-map and swept-and-judged stay distinct, so an instrument that never ran cannot read as a clean fleet."
+        },
+        {
+          "technique": "policy-projection",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/registry-view.ts:344 The display cap is fetched at cap+1 and disclosed as a flag, so a truncated matrix cannot be read as complete."
+        },
+        {
+          "technique": "refusal-names-a-reachable-remedy",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/[slug]/registry/migrate/route.ts:34 The refusal names the next action, and the caller has already passed the same write gate that action needs."
+        }
+      ],
+      "registryProposal": "unmeasurable-criteria could say whether a non-refusing completion bar (an onboarding stepper's 'done' state) counts as a surface advertising a bar; the technique's examples are all verdicts with a pass or fail outcome.",
+      "withdrawn": {
+        "worker": "271f5111-c8c4-4e36-83f0-22fa094fad28",
+        "state": "deviation",
+        "at": "2026-11-08T23:24:51.769847+00:00",
+        "reason": "reviewer (sonnet): The claim that an org on the api or off sink can never reach done is not supported: src/lib/registry/index-registry.ts reads the usage/ lane whatever telemetrySink says, and registry-view.ts takes invokes30d from that lane's row, so an api-sink org with usage files can pass the verify bar. The fixtu"
+      }
+    },
+    "Org Knowledge & Skills/Org Memory/quality-gates": {
+      "context": "Org Memory",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-08",
+      "evaluatedTs": "2026-11-08T23:24:08.594Z",
+      "worker": "271f5111-c8c4-4e36-83f0-22fa094fad28",
+      "techniques": [
+        {
+          "technique": "unmeasurable-criteria",
+          "verdict": "deviation",
+          "evidence": "src/app/api/org/memory/reflect/route.ts:124 Could-not-check is folded into clean with no operator signal, the failure the technique names for an in-path gate; beside the work it should refuse. route.test.ts covers the refusal but no lookup rejection."
+        },
+        {
+          "technique": "refusal-names-a-reachable-remedy",
+          "verdict": "deviation",
+          "evidence": "src/app/api/org/memory/route.ts:109 getCreditState is caught to null at line 107 and a missing plan resolves to free, so on a read failure a paying Team org is told it needs the plan it already has. The check and reflect routes repeat this."
+        },
+        {
+          "technique": "severity-by-construction",
+          "verdict": "conformant",
+          "evidence": "src/features/shared/memory/memoryCheck.ts:52 The duplicate check is labelled advisory and is advisory by construction: POST /api/org/memory never reads its verdict."
+        },
+        {
+          "technique": "false-positive-economics",
+          "verdict": "conformant",
+          "evidence": "src/lib/memory/consolidation.ts:314 A word-overlap and LLM detector with unmeasured precision has not earned blocking, and the contract keeps it from refusing correct content."
+        },
+        {
+          "technique": "gate-liveness",
+          "verdict": "conformant",
+          "evidence": "src/features/shared/memory/MemoryCheckView.tsx:33 The verdict shows the population actually compared and whether a model judged it, so 'This looks new' over zero candidates cannot pass as a full check."
+        }
+      ]
     }
   }
 }

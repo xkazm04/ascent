@@ -7067,7 +7067,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/app/api/org/memory/reflect/route.ts:124 A failed origin lookup becomes an empty member list, so the registry-origin refusal passes without having checked anything and applyReflection, which selects no origin, supersedes mirror rows the next index pass will revert.",
+          "evaluatedAt": "2026-11-08",
+          "evaluatedAgainst": "sha256-b2:a5b34d39a4b8edd3",
+          "evaluatedRevision": 56
         },
         {
           "subject": "knowledge-registry",
