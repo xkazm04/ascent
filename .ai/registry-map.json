@@ -3700,7 +3700,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/app/api/org/import/route.publicOrg.test.ts:55 Sibling import suites restate the shipped repository-name validator with different rules, so the route's coordinate guard runs against a test-authored checker that varies by file.",
+          "evaluatedAt": "2026-11-08",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "quality-gates",
@@ -6665,7 +6669,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/db/followup-claims.test.ts:73 The fake Prisma's where-matcher treats every key it does not model as satisfied, so a guard later added to a claim predicate would read as passing with no diagnostic in the suite that pins the compare-and-set.",
+          "evaluatedAt": "2026-11-08",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "concurrent-vcs",
@@ -6796,7 +6804,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/app/api/org/loop/route.test.ts:186 The test name claims a hosted start never answers 404 but only drives the not-entitled block, while hostedBlockStatus maps unknown-org to 404 and loop-engine.ts can throw that block, so a searcher is told a guarantee the code does not hold.",
+          "evaluatedAt": "2026-11-08",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "agent-memory",

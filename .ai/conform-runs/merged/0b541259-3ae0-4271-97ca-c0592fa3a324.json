@@ -1,0 +1,228 @@
+{
+ "schema": "conform-run/1",
+ "worker": "0b541259-3ae0-4271-97ca-c0592fa3a324",
+ "subject": "test-harness",
+ "evaluatedAt": "2026-11-08T22:51:25.836329+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Local Autopilot & Loop Engine",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/org/loop/route.test.ts:186 The test name claims a hosted start never answers 404 but only drives the not-entitled block, while hostedBlockStatus maps unknown-org to 404 and loop-engine.ts can throw that block, so a searcher is told a guarantee the code does not hold.",
+   "techniques": [
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "deviation",
+     "evidence": "src/app/api/org/loop/route.test.ts:186 Name overstates: one block exercised, and hosted-gate.ts returns 404 for unknown-org. hosted-gate.test.ts:80 carries the narrower true name; this route test was not narrowed."
+    },
+    {
+     "technique": "gate-scope-is-not-report-scope",
+     "verdict": "deviation",
+     "evidence": "src/app/api/org/loop/route.test.ts:170 Under the comment EACH GATE ANSWERS WITH ITS OWN CODE, a hand-written list names six of the seven HostedBlock members; unknown-org is absent and a new member would not go red here."
+    },
+    {
+     "technique": "live-app-harness",
+     "verdict": "deviation",
+     "evidence": "playwright.loop.config.ts:77 The browser lane drives a dev server, because a production build disables the auth bypass and prunes CLI providers, so the packaged process is never witnessed. The config states this reason itself."
+    },
+    {
+     "technique": "isolation-lanes",
+     "verdict": "conformant",
+     "evidence": "playwright.loop.config.ts:85 Refuses to inherit a server carrying the operator's env; a throwaway PGlite dir is wiped at config load and the lane is serial, with reasons stated."
+    },
+    {
+     "technique": "suite-partitioning",
+     "verdict": "conformant",
+     "evidence": "playwright.loop.config.ts:62 Membership by filename with the reason attached; the sibling playwright.loop-live.config.ts owns live-*.spec.ts with its own config."
+    },
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/loop/route.test.ts:92 The real status mapping runs through the route; the file states which seams are mocked and why."
+    },
+    {
+     "technique": "proved-off-the-path",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/local/drive/route.reader.test.ts:62 The body comes from the cockpit's shipped composer and is POSTed to the real handler, so the client-to-route crossing is on the production path."
+    }
+   ]
+  },
+  {
+   "context": "Roadmap & Recommendation Tracking",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/recommendations/[id]/route.ts:147 The data layer's test pins the REC_CONFLICT tag and says the route returns 409, but no test under the route's directory drives this branch, so the handover across an untyped string code is covered by neither suite.",
+   "techniques": [
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/scans-recommendations.test.ts:262 Searching src for REC_CONFLICT and the route's tests for 409 finds no route-side assertion, so a renamed code would turn the 409 into a 500 with both suites green, and the crossing is not named as uncovered."
+    },
+    {
+     "technique": "proved-off-the-path",
+     "verdict": "conformant",
+     "evidence": "src/components/report/RoadmapSandboxCommit.tsx:58 The shipped bar calls the join logic the suite exercises; committableRecs is a thin wrapper that delegates to this function."
+    },
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/scans-recommendations.test.ts:128 The fake updateMany ignores where, but the pre-image predicate is asserted directly, so the fake's count does not stand in for it."
+    },
+    {
+     "technique": "fixture-economics",
+     "verdict": "conformant",
+     "evidence": "src/components/report/RoadmapSandboxCommit.test.ts:17 An in-memory builder is the cheapest fixture that can witness a pure transform."
+    }
+   ]
+  },
+  {
+   "context": "Org Import, Scan & Watchlist",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/org/import/route.publicOrg.test.ts:55 Sibling import suites restate the shipped repository-name validator with different rules, so the route's coordinate guard runs against a test-authored checker that varies by file.",
+   "techniques": [
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "deviation",
+     "evidence": "src/app/api/org/import/route.publicOrg.test.ts:55 route.test.ts:66 adds leading-dot and traversal checks this copy lacks, and route.queue and route.forge-credential answer true for everything. route.test.ts already uses importOriginal for rate-limit, so sharing the real function was available."
+    },
+    {
+     "technique": "assert-the-schedule-not-the-stopwatch",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/import/route.test.ts:556 The stamped-before-inference claim is proved by recorded call order, which load cannot change."
+    },
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/scan/route.test.ts:13 The file declares which decisions moved out of its reach and which suite owns them."
+    }
+   ]
+  },
+  {
+   "context": "Follow-ups Ledger",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/db/followup-claims.test.ts:73 The fake Prisma's where-matcher treats every key it does not model as satisfied, so a guard later added to a claim predicate would read as passing with no diagnostic in the suite that pins the compare-and-set.",
+   "techniques": [
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/followup-claims.test.ts:73 A fake with a passing default. Today's production where clauses use only modeled keys, so the gap is latent. PGlite-backed tests exist in src/lib/db, which contests the header's claim that a fake is the only way to assert the property."
+    },
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "conformant",
+     "evidence": "src/lib/org/followups.test.ts:39 An overstated test name was renamed to what the assertion settles, and the file records why."
+    },
+    {
+     "technique": "negative-control-tests",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/followups/handoff/route.test.ts:26 The regression test keeps the reverted path callable so that undoing the fix fails on assertions. The comment names the control; no recorded run of it was seen."
+    },
+    {
+     "technique": "proved-off-the-path",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/followups/handoff/route.ts:69 The production entry point takes the claim path the suites cover, and the route test asserts that adoption."
+    },
+    {
+     "technique": "fixture-economics",
+     "verdict": "conformant",
+     "evidence": "src/lib/org/followups.test.ts:8 An in-memory builder is the cheapest fixture for the pure joints this file pins."
+    },
+    {
+     "technique": "assert-through-the-reader",
+     "verdict": "not-applicable",
+     "evidence": "src/components/shared/followups/FollowupsPromptModal.tsx:52 The copied artifact is a prompt read by a model, which is the eval-harness subject's concern, not a parser that can be run at unit cost. FollowupsPromptModal and followupsModel show no shell command or npx line."
+    }
+   ],
+   "registryProposal": "a-test-helper-is-a-fork-of-the-driver could name the query-predicate fake explicitly: a fake that evaluates a store's where clause should throw on a key it does not model, because ignoring unknown keys is a passing default that looks like an honest evaluator."
+  }
+ ],
+ "declined": [
+  {
+   "subject": "test-harness",
+   "context": "Scan Pipeline & Ingestion",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-08T22:51:25.836329+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "gate-scope-is-not-report-scope",
+    "isolation-lanes",
+    "live-app-harness",
+    "proved-off-the-path",
+    "suite-partitioning",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "Local Autopilot & Loop Engine",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-08T22:51:25.836329+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "fixture-economics",
+    "proved-off-the-path",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "Roadmap & Recommendation Tracking",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-08T22:51:25.836329+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "assert-the-schedule-not-the-stopwatch",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "Org Import, Scan & Watchlist",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-08T22:51:25.836329+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "assert-through-the-reader",
+    "fixture-economics",
+    "negative-control-tests",
+    "proved-off-the-path",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "Follow-ups Ledger",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
