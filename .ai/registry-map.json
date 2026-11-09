@@ -3629,7 +3629,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/db/org-rollup.ts:70 parseProvenanceLite reads aiInvolvedRate from the persisted prStats blob but returns only the governed rate and sample, so the fleet gate always skips forbidAiAuthorship and counts a repo with admission mode blocked and AI-attributed PRs as passing while the per-repo gate fails it.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a5b34d39a4b8edd3",
+          "evaluatedRevision": 56
         },
         {
           "subject": "eval-harness",
@@ -8383,7 +8387,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/components/report/RecommendationTracker.tsx:69 The tracker counts every non-dismissed row as actionable and a human in_progress write carries no clock, while the only sweep in the repo (sweepExpiredLeases in src/lib/db/followup-claims.ts) requires a non-null lease, so work whose assignee has gone stays active indefinitely with no reaper.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a5b34d39a4b8edd3",
+          "evaluatedRevision": 56
         },
         {
           "subject": "agent-memory",

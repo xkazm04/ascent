@@ -1,0 +1,153 @@
+{
+  "schema": "conform-run/1",
+  "worker": "91cac734-2e69-46fa-abe4-fdcd7bb03d37",
+  "subject": "quality-gates",
+  "evaluatedAt": "2026-11-09T03:26:10.409506+00:00",
+  "provider": "claude",
+  "model": "claude-opus-5-5",
+  "pairs": [
+    {
+      "context": "Roadmap & Recommendation Tracking",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/components/report/RecommendationTracker.tsx:69 The tracker counts every non-dismissed row as actionable and a human in_progress write carries no clock, while the only sweep in the repo (sweepExpiredLeases in src/lib/db/followup-claims.ts) requires a non-null lease, so work whose assignee has gone stays active indefinitely with no reaper.",
+      "techniques": [
+        {
+          "technique": "item-liveness",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/scans-recommendations.ts:88 A browser status write sets in_progress with no lease or recheck; followup-claims.ts documents this as an unleased claim with no clock and deliberately excludes it from the sweep. Last-touched is derived for the org backlog (lastActivityAt), so the free half exists, but no scheduled owner check or terminal state exists for human-held rows, and this tracker shows no last-touched."
+        }
+      ]
+    },
+    {
+      "context": "Repo Report Shell & Tabs",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evidence": "src/app/report/[owner]/[repo]/page.tsx:229 Searching src/app/report and src/components/report for evaluateGate, GatePolicy, GateResult, exitCode and max-warnings found nothing; the gate wording that does appear in this context is a sign-in, access, credit or cold-scan wall, so the shell neither runs nor projects a quality gate.",
+      "techniques": [],
+      "absenceTerms": [
+        "evaluateGate",
+        "GatePolicy",
+        "GateResult",
+        "exitCode",
+        "max-warnings"
+      ]
+    },
+    {
+      "context": "Fleet Rollups & Insights",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/lib/db/org-rollup.ts:70 parseProvenanceLite reads aiInvolvedRate from the persisted prStats blob but returns only the governed rate and sample, so the fleet gate always skips forbidAiAuthorship and counts a repo with admission mode blocked and AI-attributed PRs as passing while the per-repo gate fails it.",
+      "techniques": [
+        {
+          "technique": "policy-projection",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/org-rollup.ts:67 The input is read here and used only to reconstruct a sample size, so the rollup never carries the value evaluateGate uses for the admission bar. This is the named failure of a rollup reporting subjects as passing that the gate blocks. The governance panel does disclose the row as not judged fleet-wide, but that text and gate.ts justify it by saying the rollup has no PR stats, which this line contradicts."
+        },
+        {
+          "technique": "unmeasurable-criteria",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/org-rollup.ts:65 A missing or non-finite rate reaches the shared evaluator as null and is skipped as not measurable, which is correct for absence describing the subject's world. The separate admission-bar omission is recorded under policy-projection."
+        },
+        {
+          "technique": "gate-liveness",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/org-rollup.ts:889 Could-not-run is derived from zero persisted dimensions and carried on the row, so the fleet path has a third outcome instead of reading an empty scan as a verdict."
+        }
+      ]
+    },
+    {
+      "context": "Repositories & Segments",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evidence": "src/app/api/org/segments/[id]/route.ts:14 Searching this context's directories for exitCode, max-warnings, no-verify, failsFloor and ratchet found nothing, and the gate wording in its files is tenant authorization; GatePolicy and evaluateGate hits under src/lib/db sit in sibling modules such as org-gate.ts and org-rollup.ts, not in this context's files.",
+      "techniques": [],
+      "absenceTerms": [
+        "exitCode",
+        "max-warnings",
+        "no-verify",
+        "failsFloor",
+        "ratchet"
+      ]
+    }
+  ],
+  "declined": [
+    {
+      "subject": "quality-gates",
+      "context": "Design System: UI Primitives & Deck",
+      "reason": "withdrawn after review: reviewer (sonnet): Each not-applicable is anchored on a line that only shows other 'gate' wording (an auth gate at page.tsx:229, `armed` render gating at Reveal.tsx:46, a tenant-gate comment at segments/[id]/route.ts:14), and none of those lines shows that a quality gate is absent. The greps I re-ran did find no gate "
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-11-09T03:26:10.409506+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "quality-gates"
+      ],
+      "techniques": [
+        "item-liveness"
+      ],
+      "deviations": 1,
+      "context": "Roadmap & Recommendation Tracking",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-09T03:26:10.409506+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "quality-gates"
+      ],
+      "techniques": [],
+      "deviations": 0,
+      "context": "Repo Report Shell & Tabs",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-09T03:26:10.409506+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "quality-gates"
+      ],
+      "techniques": [
+        "gate-liveness",
+        "policy-projection",
+        "unmeasurable-criteria"
+      ],
+      "deviations": 1,
+      "context": "Fleet Rollups & Insights",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-09T03:26:10.409506+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "quality-gates"
+      ],
+      "techniques": [],
+      "deviations": 0,
+      "context": "Design System: UI Primitives & Deck",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-09T03:26:10.409506+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "quality-gates"
+      ],
+      "techniques": [],
+      "deviations": 0,
+      "context": "Repositories & Segments",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    }
+  ]
+}

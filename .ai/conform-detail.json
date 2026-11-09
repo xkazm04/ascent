@@ -10326,24 +10326,27 @@
       "context": "Roadmap & Recommendation Tracking",
       "subject": "quality-gates",
       "bundle": "software-engineering",
-      "state": "unknown",
+      "state": "deviation",
       "evaluatedAt": "2026-11-09",
-      "evaluatedTs": "2026-11-09T01:35:59.781Z",
+      "evaluatedTs": "2026-11-09T03:26:10.409Z",
+      "worker": "91cac734-2e69-46fa-abe4-fdcd7bb03d37",
       "techniques": [
         {
           "technique": "item-liveness",
           "verdict": "deviation",
-          "evidence": "src/components/report/RecommendationTracker.tsx:69 The denominator is admitted-and-not-withdrawn with no liveness predicate. RecommendationEvent already gives a per-item trail, yet this surface renders no age. scan-carry-plan.ts:10 copies in_progress rows forward, prisma/schema.prisma:805 keeps human-held rows out of the sweep, and neither the digest nor the purge cron asks the owner question. The org backlog's lastActivityAt is a different surface and has no reaper."
+          "evidence": "src/lib/db/scans-recommendations.ts:88 A browser status write sets in_progress with no lease or recheck; followup-claims.ts documents this as an unleased claim with no clock and deliberately excludes it from the sweep. Last-touched is derived for the org backlog (lastActivityAt), so the free half exists, but no scheduled owner check or terminal state exists for human-held rows, and this tracker shows no last-touched."
         },
         {
           "technique": "match-the-resolved-artifact",
           "verdict": "conformant",
-          "evidence": "src/app/api/recommendations/[id]/route.consequences.test.ts:79 The source guard on the route strips comments before matching, so prose naming the writers neither trips nor satisfies it."
+          "evidence": "src/app/api/recommendations/[id]/route.consequences.test.ts:79 The source guard on the route strips comments before matching, so prose naming the writers neither trips nor satisfies it.",
+          "carriedFrom": "2026-11-09"
         },
         {
           "technique": "gate-liveness",
           "verdict": "conformant",
-          "evidence": "src/app/api/recommendations/[id]/route.consequences.test.ts:76 A seeded violation proves the matcher still fires on a real call; line 77 pins the prose-only control."
+          "evidence": "src/app/api/recommendations/[id]/route.consequences.test.ts:76 A seeded violation proves the matcher still fires on a real call; line 77 pins the prose-only control.",
+          "carriedFrom": "2026-11-09"
         },
         {
           "technique": "advancement-evidence-fields",
@@ -10357,13 +10360,7 @@
           "evidence": "src/app/api/recommendations/[id]/route.ts:128 Nearest analogue, not a blocking gate: suppression is per recommendation identity, a reasonless dismissal records nothing, and leaving dismissed lifts it.",
           "carriedFrom": "2026-11-09"
         }
-      ],
-      "withdrawn": {
-        "worker": "1927f834-ea38-4e9c-836f-456d9258948d",
-        "state": "deviation",
-        "at": "2026-11-09T01:36:30.897206+00:00",
-        "reason": "reviewer (sonnet): Lines 69 and 805 and the carry plan's header comment confirm the denominator, the human-held exemption and the in_progress carry-forward, but I did not confirm the claims that the digest and purge cron never ask who owns a row or that the org backlog has no reaper. The two test-file technique anchor"
-      }
+      ]
     },
     "Org Dashboard & Analytics/Org Overview & Standing/quality-gates": {
       "context": "Org Overview & Standing",
@@ -10869,6 +10866,47 @@
           "evidence": "src/app/api/org/decision/route.ts:57 The memory is owned by the gated org and the author is passed separately as createdBy, so owner is not conflated with writer; no counterpart axis arises on this path."
         }
       ]
+    },
+    "Org Scanning & Fleet Rollups/Fleet Rollups & Insights/quality-gates": {
+      "context": "Fleet Rollups & Insights",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T03:26:10.409Z",
+      "worker": "91cac734-2e69-46fa-abe4-fdcd7bb03d37",
+      "techniques": [
+        {
+          "technique": "policy-projection",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/org-rollup.ts:67 The input is read here and used only to reconstruct a sample size, so the rollup never carries the value evaluateGate uses for the admission bar. This is the named failure of a rollup reporting subjects as passing that the gate blocks. The governance panel does disclose the row as not judged fleet-wide, but that text and gate.ts justify it by saying the rollup has no PR stats, which this line contradicts."
+        },
+        {
+          "technique": "unmeasurable-criteria",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/org-rollup.ts:65 A missing or non-finite rate reaches the shared evaluator as null and is skipped as not measurable, which is correct for absence describing the subject's world. The separate admission-bar omission is recorded under policy-projection."
+        },
+        {
+          "technique": "gate-liveness",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/org-rollup.ts:889 Could-not-run is derived from zero persisted dimensions and carried on the row, so the fleet path has a third outcome instead of reading an empty scan as a verdict."
+        }
+      ]
+    },
+    "Marketing Site & Design System/Design System: UI Primitives & Deck/quality-gates": {
+      "context": "Design System: UI Primitives & Deck",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "unknown",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T03:26:10.409Z",
+      "techniques": [],
+      "withdrawn": {
+        "worker": "91cac734-2e69-46fa-abe4-fdcd7bb03d37",
+        "state": "not-applicable",
+        "at": "2026-11-09T03:27:16.418307+00:00",
+        "reason": "reviewer (sonnet): Each not-applicable is anchored on a line that only shows other 'gate' wording (an auth gate at page.tsx:229, `armed` render gating at Reveal.tsx:46, a tenant-gate comment at segments/[id]/route.ts:14), and none of those lines shows that a quality gate is absent. The greps I re-ran did find no gate "
+      }
     }
   }
 }
