@@ -4678,7 +4678,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/org/practice-library.ts:3 A search of the 12 context files for memory, recall, consolidat, episod and embedding found nothing, and these modules assemble fleet rollups of engineering practices, gate policy and AI-attribution, so 'governance' and 'library' here are not governance of an agent's beliefs.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:2b62b4004acc600d",
+          "evaluatedRevision": 53
         },
         {
           "subject": "quality-gates",

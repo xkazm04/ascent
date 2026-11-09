@@ -11339,6 +11339,22 @@
           "evidence": "src/lib/db/personal.ts:126 A used-versus-quota meter, not a claim about which tracked subjects memory covers."
         }
       ]
+    },
+    "Org Dashboard & Analytics/Practices, Governance & Adoption/agent-memory": {
+      "context": "Practices, Governance & Adoption",
+      "subject": "agent-memory",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T04:41:42.735Z",
+      "worker": "f104bc6e-a39a-4d99-958d-06ad0c57eed2",
+      "techniques": [
+        {
+          "technique": "procedure-promotion",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/practices/apply/route.ts:2 The closest candidate, but it seeds a template file into a customer repo by PR; no remembered agent procedure becomes an invocable capability."
+        }
+      ]
     }
   }
 }

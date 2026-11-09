@@ -1,0 +1,98 @@
+{
+ "schema": "conform-run/1",
+ "worker": "f104bc6e-a39a-4d99-958d-06ad0c57eed2",
+ "subject": "agent-memory",
+ "evaluatedAt": "2026-11-09T04:41:42.735487+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Roadmap & Recommendation Tracking",
+   "subject": "agent-memory",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/recommendations/[id]/route.ts:136 The PATCH route always plans with an unknown prior status, so a status=done patch on an already-done row still writes a 'Recommendation closed' memory with today's date, which clears the 0.95 dedup floor at 7/8 token overlap for a short title and records a close that did not happen.",
+   "techniques": [
+    {
+     "technique": "memory-governance",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/rec-transition-effects.ts:47 The route passes the signed-in actor, but close-memory drops it: a person's unverified 'done' is stored with source scan-pipeline, confidence 1.0 and createdBy null, and memoryView.ts:155 shows it as from the scan pipeline, so a reader cannot tell a colleague's claim from a machine observation. The never-throw rule of the observation lane is met."
+    },
+    {
+     "technique": "episodic-capture",
+     "verdict": "deviation",
+     "evidence": "src/app/api/recommendations/[id]/route.ts:131 The comment's no-op guarantee is false: updateRecommendation returns the unchanged row with no events and the plan still emits close-memory, so an event with no outcome is captured. The row content (scan-feed.ts:243) also carries no recommendation id pointing back to the raw source."
+    }
+   ],
+   "registryProposal": "memory-governance's fourth writer assumes the pipeline directly observed the fact. It does not say what grade or stamp applies when a machine-templated row records a human assertion, such as a person marking work done before any rescan confirms it. The lane should state that the stamp follows who witnessed the event, not which code wrote the row."
+  },
+  {
+   "context": "Practices, Governance & Adoption",
+   "subject": "agent-memory",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/org/practice-library.ts:3 A search of the 12 context files for memory, recall, consolidat, episod and embedding found nothing, and these modules assemble fleet rollups of engineering practices, gate policy and AI-attribution, so 'governance' and 'library' here are not governance of an agent's beliefs.",
+   "techniques": [
+    {
+     "technique": "procedure-promotion",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/practices/apply/route.ts:2 The closest candidate, but it seeds a template file into a customer repo by PR; no remembered agent procedure becomes an invocable capability."
+    }
+   ],
+   "absenceTerms": [
+    "recallMemor",
+    "supersededBy",
+    "embedding",
+    "halfLife"
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "agent-memory",
+   "context": "Maturity Model & Scoring Engine",
+   "reason": "absence contradicted: src/lib/athena/actions-execute.ts:32 contains 'episod' (271 hit(s) in the context's directories)"
+  },
+  {
+   "subject": "agent-memory",
+   "context": "App Shell, SEO & Error Pages",
+   "reason": "absence contradicted: src/app/api/athena/gate.ts:25 contains 'episod' (296 hit(s) in the context's directories)"
+  },
+  {
+   "subject": "agent-memory",
+   "context": "GitHub OAuth & Session",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-09T04:41:42.735487+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-memory"
+   ],
+   "techniques": [
+    "episodic-capture",
+    "memory-governance"
+   ],
+   "deviations": 1,
+   "context": "Roadmap & Recommendation Tracking",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T04:41:42.735487+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-memory"
+   ],
+   "techniques": [
+    "procedure-promotion"
+   ],
+   "deviations": 0,
+   "context": "Practices, Governance & Adoption",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
