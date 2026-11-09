@@ -11291,6 +11291,54 @@
           "evidence": "src/app/api/org/credits/grant/route.ts:50 A deployment flag on a mint endpoint; there is no check over a tree whose input could move."
         }
       ]
+    },
+    "Identity & GitHub Connectivity/GitHub Repo Data Access/agent-memory": {
+      "context": "GitHub Repo Data Access",
+      "subject": "agent-memory",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T04:31:58.805Z",
+      "worker": "09c0f34b-b1bf-4e8b-a0fa-26c76eb2592d",
+      "techniques": [
+        {
+          "technique": "loss-site-inventory",
+          "verdict": "deviation",
+          "evidence": "src/lib/github/source.ts:620 Excluding memory from coverage is deliberate, but nothing replaces it: the mirror's 'capped' ledger only sees entries that arrive, and repo-memory.ts and the Memory tab carry no count of entries cut before it. Newest-first picking means older entries are never picked on later scans."
+        },
+        {
+          "technique": "memory-governance",
+          "verdict": "conformant",
+          "evidence": "src/lib/github/source.ts:619 Repo-authored memory bodies are split into their own channel at capture, by harness code keyed on path, so third-party text cannot reach the prompt or scorers. Only the capture-side split is judged here; the mirror's lanes live outside this context."
+        }
+      ],
+      "registryProposal": "loss-site-inventory walks paths from store to reader; an import mirror has an earlier site the technique does not name, the pick step before the ledger, where a source entry is cut before any record of it exists, so a later ledger's honest 'capped' row cannot cover it."
+    },
+    "Org Dashboard & Analytics/Org Overview & Standing/agent-memory": {
+      "context": "Org Overview & Standing",
+      "subject": "agent-memory",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T04:31:58.805Z",
+      "worker": "09c0f34b-b1bf-4e8b-a0fa-26c76eb2592d",
+      "techniques": [
+        {
+          "technique": "memory-governance",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/personal.ts:84 The technique says a human correction supersedes immediately at the highest evidence grade; here a full free workspace must archive a row first. A correction replaces a live row, so exempting it would not grow the count. Scope is personal workspaces whose plan does not include memory."
+        },
+        {
+          "technique": "decay-and-forgetting",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/personal.ts:21 An entitlement quota that refuses writes; it retires nothing, so the technique's cap-drives-demotion rules have no seat here."
+        },
+        {
+          "technique": "coverage-instrumentation",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/personal.ts:126 A used-versus-quota meter, not a claim about which tracked subjects memory covers."
+        }
+      ]
     }
   }
 }

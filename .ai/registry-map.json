@@ -1791,7 +1791,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/github/source.ts:620 Memory picks displaced by the byte budget are removed from the only displaced-file accounting, and the snapshot's memoryFiles is a bare array with no omission count, so entries that never reach the mirror (displaced, failed in the fetch catch at line 593, or older than the newest-12 pick) leave no notice for any reader.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:2b62b4004acc600d",
+          "evaluatedRevision": 53
         },
         {
           "subject": "agent-runtime-assembly",
@@ -5299,7 +5303,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/db/personal.ts:84 The cap predicate cannot see that a write is a correction, and POST /api/org/memory runs it unconditionally at route.ts:111 before handling supersedeId at line 129, so a personal workspace at 100 live rows gets a 402 on a net-zero correction, despite this function's 'corrections stay free' comment and a refusal message that advises superseding.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:2b62b4004acc600d",
+          "evaluatedRevision": 53
         },
         {
           "subject": "fleet-orchestration",
