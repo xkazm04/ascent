@@ -9346,7 +9346,11 @@
           "revision": 31,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/report/passport/pr/route.ts:75 These routes serve a stored scorecard, record decisions and file issues without launching an agent or writing an instruction file: AGENTS.md, CLAUDE.md, copilot-instructions and cursorrules have zero hits across the context's directories, and the one file committed to a customer repo is JSON data.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:9b02cf004a7ce444",
+          "evaluatedRevision": 32
         },
         {
           "subject": "eval-harness",
@@ -9724,7 +9728,11 @@
           "revision": 31,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/polar.ts:2 This context is billing configuration and payment routes with no agent or instruction file: the listed files have zero hits for AGENTS.md, CLAUDE.md, copilot-instructions and cursorrules and launch no CLI, and the only instruction-file names under src/lib are in other modules outside this context.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:9b02cf004a7ce444",
+          "evaluatedRevision": 32
         },
         {
           "subject": "supply-chain",

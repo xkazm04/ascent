@@ -1,0 +1,136 @@
+{
+  "schema": "conform-run/1",
+  "worker": "64e61690-6ca7-4a45-a02a-5580985ec8de",
+  "subject": "agent-instruction-files",
+  "evaluatedAt": "2026-11-09T04:52:41.646356+00:00",
+  "provider": "claude",
+  "model": "claude-opus-5-5",
+  "pairs": [
+    {
+      "context": "Checkout & Plans (Polar)",
+      "subject": "agent-instruction-files",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evidence": "src/lib/polar.ts:2 This context is billing configuration and payment routes with no agent or instruction file: the listed files have zero hits for AGENTS.md, CLAUDE.md, copilot-instructions and cursorrules and launch no CLI, and the only instruction-file names under src/lib are in other modules outside this context.",
+      "techniques": [
+        {
+          "technique": "principal-tier-gating",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/plan/route.ts:3 'Tier' here is a billing plan enforced by a server role check, not a tier of agent principals in an instruction file."
+        },
+        {
+          "technique": "sibling-floor-ownership",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/plans.ts:102 This is marketing copy for a paid feature; it does not install anything into an agent's always-loaded floor."
+        },
+        {
+          "technique": "host-contract-compilation",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/billing/checkout/route.ts:3 'Hosted' refers to Polar's payment page; no coding harness is a compile target here."
+        }
+      ],
+      "absenceTerms": [
+        "GEMINI.md",
+        "setting-sources",
+        "append-system-prompt"
+      ]
+    },
+    {
+      "context": "AI-Native Passports",
+      "subject": "agent-instruction-files",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evidence": "src/app/api/report/passport/pr/route.ts:75 These routes serve a stored scorecard, record decisions and file issues without launching an agent or writing an instruction file: AGENTS.md, CLAUDE.md, copilot-instructions and cursorrules have zero hits across the context's directories, and the one file committed to a customer repo is JSON data.",
+      "techniques": [
+        {
+          "technique": "machine-owned-regions",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/report/passport/pr/route.ts:60 The output is a whole generated JSON file, not a fenced region inside a hand-written instruction file."
+        },
+        {
+          "technique": "principal-tier-gating",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/issue/route.ts:74 Issue filing is gated by a server role check on the caller; no agent reads a prose tier for this action."
+        },
+        {
+          "technique": "write-back-sink-class",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/decision/route.ts:4 The write is a human decision stored through an API route, not a destination an instruction file tells an agent to append to; the agent-memory subject is the closer governor."
+        }
+      ],
+      "absenceTerms": [
+        "AGENTS.md",
+        "CLAUDE.md",
+        "copilot-instructions",
+        "cursorrules"
+      ]
+    }
+  ],
+  "declined": [
+    {
+      "subject": "agent-instruction-files",
+      "context": "GitHub Repo Data Access",
+      "reason": "the seat returned unknown"
+    },
+    {
+      "subject": "agent-instruction-files",
+      "context": "LLM Provider Abstraction",
+      "reason": "evidence leans on transport/claude.ts, which is not a tracked file"
+    },
+    {
+      "subject": "agent-instruction-files",
+      "context": "First-Run Onboarding Wizard",
+      "reason": "withdrawn after review: reviewer (sonnet): The context does touch an agent instruction surface: SelfHostSetupPanel.tsx, rendered at page.tsx:109, tells the operator to run `claude` then `/onboarding`, the repo's own skill, and page.tsx:32 is only a comment about that branch, so the claim that it 'launches no agent' and has no instruction sur"
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-11-09T04:52:41.646356+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "agent-instruction-files"
+      ],
+      "techniques": [
+        "capability-coverage-contract",
+        "principal-tier-gating",
+        "workspace-ancestry-isolation"
+      ],
+      "deviations": 0,
+      "context": "First-Run Onboarding Wizard",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-09T04:52:41.646356+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "agent-instruction-files"
+      ],
+      "techniques": [
+        "host-contract-compilation",
+        "principal-tier-gating",
+        "sibling-floor-ownership"
+      ],
+      "deviations": 0,
+      "context": "Checkout & Plans (Polar)",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-09T04:52:41.646356+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "agent-instruction-files"
+      ],
+      "techniques": [
+        "machine-owned-regions",
+        "principal-tier-gating",
+        "write-back-sink-class"
+      ],
+      "deviations": 0,
+      "context": "AI-Native Passports",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    }
+  ]
+}

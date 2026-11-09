@@ -7402,14 +7402,30 @@
       "subject": "agent-instruction-files",
       "bundle": "software-engineering",
       "state": "unknown",
-      "evaluatedAt": "2026-10-24",
-      "evaluatedTs": "2026-10-24T04:16:59.459Z",
-      "techniques": [],
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T04:52:41.646Z",
+      "techniques": [
+        {
+          "technique": "capability-coverage-contract",
+          "verdict": "not-applicable",
+          "evidence": "src/app/onboarding/page.tsx:32 The page sends a person to a skill guide; it is not an instruction surface an agent plans from."
+        },
+        {
+          "technique": "workspace-ancestry-isolation",
+          "verdict": "not-applicable",
+          "evidence": "src/components/onboarding/importScan.ts:31 The client requests a scan from the server; nothing here creates a directory or launches an agent in one."
+        },
+        {
+          "technique": "principal-tier-gating",
+          "verdict": "not-applicable",
+          "evidence": "src/components/onboarding/canRunReal.ts:4 This gate decides on credits for a billing outcome; it is not a tier of agent principals in an instruction file."
+        }
+      ],
       "withdrawn": {
-        "worker": "52ea7efc-5f71-4003-87fd-32c9a0a556b2",
+        "worker": "64e61690-6ca7-4a45-a02a-5580985ec8de",
         "state": "not-applicable",
-        "at": "2026-10-24T04:17:25.997034+00:00",
-        "reason": "reviewer (sonnet): OnboardingFoundationPanel.tsx opens draft PRs that seed the `.ai/` foundation, including the 'agent contract' (an agent instruction file), into the scanned repos, so the claim that the wizard delivers no agent instruction content is contradicted. The anchor at line 64 is only a fetch call, and the a"
+        "at": "2026-11-09T04:53:11.009212+00:00",
+        "reason": "reviewer (sonnet): The context does touch an agent instruction surface: SelfHostSetupPanel.tsx, rendered at page.tsx:109, tells the operator to run `claude` then `/onboarding`, the repo's own skill, and page.tsx:32 is only a comment about that branch, so the claim that it 'launches no agent' and has no instruction sur"
       }
     },
     "Org Knowledge & Skills/AI Registry Repo (Onboarding & Index)/concurrent-vcs": {
@@ -11353,6 +11369,58 @@
           "technique": "procedure-promotion",
           "verdict": "not-applicable",
           "evidence": "src/app/api/practices/apply/route.ts:2 The closest candidate, but it seeds a template file into a customer repo by PR; no remembered agent procedure becomes an invocable capability."
+        }
+      ]
+    },
+    "Billing, Credits & Metering/Checkout & Plans (Polar)/agent-instruction-files": {
+      "context": "Checkout & Plans (Polar)",
+      "subject": "agent-instruction-files",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T04:52:41.646Z",
+      "worker": "64e61690-6ca7-4a45-a02a-5580985ec8de",
+      "techniques": [
+        {
+          "technique": "principal-tier-gating",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/plan/route.ts:3 'Tier' here is a billing plan enforced by a server role check, not a tier of agent principals in an instruction file."
+        },
+        {
+          "technique": "sibling-floor-ownership",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/plans.ts:102 This is marketing copy for a paid feature; it does not install anything into an agent's always-loaded floor."
+        },
+        {
+          "technique": "host-contract-compilation",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/billing/checkout/route.ts:3 'Hosted' refers to Polar's payment page; no coding harness is a compile target here."
+        }
+      ]
+    },
+    "Reporting & Visualization/AI-Native Passports/agent-instruction-files": {
+      "context": "AI-Native Passports",
+      "subject": "agent-instruction-files",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T04:52:41.646Z",
+      "worker": "64e61690-6ca7-4a45-a02a-5580985ec8de",
+      "techniques": [
+        {
+          "technique": "machine-owned-regions",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/report/passport/pr/route.ts:60 The output is a whole generated JSON file, not a fenced region inside a hand-written instruction file."
+        },
+        {
+          "technique": "principal-tier-gating",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/issue/route.ts:74 Issue filing is gated by a server role check on the caller; no agent reads a prose tier for this action."
+        },
+        {
+          "technique": "write-back-sink-class",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/decision/route.ts:4 The write is a human decision stored through an API route, not a destination an instruction file tells an agent to append to; the agent-memory subject is the closer governor."
         }
       ]
     }
