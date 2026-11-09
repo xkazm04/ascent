@@ -2719,7 +2719,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/standard/standard.test.ts:142 The file says the manifest must survive a real YAML parser and then checks only substrings, and the generated CI workflow is likewise checked by substring and regex, so emitted YAML a real parser would misread stays green.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "agent-instruction-files",
@@ -9133,7 +9137,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/app/api/org/issue/route.test.ts:21 The issue route's malformed-coordinate path is judged by a parser the test wrote itself, which accepts shapes the shipped parseRepoUrl refuses such as a '..' repo segment or a dotted owner, so a change to the shipped rule cannot turn this suite red.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "prompt-assembly",

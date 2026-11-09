@@ -10047,6 +10047,78 @@
       "evaluatedTs": "2026-11-09T00:18:34.981Z",
       "worker": "07fe95ea-abe1-413b-8f88-af48a435003b",
       "techniques": []
+    },
+    "Reporting & Visualization/AI-Native Passports/test-harness": {
+      "context": "AI-Native Passports",
+      "subject": "test-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T00:40:55.783Z",
+      "worker": "39148904-a8d0-4b23-a9e0-4362ada14cf1",
+      "techniques": [
+        {
+          "technique": "a-test-helper-is-a-fork-of-the-driver",
+          "verdict": "deviation",
+          "evidence": "src/app/api/org/issue/route.test.ts:21 A pure production function is restated rather than shared through importOriginal, as sibling tests do. The marker helper at line 32 is restated the same way, and the test at line 212 asserts the restated format."
+        },
+        {
+          "technique": "unreached-decisions-pin-nothing",
+          "verdict": "conformant",
+          "evidence": "src/app/api/report/passport/route.unreachable.test.ts:16 The unreachable-database decision runs through the shipped readers, so the 500 versus 404 answer is produced by the code it names."
+        },
+        {
+          "technique": "assert-through-the-reader",
+          "verdict": "conformant",
+          "evidence": "src/app/api/report/passport/pr/route.test.ts:155 The committed artifact is parsed by a JSON reader and the pointer is derived from the version. This establishes parseability only; it does not validate against the schema."
+        }
+      ]
+    },
+    "Onboarding, Shell & AI Standard/AI-Native Standard & Onboarding Skill/test-harness": {
+      "context": "AI-Native Standard & Onboarding Skill",
+      "subject": "test-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T00:40:55.783Z",
+      "worker": "39148904-a8d0-4b23-a9e0-4362ada14cf1",
+      "techniques": [
+        {
+          "technique": "assert-through-the-reader",
+          "verdict": "deviation",
+          "evidence": "src/lib/standard/standard.test.ts:142 Lines 130-131 state the real-parser claim. No file under src or scripts imports a YAML parser, and js-yaml is present only as a transitive install. The workflow body is pinned the same way at lines 262-275. The doctor and maintain scripts, by contrast, are executed for real."
+        },
+        {
+          "technique": "a-test-helper-is-a-fork-of-the-driver",
+          "verdict": "conformant",
+          "evidence": "src/lib/standard/standard.test.ts:489 The parsers under test are sliced from the shipped doctor source, not hand-copied."
+        },
+        {
+          "technique": "proved-off-the-path",
+          "verdict": "conformant",
+          "evidence": "src/lib/standard/standard.test.ts:782 The execution cases write the shipped script to disk and spawn it, so the path tested is the one an adopting repo runs."
+        },
+        {
+          "technique": "negative-control-tests",
+          "verdict": "conformant",
+          "evidence": "src/lib/standard/standard.test.ts:850 A fixture built to be broken proves the gate can go red and that its failure names the defect."
+        },
+        {
+          "technique": "isolation-lanes",
+          "verdict": "conformant",
+          "evidence": "src/lib/standard/standard.test.ts:788 The spawned doctor is denied the conformance variables it would otherwise inherit from the developer's or runner's environment; the rest of process.env still passes through."
+        },
+        {
+          "technique": "fixture-economics",
+          "verdict": "conformant",
+          "evidence": "src/lib/standard/standard.test.ts:820 Each test owns a scratch repo and the harness names its reaper, discarding the whole directory."
+        },
+        {
+          "technique": "pin-the-call-not-the-name",
+          "verdict": "conformant",
+          "evidence": "src/lib/standard/standard.test.ts:298 The ordering pin uses a needle only code can spell and has a not-found floor at line 300. Limit: the EEXIST retry is pinned as text only, though the sibling execution suite spawns this script."
+        }
+      ]
     }
   }
 }
