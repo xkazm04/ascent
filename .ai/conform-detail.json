@@ -10167,24 +10167,26 @@
       "bundle": "software-engineering",
       "state": "unknown",
       "evaluatedAt": "2026-11-09",
-      "evaluatedTs": "2026-11-09T00:58:47.204Z",
+      "evaluatedTs": "2026-11-09T01:19:53.597Z",
       "techniques": [
         {
           "technique": "unmeasurable-criteria",
           "verdict": "not-applicable",
-          "evidence": "src/lib/org/developer-view-load.ts:82 Names why a reading is missing for display; no policy condition is evaluated."
+          "evidence": "src/lib/org/developer-view-load.ts:82 Names why a reading is missing for display; no policy condition is evaluated.",
+          "carriedFrom": "2026-11-09"
         },
         {
           "technique": "instrument-answers-only-its-own-question",
           "verdict": "not-applicable",
-          "evidence": "src/lib/org/developer-view-load.ts:8 The comment justifies a module split by citing a repo-level gap; this context owns no such check."
+          "evidence": "src/lib/org/developer-view-load.ts:8 The comment justifies a module split by citing a repo-level gap; this context owns no such check.",
+          "carriedFrom": "2026-11-09"
         }
       ],
       "withdrawn": {
-        "worker": "5d3a89eb-5d37-4daf-91e7-70f60d5544b6",
+        "worker": "eca14530-bc5b-479f-89b8-c4e99c52e1ee",
         "state": "not-applicable",
-        "at": "2026-11-09T00:59:13.708368+00:00",
-        "reason": "reviewer (sonnet): The anchor at developer-view-load.ts:23 is part of a doc comment and does not itself show that no check exists; the comment at line 8 mentions a 'build not in the gate' note, so the not-applicable rests only on a keyword search."
+        "at": "2026-11-09T01:20:29.966769+00:00",
+        "reason": "reviewer (sonnet): The anchor at developer-view.ts:4 is a header comment about who may see which view model, so it does not show that the context has no refusing check, and the quality-gate absence search used terms that miss that."
       }
     },
     "Onboarding, Shell & AI Standard/App Shell, SEO & Error Pages/quality-gates": {
@@ -10207,6 +10209,149 @@
           "evidence": "src/lib/site.ts:29 Single-sources marketing copy; no enforced policy is projected."
         }
       ]
+    },
+    "Org Dashboard & Analytics/Security Posture & Audit Log/quality-gates": {
+      "context": "Security Posture & Audit Log",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T01:19:53.597Z",
+      "worker": "eca14530-bc5b-479f-89b8-c4e99c52e1ee",
+      "techniques": [
+        {
+          "technique": "policy-projection",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/security.ts:150 Surfaces understate what blocks: policyFromParams spreads defaultGatePolicy(archetype) under the params and resolveRepoGatePolicy tightens further, but security.ts uses neither. The display-cap half is done correctly (lines 209-212 and buildGateSnippet read the full register)."
+        },
+        {
+          "technique": "unmeasurable-criteria",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/security.ts:165 A repo with no D9 row fails closed and the reason says 'D9 not measured' instead of printing a substitute score."
+        },
+        {
+          "technique": "blocking-by-input-determinism",
+          "verdict": "conformant",
+          "evidence": "src/lib/security/supply-chain.ts:2 The externally moving Dependabot feed is kept out of the score the gate reads, so an overnight advisory cannot refuse an unchanged commit."
+        },
+        {
+          "technique": "severity-by-construction",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/security.ts:263 The exit path holds: curl -f turns the gate's 422 or 503 into a non-zero exit in the adopter's CI."
+        }
+      ]
+    },
+    "Org Scanning & Fleet Rollups/Org Import, Scan & Watchlist/quality-gates": {
+      "context": "Org Import, Scan & Watchlist",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T01:19:53.597Z",
+      "worker": "eca14530-bc5b-479f-89b8-c4e99c52e1ee",
+      "techniques": []
+    },
+    "Onboarding, Shell & AI Standard/AI-Native Standard & Onboarding Skill/quality-gates": {
+      "context": "AI-Native Standard & Onboarding Skill",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T01:19:53.597Z",
+      "worker": "eca14530-bc5b-479f-89b8-c4e99c52e1ee",
+      "techniques": [
+        {
+          "technique": "self-reported-gate-inputs",
+          "verdict": "deviation",
+          "evidence": "src/lib/standard/doctor.ts:193 The gated party writes the input that enables the check, and not writing it is silent, although the spec says guardrails always ship."
+        },
+        {
+          "technique": "match-the-resolved-artifact",
+          "verdict": "deviation",
+          "evidence": "src/lib/standard/doctor.ts:257 wired() searches raw hook text with comments included and across all stages, so '# lint' or a pre-commit entry reads as a wired pre-push control. standard.test.ts pins word boundaries only, with no comment-stripping or seeded prose case."
+        },
+        {
+          "technique": "renameable-detector-keys",
+          "verdict": "deviation",
+          "evidence": "src/lib/standard/doctor.ts:202 Bare names like .env and id_rsa are root-only pathspecs (git ls-files -- route.ts returns 0 here against 180 nested route.ts), so a nested .env passes while the message claims the property holds rather than 'no listed path'."
+        },
+        {
+          "technique": "unmeasurable-criteria",
+          "verdict": "deviation",
+          "evidence": "src/lib/standard/doctor.ts:304 A named generatedFrom file that is absent skips freshness with no finding, though the zero-weight 'unchecked' level exists and the spec requires a skipped clause to be emitted. Git-unavailable cases are handled correctly."
+        },
+        {
+          "technique": "enforcement-binding",
+          "verdict": "deviation",
+          "evidence": "src/lib/standard/wiring.ts:26 The generated workflow claims a merge block, but nothing under src/lib/standard or src/lib/onboarding tells the adopter to make the conformance job a required check, so red only reaches the run log."
+        },
+        {
+          "technique": "severity-by-construction",
+          "verdict": "deviation",
+          "evidence": "src/lib/standard/wiring.ts:54 The job runs doctor --json with no continue-on-error and the doctor exits 1 on any fail, so the label is false. Separately, spec.ts:194 calls missing pre-push controls highest-severity while doctor.ts:265 emits them as warn, which never moves the exit code."
+        },
+        {
+          "technique": "gate-laddering",
+          "verdict": "conformant",
+          "evidence": "src/lib/standard/wiring.ts:1 The same in-repo script runs pre-push and in CI, so the remote run confirms the local one."
+        },
+        {
+          "technique": "hook-hygiene",
+          "verdict": "conformant",
+          "evidence": "src/lib/standard/wiring.ts:5 The control extends the repo's existing hook system instead of installing a second one."
+        },
+        {
+          "technique": "gate-liveness",
+          "verdict": "conformant",
+          "evidence": "src/lib/standard/doctor.ts:215 A zero population is a failure rather than a clean pass, and could-not-judge has its own 'unchecked' level; the CI checkout is the backstop for the announced git skip."
+        },
+        {
+          "technique": "refusal-names-a-reachable-remedy",
+          "verdict": "conformant",
+          "evidence": "src/lib/standard/doctor.ts:151 Findings carry a fix line, and this out-of-tree remedy degrades to an action that needs no Ascent install."
+        },
+        {
+          "technique": "blocking-by-input-determinism",
+          "verdict": "conformant",
+          "evidence": "src/lib/standard/doctor.ts:520 A network failure during report-back is logged and never reaches the exit code, which keys on tree-derived fails only."
+        },
+        {
+          "technique": "false-positive-economics",
+          "verdict": "conformant",
+          "evidence": "src/lib/standard/guardrails.ts:22 The blocking pattern list deliberately excludes near-miss globs that would match legitimate files."
+        }
+      ]
+    },
+    "Reporting & Visualization/Roadmap & Recommendation Tracking/quality-gates": {
+      "context": "Roadmap & Recommendation Tracking",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "unknown",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T01:19:53.597Z",
+      "techniques": [
+        {
+          "technique": "item-liveness",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/scans-recommendations.ts:95 The assignment is a birth certificate. sweepExpiredLeases releases only machine claims and no cron under src/app/api/cron reaps human-held recommendations; last activity is at least derived and sorted in org-insights.ts:813,835."
+        },
+        {
+          "technique": "advancement-evidence-fields",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/recommendations/[id]/route.ts:3 A flat four-state status with no obligations bound to stages, so the stage-ladder schema does not apply."
+        },
+        {
+          "technique": "waiver-names-its-finding",
+          "verdict": "conformant",
+          "evidence": "src/app/api/recommendations/[id]/route.ts:128 Nearest analogue, not a blocking gate: suppression is per recommendation identity, a reasonless dismissal records nothing, and leaving dismissed lifts it."
+        }
+      ],
+      "withdrawn": {
+        "worker": "eca14530-bc5b-479f-89b8-c4e99c52e1ee",
+        "state": "deviation",
+        "at": "2026-11-09T01:20:30.004459+00:00",
+        "reason": "reviewer (sonnet): The central claim does not hold up at the anchor: scans-recommendations.ts has no sweepExpiredLeases or lease code (the sweep is in followup-claims), and src/lib/org/org-insights.ts does not exist at the cited path; the finding is also not about a quality gate."
+      }
     }
   }
 }

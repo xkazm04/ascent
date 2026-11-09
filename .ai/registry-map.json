@@ -2805,7 +2805,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/standard/doctor.ts:193 The doctor's only hard guardrail runs only if the gated repo's own manifest declares the pointer, so deleting paths.guardrails turns a would-be fail into no finding at all, not even the 'unchecked' this runner emits when git is missing.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a5b34d39a4b8edd3",
+          "evaluatedRevision": 56
         },
         {
           "subject": "standards-layered-runtime",
@@ -3752,7 +3756,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/org/scan/route.ts:89 The refusals seen in these routes are authorization, watch scope and credit entitlement, not quality checks on a change; a case-insensitive search of src/app/api/org, src/app/api/cron and src/lib/db for pre-push, waiver, exit code, merge gate and quality gate found zero files.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a5b34d39a4b8edd3",
+          "evaluatedRevision": 56
         },
         {
           "subject": "voice-io",
@@ -4227,7 +4235,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/org/security.ts:150 The register re-implements a two-condition subset of the gate instead of asking the shared resolver, while the real ?security=1 endpoint also applies the org bar or archetype default and the admission overlay, so a repo shown as passing can get a 422 from the snippet this same module generates.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a5b34d39a4b8edd3",
+          "evaluatedRevision": 56
         },
         {
           "subject": "prompt-assembly",

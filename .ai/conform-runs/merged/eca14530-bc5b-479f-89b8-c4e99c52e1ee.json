@@ -1,0 +1,218 @@
+{
+  "schema": "conform-run/1",
+  "worker": "eca14530-bc5b-479f-89b8-c4e99c52e1ee",
+  "subject": "quality-gates",
+  "evaluatedAt": "2026-11-09T01:19:53.597879+00:00",
+  "provider": "claude",
+  "model": "claude-opus-5-5",
+  "pairs": [
+    {
+      "context": "Security Posture & Audit Log",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/lib/org/security.ts:150 The register re-implements a two-condition subset of the gate instead of asking the shared resolver, while the real ?security=1 endpoint also applies the org bar or archetype default and the admission overlay, so a repo shown as passing can get a 422 from the snippet this same module generates.",
+      "techniques": [
+        {
+          "technique": "policy-projection",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/security.ts:150 Surfaces understate what blocks: policyFromParams spreads defaultGatePolicy(archetype) under the params and resolveRepoGatePolicy tightens further, but security.ts uses neither. The display-cap half is done correctly (lines 209-212 and buildGateSnippet read the full register)."
+        },
+        {
+          "technique": "unmeasurable-criteria",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/security.ts:165 A repo with no D9 row fails closed and the reason says 'D9 not measured' instead of printing a substitute score."
+        },
+        {
+          "technique": "blocking-by-input-determinism",
+          "verdict": "conformant",
+          "evidence": "src/lib/security/supply-chain.ts:2 The externally moving Dependabot feed is kept out of the score the gate reads, so an overnight advisory cannot refuse an unchanged commit."
+        },
+        {
+          "technique": "severity-by-construction",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/security.ts:263 The exit path holds: curl -f turns the gate's 422 or 503 into a non-zero exit in the adopter's CI."
+        }
+      ]
+    },
+    {
+      "context": "Org Import, Scan & Watchlist",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evidence": "src/app/api/org/scan/route.ts:89 The refusals seen in these routes are authorization, watch scope and credit entitlement, not quality checks on a change; a case-insensitive search of src/app/api/org, src/app/api/cron and src/lib/db for pre-push, waiver, exit code, merge gate and quality gate found zero files.",
+      "techniques": [],
+      "absenceTerms": [
+        "pre-push",
+        "waiver",
+        "exit code",
+        "merge gate"
+      ]
+    },
+    {
+      "context": "AI-Native Standard & Onboarding Skill",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/lib/standard/doctor.ts:193 The doctor's only hard guardrail runs only if the gated repo's own manifest declares the pointer, so deleting paths.guardrails turns a would-be fail into no finding at all, not even the 'unchecked' this runner emits when git is missing.",
+      "techniques": [
+        {
+          "technique": "self-reported-gate-inputs",
+          "verdict": "deviation",
+          "evidence": "src/lib/standard/doctor.ts:193 The gated party writes the input that enables the check, and not writing it is silent, although the spec says guardrails always ship."
+        },
+        {
+          "technique": "match-the-resolved-artifact",
+          "verdict": "deviation",
+          "evidence": "src/lib/standard/doctor.ts:257 wired() searches raw hook text with comments included and across all stages, so '# lint' or a pre-commit entry reads as a wired pre-push control. standard.test.ts pins word boundaries only, with no comment-stripping or seeded prose case."
+        },
+        {
+          "technique": "renameable-detector-keys",
+          "verdict": "deviation",
+          "evidence": "src/lib/standard/doctor.ts:202 Bare names like .env and id_rsa are root-only pathspecs (git ls-files -- route.ts returns 0 here against 180 nested route.ts), so a nested .env passes while the message claims the property holds rather than 'no listed path'."
+        },
+        {
+          "technique": "unmeasurable-criteria",
+          "verdict": "deviation",
+          "evidence": "src/lib/standard/doctor.ts:304 A named generatedFrom file that is absent skips freshness with no finding, though the zero-weight 'unchecked' level exists and the spec requires a skipped clause to be emitted. Git-unavailable cases are handled correctly."
+        },
+        {
+          "technique": "enforcement-binding",
+          "verdict": "deviation",
+          "evidence": "src/lib/standard/wiring.ts:26 The generated workflow claims a merge block, but nothing under src/lib/standard or src/lib/onboarding tells the adopter to make the conformance job a required check, so red only reaches the run log."
+        },
+        {
+          "technique": "severity-by-construction",
+          "verdict": "deviation",
+          "evidence": "src/lib/standard/wiring.ts:54 The job runs doctor --json with no continue-on-error and the doctor exits 1 on any fail, so the label is false. Separately, spec.ts:194 calls missing pre-push controls highest-severity while doctor.ts:265 emits them as warn, which never moves the exit code."
+        },
+        {
+          "technique": "gate-laddering",
+          "verdict": "conformant",
+          "evidence": "src/lib/standard/wiring.ts:1 The same in-repo script runs pre-push and in CI, so the remote run confirms the local one."
+        },
+        {
+          "technique": "hook-hygiene",
+          "verdict": "conformant",
+          "evidence": "src/lib/standard/wiring.ts:5 The control extends the repo's existing hook system instead of installing a second one."
+        },
+        {
+          "technique": "gate-liveness",
+          "verdict": "conformant",
+          "evidence": "src/lib/standard/doctor.ts:215 A zero population is a failure rather than a clean pass, and could-not-judge has its own 'unchecked' level; the CI checkout is the backstop for the announced git skip."
+        },
+        {
+          "technique": "refusal-names-a-reachable-remedy",
+          "verdict": "conformant",
+          "evidence": "src/lib/standard/doctor.ts:151 Findings carry a fix line, and this out-of-tree remedy degrades to an action that needs no Ascent install."
+        },
+        {
+          "technique": "blocking-by-input-determinism",
+          "verdict": "conformant",
+          "evidence": "src/lib/standard/doctor.ts:520 A network failure during report-back is logged and never reaches the exit code, which keys on tree-derived fails only."
+        },
+        {
+          "technique": "false-positive-economics",
+          "verdict": "conformant",
+          "evidence": "src/lib/standard/guardrails.ts:22 The blocking pattern list deliberately excludes near-miss globs that would match legitimate files."
+        }
+      ]
+    }
+  ],
+  "declined": [
+    {
+      "subject": "quality-gates",
+      "context": "Developer home (UC3 individual care)",
+      "reason": "withdrawn after review: reviewer (sonnet): The anchor at developer-view.ts:4 is a header comment about who may see which view model, so it does not show that the context has no refusing check, and the quality-gate absence search used terms that miss that."
+    },
+    {
+      "subject": "quality-gates",
+      "context": "Roadmap & Recommendation Tracking",
+      "reason": "withdrawn after review: reviewer (sonnet): The central claim does not hold up at the anchor: scans-recommendations.ts has no sweepExpiredLeases or lease code (the sweep is in followup-claims), and src/lib/org/org-insights.ts does not exist at the cited path; the finding is also not about a quality gate."
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-11-09T01:19:53.597879+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "quality-gates"
+      ],
+      "techniques": [],
+      "deviations": 0,
+      "context": "Developer home (UC3 individual care)",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-09T01:19:53.597879+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "quality-gates"
+      ],
+      "techniques": [
+        "blocking-by-input-determinism",
+        "policy-projection",
+        "severity-by-construction",
+        "unmeasurable-criteria"
+      ],
+      "deviations": 1,
+      "context": "Security Posture & Audit Log",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-09T01:19:53.597879+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "quality-gates"
+      ],
+      "techniques": [],
+      "deviations": 0,
+      "context": "Org Import, Scan & Watchlist",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-09T01:19:53.597879+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "quality-gates"
+      ],
+      "techniques": [
+        "blocking-by-input-determinism",
+        "enforcement-binding",
+        "false-positive-economics",
+        "gate-laddering",
+        "gate-liveness",
+        "hook-hygiene",
+        "match-the-resolved-artifact",
+        "refusal-names-a-reachable-remedy",
+        "renameable-detector-keys",
+        "self-reported-gate-inputs",
+        "severity-by-construction",
+        "unmeasurable-criteria"
+      ],
+      "deviations": 1,
+      "context": "AI-Native Standard & Onboarding Skill",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-09T01:19:53.597879+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "quality-gates"
+      ],
+      "techniques": [
+        "advancement-evidence-fields",
+        "item-liveness",
+        "waiver-names-its-finding"
+      ],
+      "deviations": 1,
+      "context": "Roadmap & Recommendation Tracking",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    }
+  ]
+}
