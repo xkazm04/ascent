@@ -11624,6 +11624,16 @@
       "evaluatedTs": "2026-11-09T22:04:56.571Z",
       "worker": "3b379b41-f0f7-402a-9135-ea9bbc3890f5",
       "techniques": []
+    },
+    "Onboarding, Shell & AI Standard/Launch Fleet Map/agent-memory": {
+      "context": "Launch Fleet Map",
+      "subject": "agent-memory",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T22:16:09.830Z",
+      "worker": "35737e55-5a85-47a0-b075-bb240800c4fa",
+      "techniques": []
     }
   }
 }

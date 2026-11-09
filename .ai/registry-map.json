@@ -2998,7 +2998,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/components/launch/FleetMap.tsx:12 The fleet map is a client visualization of installations and scan results built on fleet data and scan hooks. A case-insensitive grep of src/app/launch and src/components/launch for memor, recall, consolidat, episod and distill found zero hits, so no agent-memory store, capture or recall exists here for the subject to govern.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:2b62b4004acc600d",
+          "evaluatedRevision": 53
         },
         {
           "subject": "mcp-tools",
