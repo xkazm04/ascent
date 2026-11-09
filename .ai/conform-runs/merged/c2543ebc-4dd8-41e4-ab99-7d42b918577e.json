@@ -1,0 +1,106 @@
+{
+ "schema": "conform-run/1",
+ "worker": "c2543ebc-4dd8-41e4-ab99-7d42b918577e",
+ "subject": "agent-memory",
+ "evaluatedAt": "2026-11-09T05:11:29.711230+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Roadmap & Recommendation Tracking",
+   "subject": "agent-memory",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/recommendations/[id]/route.ts:127 A member's status PATCH writes durable org memory that presents a human click as a confidence-1.0 machine observation with no pointer to the recommendation or its actor, and a later reopen retires none of what was published, so agents keep reading a closed gap or a lifted dismissal as current.",
+   "techniques": [
+    {
+     "technique": "memory-governance",
+     "verdict": "deviation",
+     "evidence": "src/lib/memory/scan-feed.ts:244 A human 'done' from the PATCH route goes through the scan-pipeline door at confidence 1.0 and is labelled 'From scans', so a colleague's claim is indistinguishable from an observation, while scans-persist.ts:772 itself calls the rescan the trustworthy close. Secondary, derived by reading and not executed: the route passes from:null, so a repeat done PATCH on a later day re-fires, and the changed date token keeps overlap under the 0.95 floor when the line has fewer than 20 tokens."
+    },
+    {
+     "technique": "episodic-capture",
+     "verdict": "deviation",
+     "evidence": "src/lib/memory/scan-feed.ts:243 The episode has no pointer to its source: the recommendation id is used only for the org and repo lookup, the actor is dropped at rec-transition-effects.ts:47, and the row is written with createdBy null. A done-to-open reopen also emits no correction episode, because RecTransitionEffect has no such effect (rec-transitions.ts:18)."
+    },
+    {
+     "technique": "decay-and-forgetting",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/org-decisions.ts:242 Reopening sets the OrgDecision row to open, but the memory published from the dismissal is neither archived nor superseded and no reopen record is written, so the dismissal is still served to agents after its window closed. org-decisions.ts contains no archive or supersede call, and no other module touches orgDecision."
+    },
+    {
+     "technique": "scope-before-similarity",
+     "verdict": "conformant",
+     "evidence": "src/lib/memory/scan-feed.ts:91 The write-time dedup partitions candidates by org, repo namespace and source before any similarity check runs."
+    },
+    {
+     "technique": "container-carries-decision-status",
+     "verdict": "conformant",
+     "evidence": "src/lib/report/rec-transitions.ts:44 Admission is decided by the persisted lifecycle status rather than by reading text, and dismissed is deliberately kept out of the closed set."
+    }
+   ]
+  },
+  {
+   "context": "Portfolio & Public Leaderboard",
+   "subject": "agent-memory",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/app/portfolio/page.tsx:13 These pages render scan rollups and a public register, and a search of the listed files for memory, recall, consolidation, episode, decay and embedding vocabulary returned no hits, the only nearby mentions being the unrelated phrase 'in memory' in src/lib/register/data.ts and the separate taxonomy module src/lib/org/memory-kinds.ts, which no listed file references.",
+   "techniques": [],
+   "absenceTerms": [
+    "recordMemoryRecall",
+    "supersededBy",
+    "halfLife"
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "agent-memory",
+   "context": "Maturity Model & Scoring Engine",
+   "reason": "absence contradicted: src/lib/athena/actions-execute.test.ts:20 contains 'OrgMemory' (526 hit(s) in the context's directories)"
+  },
+  {
+   "subject": "agent-memory",
+   "context": "App Shell, SEO & Error Pages",
+   "reason": "absence contradicted: src/app/api/org/loop/lessons/route.runner.test.ts:30 contains 'OrgMemory' (669 hit(s) in the context's directories)"
+  },
+  {
+   "subject": "agent-memory",
+   "context": "GitHub OAuth & Session",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-09T05:11:29.711230+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-memory"
+   ],
+   "techniques": [
+    "container-carries-decision-status",
+    "decay-and-forgetting",
+    "episodic-capture",
+    "memory-governance",
+    "scope-before-similarity"
+   ],
+   "deviations": 1,
+   "context": "Roadmap & Recommendation Tracking",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T05:11:29.711230+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-memory"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Portfolio & Public Leaderboard",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

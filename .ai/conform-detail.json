@@ -11496,6 +11496,16 @@
           "evidence": "src/lib/security/supply-chain.test.ts:133 The denial is injected at the network seam, so the real fetchAdvisories decision to drop the repo runs."
         }
       ]
+    },
+    "Reporting & Visualization/Portfolio & Public Leaderboard/agent-memory": {
+      "context": "Portfolio & Public Leaderboard",
+      "subject": "agent-memory",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T05:11:29.711Z",
+      "worker": "c2543ebc-4dd8-41e4-ab99-7d42b918577e",
+      "techniques": []
     }
   }
 }

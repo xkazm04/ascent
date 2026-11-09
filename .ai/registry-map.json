@@ -9457,7 +9457,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/portfolio/page.tsx:13 These pages render scan rollups and a public register, and a search of the listed files for memory, recall, consolidation, episode, decay and embedding vocabulary returned no hits, the only nearby mentions being the unrelated phrase 'in memory' in src/lib/register/data.ts and the separate taxonomy module src/lib/org/memory-kinds.ts, which no listed file references.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:2b62b4004acc600d",
+          "evaluatedRevision": 53
         },
         {
           "subject": "eval-harness",
