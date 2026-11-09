@@ -11564,6 +11564,38 @@
           "evidence": "src/lib/memory/scan-feed.ts:91 The write-time dedup partitions by org, namespace and source before any similarity comparison runs."
         }
       ]
+    },
+    "Repository Scanning & Scoring/LLM Provider Abstraction/agent-instruction-files": {
+      "context": "LLM Provider Abstraction",
+      "subject": "agent-instruction-files",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T05:38:31.436Z",
+      "worker": "2823a487-e407-4f31-9434-2bbd9379bfc0",
+      "techniques": [
+        {
+          "technique": "workspace-ancestry-isolation",
+          "verdict": "deviation",
+          "evidence": "src/lib/llm/transport/env-strip.test.ts:67 The positional fix is present, but the guard asserts the layout on a mocked spawn; the technique requires the isolation claim to be verified against what actually loaded, and a repo-wide search of src finds no loaded-set capture (no InstructionsLoaded, --setting-sources or --bare)."
+        },
+        {
+          "technique": "context-reset-redelivery",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/transport/types.ts:3 One child process per call means no clear, compaction or resume for a delivered copy to outlive."
+        },
+        {
+          "technique": "line-earning",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/claude-cli.ts:44 The instructions here are assembled per call by the application, which is prompt-assembly territory, not a repo-owned always-loaded floor."
+        },
+        {
+          "technique": "host-contract-compilation",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/llm/transport/types.ts:1 The per-CLI contract normalizes spawning and results; it compiles no skill or instruction asset per host."
+        }
+      ],
+      "registryProposal": "workspace-ancestry-isolation frames the span as an ancestry walk and says a sibling layout empties it by construction, but a launch outside every project tree still receives user-global instruction files and settings, which are not on the ancestry walk; the technique should name that layer and how to exclude or assert it."
     }
   }
 }

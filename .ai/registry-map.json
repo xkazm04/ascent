@@ -1241,7 +1241,11 @@
           "revision": 31,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/llm/transport/claude.ts:155 Assessment runs launch `claude -p` from a neutral tmpdir, which keeps the project brief out by position, but no code captures or asserts which instruction files actually loaded and no --setting-sources or --bare flag is passed, so an operator's user-level brief would silently become an uncontrolled input to scan scores (none exists on this machine as of 2026-11-09).",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:9b02cf004a7ce444",
+          "evaluatedRevision": 32
         }
       ],
       "governance": "governed"
