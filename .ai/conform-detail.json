@@ -10710,6 +10710,104 @@
           "evidence": "src/lib/memory/scan-feed.ts:91 The write-time dedup partitions by org, namespace and source before measuring text overlap, and this door only writes shared rows, so similarity cannot cross a scope boundary."
         }
       ]
+    },
+    "Org Scanning & Fleet Rollups/Members & Access Control/test-harness": {
+      "context": "Members & Access Control",
+      "subject": "test-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T03:00:15.928Z",
+      "worker": "2f2c130c-e506-449c-a005-8f5c9cf41e7b",
+      "techniques": [
+        {
+          "technique": "a-test-helper-is-a-fork-of-the-driver",
+          "verdict": "deviation",
+          "evidence": "src/lib/authz.test.ts:73 A hand-written copy of the shipped function under a comment calling it real; only normalizeLogin comes from actual. Separately, members.test.ts's fake $transaction ignores isolation, and that gap is named and pinned at lines 288 and 326."
+        },
+        {
+          "technique": "unreached-decisions-pin-nothing",
+          "verdict": "deviation",
+          "evidence": "src/app/api/org/invites/accept/route.public.test.ts:7 route.ts imports only @/lib/db, @/lib/auth and @/lib/access, and invites.ts does not import authz, so the claimed gate never runs. @/lib/db/members is also mocked twice (lines 23 and 48), which leaves the stated owner arrangement unused. The public-org refusal itself is reached."
+        },
+        {
+          "technique": "proved-off-the-path",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/invites/accept/route.public.test.ts:56 The POST handler reaches the shipped acceptInvite, the door production uses."
+        }
+      ]
+    },
+    "Org Dashboard & Analytics/Developer home (UC3 individual care)/test-harness": {
+      "context": "Developer home (UC3 individual care)",
+      "subject": "test-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T03:00:15.928Z",
+      "worker": "2f2c130c-e506-449c-a005-8f5c9cf41e7b",
+      "techniques": [
+        {
+          "technique": "isolation-lanes",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/developer-view-load.test.ts:16 The session-shape and share sibling files mock these readers; this file does not, and its header still says three readers."
+        },
+        {
+          "technique": "assert-through-the-reader",
+          "verdict": "deviation",
+          "evidence": "src/features/developer/CareCopyAction.dom.test.tsx:32 The clipboard is the near side of a pasted shell command. package.json declares no bin, 'mentor init' has no implementation in src or scripts, and developer.md says the npx ascent distributable has not shipped."
+        },
+        {
+          "technique": "unreached-decisions-pin-nothing",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/developer-view-load.test.ts:132 activityState names which producer answered, so a failed read cannot pass as an absence."
+        },
+        {
+          "technique": "proved-off-the-path",
+          "verdict": "conformant",
+          "evidence": "src/features/developer/DeveloperHome.dom.test.tsx:10 DeveloperHome.tsx only returns this shell, so the test renders the shipped client tree."
+        }
+      ]
+    },
+    "Identity & GitHub Connectivity/GitHub Repo Data Access/test-harness": {
+      "context": "GitHub Repo Data Access",
+      "subject": "test-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T03:00:15.928Z",
+      "worker": "2f2c130c-e506-449c-a005-8f5c9cf41e7b",
+      "techniques": [
+        {
+          "technique": "a-test-helper-is-a-fork-of-the-driver",
+          "verdict": "deviation",
+          "evidence": "src/lib/github/governance.test.ts:13 The tests pin governance.ts's adoption of the helper, while the helper's behaviour is asserted only against this restatement."
+        },
+        {
+          "technique": "recorded-interaction-fixtures",
+          "verdict": "deviation",
+          "evidence": "src/lib/github/graphql.test.ts:96 GitHub's in-band error contract is a hand-authored model, with no recording or contract revision. A repo search found no nock, msw, Polly or cassette use, and the only real-ingest e2e is @livescan, which CI excludes."
+        },
+        {
+          "technique": "isolation-lanes",
+          "verdict": "deviation",
+          "evidence": "src/lib/github/host.test.ts:7 The test never arranges 'unset', so a machine exporting GITHUB_API_URL fails it. discover.test.ts:186 stubs the same variable explicitly."
+        },
+        {
+          "technique": "unreached-decisions-pin-nothing",
+          "verdict": "conformant",
+          "evidence": "src/lib/github/graphql.test.ts:153 The query pin reads what actually crossed to the transport, not a local derivation."
+        },
+        {
+          "technique": "assert-through-the-reader",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/github/graphql.test.ts:154 The query's reader is GitHub's hosted service, which the technique's when-not section sends to recorded fixtures or a far-side oracle."
+        },
+        {
+          "technique": "assert-the-schedule-not-the-stopwatch",
+          "verdict": "conformant",
+          "evidence": "src/lib/github/host.test.ts:49 The test reads the signal's state after a later timer and asserts no elapsed time, so the 20 ms budget and 45 ms wait act as an ordering."
+        }
+      ]
     }
   }
 }

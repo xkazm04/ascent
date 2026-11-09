@@ -1771,7 +1771,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/github/governance.test.ts:13 The preceding comment calls this the real implementation under test, but it is a copy inside the mock and no other test names the function, so a regression in host.ts encodePathSegments leaves the slash-branch tests green.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "agent-memory",
@@ -3445,7 +3449,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/authz.test.ts:73 The comment at line 64 promises a real roleAtLeast so the gate hierarchy behaves like production, but the mock restates the rank table even though actual is in scope, so a change to members.ts ROLE_RANK cannot redden the gate suite.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "mcp-tools",
@@ -5592,7 +5600,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/org/developer-view-load.test.ts:16 The loader also calls getOwnAgentSessions and getMentorShare, which this file leaves unmocked and which read the real isDbConfigured, so its results depend on the DATABASE_URL of the machine running it.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "supply-chain",

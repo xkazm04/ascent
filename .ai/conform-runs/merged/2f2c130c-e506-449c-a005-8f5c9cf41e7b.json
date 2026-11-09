@@ -1,0 +1,215 @@
+{
+ "schema": "conform-run/1",
+ "worker": "2f2c130c-e506-449c-a005-8f5c9cf41e7b",
+ "subject": "test-harness",
+ "evaluatedAt": "2026-11-09T03:00:15.928054+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Roadmap & Recommendation Tracking",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/recommendations/[id]/route.test.ts:143 The describe name claims validation runs after the tenant gate, but every 400 case leaves the gate allowing and every denial case sends a valid body, so moving validation above requireOrgAccess keeps the file green.",
+   "techniques": [
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "deviation",
+     "evidence": "src/app/api/recommendations/[id]/route.test.ts:143 The name states an ordering guard no test arranges: no case combines an invalid body with a denying gate, and line 195 says the gate is left allowing."
+    },
+    {
+     "technique": "isolation-lanes",
+     "verdict": "deviation",
+     "evidence": "src/app/api/recommendations/[id]/route.test.ts:29 This mock is off the path: route.ts now calls the unmocked applyRecTransitionEffects, whose writers read the real isDbConfigured from @/lib/db/client. A status patch therefore queries whatever DATABASE_URL the shell exports, and the 'inert here' comment is stale."
+    },
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "conformant",
+     "evidence": "src/app/api/recommendations/route.unreachable.test.ts:16 The outage case keeps the shipped reader and client wrappers and fakes only the Prisma edge."
+    },
+    {
+     "technique": "pin-the-call-not-the-name",
+     "verdict": "conformant",
+     "evidence": "src/app/api/recommendations/[id]/route.consequences.test.ts:75 The source pin strips comments and seeds both a real call and a prose mention."
+    },
+    {
+     "technique": "proved-off-the-path",
+     "verdict": "conformant",
+     "evidence": "src/app/api/recommendations/[id]/route.test.ts:44 The tests drive the exported route handler, so the gate order is the shipped composition and not one the test assembled."
+    }
+   ]
+  },
+  {
+   "context": "Members & Access Control",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/authz.test.ts:73 The comment at line 64 promises a real roleAtLeast so the gate hierarchy behaves like production, but the mock restates the rank table even though actual is in scope, so a change to members.ts ROLE_RANK cannot redden the gate suite.",
+   "techniques": [
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "deviation",
+     "evidence": "src/lib/authz.test.ts:73 A hand-written copy of the shipped function under a comment calling it real; only normalizeLogin comes from actual. Separately, members.test.ts's fake $transaction ignores isolation, and that gap is named and pinned at lines 288 and 326."
+    },
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "deviation",
+     "evidence": "src/app/api/org/invites/accept/route.public.test.ts:7 route.ts imports only @/lib/db, @/lib/auth and @/lib/access, and invites.ts does not import authz, so the claimed gate never runs. @/lib/db/members is also mocked twice (lines 23 and 48), which leaves the stated owner arrangement unused. The public-org refusal itself is reached."
+    },
+    {
+     "technique": "proved-off-the-path",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/invites/accept/route.public.test.ts:56 The POST handler reaches the shipped acceptInvite, the door production uses."
+    }
+   ]
+  },
+  {
+   "context": "Developer home (UC3 individual care)",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/org/developer-view-load.test.ts:16 The loader also calls getOwnAgentSessions and getMentorShare, which this file leaves unmocked and which read the real isDbConfigured, so its results depend on the DATABASE_URL of the machine running it.",
+   "techniques": [
+    {
+     "technique": "isolation-lanes",
+     "verdict": "deviation",
+     "evidence": "src/lib/org/developer-view-load.test.ts:16 The session-shape and share sibling files mock these readers; this file does not, and its header still says three readers."
+    },
+    {
+     "technique": "assert-through-the-reader",
+     "verdict": "deviation",
+     "evidence": "src/features/developer/CareCopyAction.dom.test.tsx:32 The clipboard is the near side of a pasted shell command. package.json declares no bin, 'mentor init' has no implementation in src or scripts, and developer.md says the npx ascent distributable has not shipped."
+    },
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "conformant",
+     "evidence": "src/lib/org/developer-view-load.test.ts:132 activityState names which producer answered, so a failed read cannot pass as an absence."
+    },
+    {
+     "technique": "proved-off-the-path",
+     "verdict": "conformant",
+     "evidence": "src/features/developer/DeveloperHome.dom.test.tsx:10 DeveloperHome.tsx only returns this shell, so the test renders the shipped client tree."
+    }
+   ]
+  },
+  {
+   "context": "GitHub Repo Data Access",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/github/governance.test.ts:13 The preceding comment calls this the real implementation under test, but it is a copy inside the mock and no other test names the function, so a regression in host.ts encodePathSegments leaves the slash-branch tests green.",
+   "techniques": [
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "deviation",
+     "evidence": "src/lib/github/governance.test.ts:13 The tests pin governance.ts's adoption of the helper, while the helper's behaviour is asserted only against this restatement."
+    },
+    {
+     "technique": "recorded-interaction-fixtures",
+     "verdict": "deviation",
+     "evidence": "src/lib/github/graphql.test.ts:96 GitHub's in-band error contract is a hand-authored model, with no recording or contract revision. A repo search found no nock, msw, Polly or cassette use, and the only real-ingest e2e is @livescan, which CI excludes."
+    },
+    {
+     "technique": "isolation-lanes",
+     "verdict": "deviation",
+     "evidence": "src/lib/github/host.test.ts:7 The test never arranges 'unset', so a machine exporting GITHUB_API_URL fails it. discover.test.ts:186 stubs the same variable explicitly."
+    },
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "conformant",
+     "evidence": "src/lib/github/graphql.test.ts:153 The query pin reads what actually crossed to the transport, not a local derivation."
+    },
+    {
+     "technique": "assert-through-the-reader",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/github/graphql.test.ts:154 The query's reader is GitHub's hosted service, which the technique's when-not section sends to recorded fixtures or a far-side oracle."
+    },
+    {
+     "technique": "assert-the-schedule-not-the-stopwatch",
+     "verdict": "conformant",
+     "evidence": "src/lib/github/host.test.ts:49 The test reads the signal's state after a later timer and asserts no elapsed time, so the 20 ms budget and 45 ms wait act as an ordering."
+    }
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "test-harness",
+   "context": "Repo Report Shell & Tabs",
+   "reason": "evidence leans on share-card/route.failures.test.ts, which is not a tracked file"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-09T03:00:15.928054+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "isolation-lanes",
+    "pin-the-call-not-the-name",
+    "proved-off-the-path",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "Roadmap & Recommendation Tracking",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T03:00:15.928054+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "proved-off-the-path",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "Members & Access Control",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T03:00:15.928054+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "assert-through-the-reader",
+    "isolation-lanes",
+    "proved-off-the-path",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "Developer home (UC3 individual care)",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T03:00:15.928054+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "assert-the-schedule-not-the-stopwatch",
+    "assert-through-the-reader",
+    "isolation-lanes",
+    "recorded-interaction-fixtures",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "GitHub Repo Data Access",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
