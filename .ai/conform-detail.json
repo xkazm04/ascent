@@ -10808,6 +10808,67 @@
           "evidence": "src/lib/github/host.test.ts:49 The test reads the signal's state after a later timer and asserts no elapsed time, so the 20 ms budget and 45 ms wait act as an ordering."
         }
       ]
+    },
+    "Billing, Credits & Metering/Usage Metering/agent-memory": {
+      "context": "Usage Metering",
+      "subject": "agent-memory",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T03:13:38.231Z",
+      "worker": "620f1366-50f6-4966-966d-9b9966c07092",
+      "techniques": []
+    },
+    "Marketing Site & Design System/Landing Page/agent-memory": {
+      "context": "Landing Page",
+      "subject": "agent-memory",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T03:13:38.231Z",
+      "worker": "620f1366-50f6-4966-966d-9b9966c07092",
+      "techniques": []
+    },
+    "Reporting & Visualization/AI-Native Passports/agent-memory": {
+      "context": "AI-Native Passports",
+      "subject": "agent-memory",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T03:13:38.231Z",
+      "worker": "620f1366-50f6-4966-966d-9b9966c07092",
+      "techniques": [
+        {
+          "technique": "memory-governance",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/org-decisions.ts:242 A human reversal is the highest-grade correction, yet it is neither remembered as an event nor superseding: no memory write happens on status open, and no code reads OrgDecision.memoryId to retire the earlier row."
+        },
+        {
+          "technique": "consolidation",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/org-decisions.ts:246 The decision is state-valued on the code-owned key (orgId, module, itemKey), but re-deciding mints a new live row without supersedeId, which createOrgMemory supports (org-memory.ts:398), so accepted and dismissed versions of one ruling stay live side by side."
+        },
+        {
+          "technique": "decay-and-forgetting",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/org-decisions.ts:226 The snooze states its own validity boundary, but the memory call passes no expiresAt and the content omits the date, so a lapsed snooze is still recited; only the 30-day episodic half-life limits it, and the technique says a half-life cannot substitute for an expiry."
+        },
+        {
+          "technique": "container-carries-decision-status",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/org-decisions.ts:245 Admission to memory is decided in code by the lifecycle field rather than inferred from prose, and the status is carried into the row's content and tags."
+        },
+        {
+          "technique": "episodic-capture",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/org-decisions.ts:201 One record per human ruling, closed on a real event, with a one-sentence body holding outcome, actor and reason. The raw-source pointer runs only from the decision row to the memory, not back."
+        },
+        {
+          "technique": "owner-and-counterpart-scope",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/decision/route.ts:57 The memory is owned by the gated org and the author is passed separately as createdBy, so owner is not conflated with writer; no counterpart axis arises on this path."
+        }
+      ]
     }
   }
 }

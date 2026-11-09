@@ -9335,7 +9335,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/app/api/org/decision/route.ts:9 The route promises a decision is reversible, but decide() writes nothing to Shared Org Memory on reopen and never retires or supersedes the row it published, and activeMemoryWhere filters only archived, superseded and expired rows, so connected agents keep recalling a ruling the human has withdrawn until episodic decay removes it.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:2b62b4004acc600d",
+          "evaluatedRevision": 53
         },
         {
           "subject": "mcp-tools",
@@ -10057,7 +10061,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/db/usage.ts:57 Memory appears here only as a metered spend bucket, with no capture, recall or forgetting; across the 12 listed files a search for memory, recall, consolidat, remember, episod, embedding, decay and forget found five incidental hits (a lane label, spend comments, a remembered org switcher, an in-memory limiter), and embedding and distill have zero hits in src/app/usage, src/app/api/usage, src/components/usage and src/lib/db, whose neighbouring org-memory modules are why broader terms are left out.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:2b62b4004acc600d",
+          "evaluatedRevision": 53
         },
         {
           "subject": "cost-metering",
@@ -11037,7 +11045,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/components/landing/prism/PrismBench.tsx:15 The landing components render static marketing copy from literals with no fetch, database or API call; memory, recall, episodic, supersede and embedding have zero hits anywhere under src/components/landing, so no agent memory exists here to judge.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:2b62b4004acc600d",
+          "evaluatedRevision": 53
         },
         {
           "subject": "repository-landing-document",
