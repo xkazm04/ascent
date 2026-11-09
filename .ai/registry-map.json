@@ -5060,7 +5060,11 @@
           "revision": 31,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/integrations/otlp.ts:3 The integrations context ingests agent usage telemetry (OTLP metrics and logs) and attributes it to repos; it never authors or loads an instruction file. The context's own files have zero hits for CLAUDE.md, AGENTS.md, copilot-instructions and cursorrules, and the directories (including all of src/lib/db) have zero hits for the absence terms listed. Some unrelated src/lib/db siblings do mention CLAUDE.md and AGENTS.md.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:9b02cf004a7ce444",
+          "evaluatedRevision": 32
         },
         {
           "subject": "mcp-tools",

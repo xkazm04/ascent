@@ -7403,29 +7403,32 @@
       "bundle": "software-engineering",
       "state": "unknown",
       "evaluatedAt": "2026-11-09",
-      "evaluatedTs": "2026-11-09T04:52:41.646Z",
+      "evaluatedTs": "2026-11-09T22:04:56.571Z",
       "techniques": [
         {
           "technique": "capability-coverage-contract",
           "verdict": "not-applicable",
-          "evidence": "src/app/onboarding/page.tsx:32 The page sends a person to a skill guide; it is not an instruction surface an agent plans from."
+          "evidence": "src/app/onboarding/page.tsx:32 The page sends a person to a skill guide; it is not an instruction surface an agent plans from.",
+          "carriedFrom": "2026-11-09"
         },
         {
           "technique": "workspace-ancestry-isolation",
           "verdict": "not-applicable",
-          "evidence": "src/components/onboarding/importScan.ts:31 The client requests a scan from the server; nothing here creates a directory or launches an agent in one."
+          "evidence": "src/components/onboarding/importScan.ts:31 The client requests a scan from the server; nothing here creates a directory or launches an agent in one.",
+          "carriedFrom": "2026-11-09"
         },
         {
           "technique": "principal-tier-gating",
           "verdict": "not-applicable",
-          "evidence": "src/components/onboarding/canRunReal.ts:4 This gate decides on credits for a billing outcome; it is not a tier of agent principals in an instruction file."
+          "evidence": "src/components/onboarding/canRunReal.ts:4 This gate decides on credits for a billing outcome; it is not a tier of agent principals in an instruction file.",
+          "carriedFrom": "2026-11-09"
         }
       ],
       "withdrawn": {
-        "worker": "64e61690-6ca7-4a45-a02a-5580985ec8de",
+        "worker": "3b379b41-f0f7-402a-9135-ea9bbc3890f5",
         "state": "not-applicable",
-        "at": "2026-11-09T04:53:11.009212+00:00",
-        "reason": "reviewer (sonnet): The context does touch an agent instruction surface: SelfHostSetupPanel.tsx, rendered at page.tsx:109, tells the operator to run `claude` then `/onboarding`, the repo's own skill, and page.tsx:32 is only a comment about that branch, so the claim that it 'launches no agent' and has no instruction sur"
+        "at": "2026-11-09T22:05:31.756715+00:00",
+        "reason": "reviewer (sonnet): The wizard's done step (OnboardingScanStep.tsx:270-272) renders SkillDownloadList to download the generated onboarding SKILL.md, and a nearby comment mentions a foundation PR. That is the wizard offering and writing agent-guidance files, so 'neither authors, loads nor writes' is contradicted, and th"
       }
     },
     "Org Knowledge & Skills/AI Registry Repo (Onboarding & Index)/concurrent-vcs": {
@@ -11596,6 +11599,31 @@
         }
       ],
       "registryProposal": "workspace-ancestry-isolation frames the span as an ancestry walk and says a sibling layout empties it by construction, but a launch outside every project tree still receives user-global instruction files and settings, which are not on the ancestry walk; the technique should name that layer and how to exclude or assert it."
+    },
+    "Reporting & Visualization/Repo Report Shell & Tabs/agent-instruction-files": {
+      "context": "Repo Report Shell & Tabs",
+      "subject": "agent-instruction-files",
+      "bundle": "software-engineering",
+      "state": "unknown",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T22:04:56.571Z",
+      "techniques": [],
+      "withdrawn": {
+        "worker": "3b379b41-f0f7-402a-9135-ea9bbc3890f5",
+        "state": "not-applicable",
+        "at": "2026-11-09T22:05:31.883974+00:00",
+        "reason": "reviewer (sonnet): The anchor ReportClient.tsx:1 is incidental. The context also includes SkillHistorySection and page.tsx, which read and render skill-generation history (track ids like agent-docs), and I could not confirm that no instruction-file content is surfaced there."
+      }
+    },
+    "Org Dashboard & Analytics/Provider Integrations/agent-instruction-files": {
+      "context": "Provider Integrations",
+      "subject": "agent-instruction-files",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T22:04:56.571Z",
+      "worker": "3b379b41-f0f7-402a-9135-ea9bbc3890f5",
+      "techniques": []
     }
   }
 }
