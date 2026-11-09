@@ -10165,10 +10165,16 @@
       "context": "Developer home (UC3 individual care)",
       "subject": "quality-gates",
       "bundle": "software-engineering",
-      "state": "unknown",
+      "state": "not-applicable",
       "evaluatedAt": "2026-11-09",
-      "evaluatedTs": "2026-11-09T01:19:53.597Z",
+      "evaluatedTs": "2026-11-09T01:35:59.781Z",
+      "worker": "1927f834-ea38-4e9c-836f-456d9258948d",
       "techniques": [
+        {
+          "technique": "item-liveness",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/org/developer-view.ts:31 Care moves have states, but each belongs to the one developer viewing it; there is no shared board, assigned owner or published active count for ownership to decay against."
+        },
         {
           "technique": "unmeasurable-criteria",
           "verdict": "not-applicable",
@@ -10181,13 +10187,7 @@
           "evidence": "src/lib/org/developer-view-load.ts:8 The comment justifies a module split by citing a repo-level gap; this context owns no such check.",
           "carriedFrom": "2026-11-09"
         }
-      ],
-      "withdrawn": {
-        "worker": "eca14530-bc5b-479f-89b8-c4e99c52e1ee",
-        "state": "not-applicable",
-        "at": "2026-11-09T01:20:29.966769+00:00",
-        "reason": "reviewer (sonnet): The anchor at developer-view.ts:4 is a header comment about who may see which view model, so it does not show that the context has no refusing check, and the quality-gate absence search used terms that miss that."
-      }
+      ]
     },
     "Onboarding, Shell & AI Standard/App Shell, SEO & Error Pages/quality-gates": {
       "context": "App Shell, SEO & Error Pages",
@@ -10328,30 +10328,99 @@
       "bundle": "software-engineering",
       "state": "unknown",
       "evaluatedAt": "2026-11-09",
-      "evaluatedTs": "2026-11-09T01:19:53.597Z",
+      "evaluatedTs": "2026-11-09T01:35:59.781Z",
       "techniques": [
         {
           "technique": "item-liveness",
           "verdict": "deviation",
-          "evidence": "src/lib/db/scans-recommendations.ts:95 The assignment is a birth certificate. sweepExpiredLeases releases only machine claims and no cron under src/app/api/cron reaps human-held recommendations; last activity is at least derived and sorted in org-insights.ts:813,835."
+          "evidence": "src/components/report/RecommendationTracker.tsx:69 The denominator is admitted-and-not-withdrawn with no liveness predicate. RecommendationEvent already gives a per-item trail, yet this surface renders no age. scan-carry-plan.ts:10 copies in_progress rows forward, prisma/schema.prisma:805 keeps human-held rows out of the sweep, and neither the digest nor the purge cron asks the owner question. The org backlog's lastActivityAt is a different surface and has no reaper."
+        },
+        {
+          "technique": "match-the-resolved-artifact",
+          "verdict": "conformant",
+          "evidence": "src/app/api/recommendations/[id]/route.consequences.test.ts:79 The source guard on the route strips comments before matching, so prose naming the writers neither trips nor satisfies it."
+        },
+        {
+          "technique": "gate-liveness",
+          "verdict": "conformant",
+          "evidence": "src/app/api/recommendations/[id]/route.consequences.test.ts:76 A seeded violation proves the matcher still fires on a real call; line 77 pins the prose-only control."
         },
         {
           "technique": "advancement-evidence-fields",
           "verdict": "not-applicable",
-          "evidence": "src/app/api/recommendations/[id]/route.ts:3 A flat four-state status with no obligations bound to stages, so the stage-ladder schema does not apply."
+          "evidence": "src/app/api/recommendations/[id]/route.ts:3 A flat four-state status with no obligations bound to stages, so the stage-ladder schema does not apply.",
+          "carriedFrom": "2026-11-09"
         },
         {
           "technique": "waiver-names-its-finding",
           "verdict": "conformant",
-          "evidence": "src/app/api/recommendations/[id]/route.ts:128 Nearest analogue, not a blocking gate: suppression is per recommendation identity, a reasonless dismissal records nothing, and leaving dismissed lifts it."
+          "evidence": "src/app/api/recommendations/[id]/route.ts:128 Nearest analogue, not a blocking gate: suppression is per recommendation identity, a reasonless dismissal records nothing, and leaving dismissed lifts it.",
+          "carriedFrom": "2026-11-09"
         }
       ],
       "withdrawn": {
-        "worker": "eca14530-bc5b-479f-89b8-c4e99c52e1ee",
+        "worker": "1927f834-ea38-4e9c-836f-456d9258948d",
         "state": "deviation",
-        "at": "2026-11-09T01:20:30.004459+00:00",
-        "reason": "reviewer (sonnet): The central claim does not hold up at the anchor: scans-recommendations.ts has no sweepExpiredLeases or lease code (the sweep is in followup-claims), and src/lib/org/org-insights.ts does not exist at the cited path; the finding is also not about a quality gate."
+        "at": "2026-11-09T01:36:30.897206+00:00",
+        "reason": "reviewer (sonnet): Lines 69 and 805 and the carry plan's header comment confirm the denominator, the human-held exemption and the in_progress carry-forward, but I did not confirm the claims that the digest and purge cron never ask who owns a row or that the org backlog has no reaper. The two test-file technique anchor"
       }
+    },
+    "Org Dashboard & Analytics/Org Overview & Standing/quality-gates": {
+      "context": "Org Overview & Standing",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T01:35:59.781Z",
+      "worker": "1927f834-ea38-4e9c-836f-456d9258948d",
+      "techniques": [
+        {
+          "technique": "match-the-resolved-artifact",
+          "verdict": "deviation",
+          "evidence": "src/components/org/personal/PersonalOverview.gate.test.ts:24 SRC is unstripped and every assertion reads it, in a file whose component explains this rule in prose; the sibling route.consequences.test.ts already uses stripComments."
+        },
+        {
+          "technique": "gate-liveness",
+          "verdict": "deviation",
+          "evidence": "src/components/org/personal/PersonalOverview.gate.test.ts:31 The source assertions are never shown firing on a seeded input. Lines 45-57 exercise the downstream evaluator, not this guard."
+        },
+        {
+          "technique": "renameable-detector-keys",
+          "verdict": "deviation",
+          "evidence": "src/components/org/personal/PersonalOverview.gate.test.ts:34 The key includes the callback's parameter name, so the same predicate written as repo.forecast !== null passes with the property unchanged."
+        },
+        {
+          "technique": "false-positive-economics",
+          "verdict": "conformant",
+          "evidence": "src/components/org/personal/PersonalOverview.gate.test.ts:71 A line-ending flake was fixed by narrowing the matcher rather than removing the assertion."
+        },
+        {
+          "technique": "unmeasurable-criteria",
+          "verdict": "conformant",
+          "evidence": "src/components/org/personal/PersonalOverview.tsx:148 A sub-threshold fit reaches the surface as the shared evaluator's stated refusal rather than a silent drop; a repo with no fit shows nothing."
+        },
+        {
+          "technique": "policy-projection",
+          "verdict": "conformant",
+          "evidence": "src/components/org/personal/PersonalOverview.tsx:144 This surface renders the shared evaluator's refusal text instead of restating the rule in its own renderer."
+        }
+      ]
+    },
+    "Reporting & Visualization/Trends & Comparison/quality-gates": {
+      "context": "Trends & Comparison",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T01:35:59.781Z",
+      "worker": "1927f834-ea38-4e9c-836f-456d9258948d",
+      "techniques": [
+        {
+          "technique": "unmeasurable-criteria",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/report/validate.ts:143 Missing rubric provenance is preserved as null for display and diffing; no policy condition or verdict consumes it here."
+        }
+      ]
     }
   }
 }

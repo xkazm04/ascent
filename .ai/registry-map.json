@@ -5239,7 +5239,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/components/org/personal/PersonalOverview.gate.test.ts:24 The guard protecting the shared presentability predicate matches raw file text with no comment stripping and no seeded violation, so a comment containing the required literal can satisfy it after the real call is gone, and the repo's own rule for source-scanning gates is not met.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a5b34d39a4b8edd3",
+          "evaluatedRevision": 56
         },
         {
           "subject": "agent-memory",
@@ -5532,7 +5536,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/org/developer-view.ts:271 The only threshold logic here is a privacy floor that withholds aggregate rows from display, so nothing judges a tree or refuses an advance; a case-insensitive search of src/features/developer, src/lib/org, src/app/org/developer, src/app/org/[slug]/developer and src/components/org/shell for reference-transaction, pre-receive, max-warnings, no-verify and quality gate found zero files, and no file there reads source text.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a5b34d39a4b8edd3",
+          "evaluatedRevision": 56
         },
         {
           "subject": "table",
@@ -8582,7 +8590,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/report/compare.ts:153 The comparison code describes movement between two scans and flags a rubric change for the reader without refusing anything; a case-insensitive search of src/app/trends, src/app/report/compare, src/lib/report and src/components/report for reference-transaction, pre-receive, max-warnings, no-verify and waiver found zero files, and none of the listed tests reads source text.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a5b34d39a4b8edd3",
+          "evaluatedRevision": 56
         },
         {
           "subject": "docs-sync",
