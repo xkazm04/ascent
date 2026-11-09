@@ -10602,6 +10602,78 @@
           "evidence": "src/app/api/mcp/route.ts:274 The owner comes from the verified token, never a caller argument, and recall passes a null viewer so only shared rows return. No counterpart axis exists at this door."
         }
       ]
+    },
+    "Marketing Site & Design System/Design System: UI Primitives & Deck/agent-memory": {
+      "context": "Design System: UI Primitives & Deck",
+      "subject": "agent-memory",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T02:27:10.322Z",
+      "worker": "1fd3495d-e4c8-4115-bb9b-c489de52aafc",
+      "techniques": []
+    },
+    "Onboarding, Shell & AI Standard/AI-Native Standard & Onboarding Skill/agent-memory": {
+      "context": "AI-Native Standard & Onboarding Skill",
+      "subject": "agent-memory",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T02:27:10.322Z",
+      "worker": "1fd3495d-e4c8-4115-bb9b-c489de52aafc",
+      "techniques": [
+        {
+          "technique": "episodic-capture",
+          "verdict": "deviation",
+          "evidence": "src/lib/standard/maintain.ts:133 Technique requires a create-if-absent that fails when the IDENTITY is taken; the 'wx' create here covers id+slug (the comment at line 129 says so), so differing slugs mint duplicate ids. standard.test.ts:290 pins only the wx flag and EEXIST retry."
+        },
+        {
+          "technique": "decay-and-forgetting",
+          "verdict": "deviation",
+          "evidence": "src/lib/standard/memory.ts:12 The seeded store declares no cap, retention horizon, demotion or reaper for any kind, so it only grows; the caps in repo-memory-mirror.ts bound mirrored rows, not this store."
+        },
+        {
+          "technique": "consolidation",
+          "verdict": "deviation",
+          "evidence": "src/lib/standard/maintain.ts:134 `note` commits decisions and conventions directly with no judgment pass, no confidence and no episode provenance (only a trailing `(at sha)`), and hard-codes `supersedes: null`, so the tool door cannot supersede. Supersede-not-edit, failed-approach as a kind and an unrecognized-kind default are realized (memory.ts:44, :26; memory-read.ts:106)."
+        },
+        {
+          "technique": "loss-site-inventory",
+          "verdict": "deviation",
+          "evidence": "src/lib/standard/memory-read.ts:162 The cut is flagged only as a ledger field (`truncated`, then skipReason); memoryBody() feeds the cut body to OrgMemory with no in-band notice. `refs` (line 88) and scalars (line 76) are also capped silently. Unreadable entries are counted properly (line 187)."
+        },
+        {
+          "technique": "read-set-bounded-links",
+          "verdict": "deviation",
+          "evidence": "src/lib/standard/memory.ts:30 Links sit beside the body as the technique wants, but agents type target ids freely and nothing resolves them: doctor.ts only checks the directory exists (line 171), although spec.ts:196 lists 'memory entries are well-formed' under what doctor checks."
+        },
+        {
+          "technique": "stale-served-versus-stale-answered",
+          "verdict": "deviation",
+          "evidence": "src/lib/standard/memory.ts:41 Supersedence is recorded only on the successor, the read norm neither filters nor labels predecessors, and an old entry carries no marker that it is dead. No stale-served measure exists. Applies to direct repo readers; the OrgMemory mirror does archive predecessors."
+        },
+        {
+          "technique": "durable-store-failure-posture",
+          "verdict": "conformant",
+          "evidence": "src/lib/standard/memory-read.ts:187 The parser never throws, counts unreadable entries by cause rather than reading them as absent, and separates malformed from empty; the write path appends a new file and never rewrites existing entries (maintain.ts:136)."
+        },
+        {
+          "technique": "filter-at-the-id-door",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/standard/memory-read.ts:13 This context has no model-driven selector or load-by-id path; it parses documents only."
+        },
+        {
+          "technique": "observation-clock",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/standard/memory-read.ts:38 No distillation pass grounds relative time here; `note` stamps at capture and the reader keeps the date verbatim."
+        },
+        {
+          "technique": "addresses-not-atoms",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/standard/memory.ts:20 The format fixes a one-fact grain, but this context imposes no read budget or retriever, and the directory of slugged filenames is itself a surveyable list, so the technique's reach trade does not arise."
+        }
+      ],
+      "registryProposal": "episodic-capture could name the suffixed-filename form as a failure of atomic allocation: an exclusive create on `<id>-<slug>` satisfies a check for an exclusive-create flag while still minting duplicate ids, because the claimed name is not the identity."
     }
   }
 }

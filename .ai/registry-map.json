@@ -2776,7 +2776,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/standard/maintain.ts:133 The `note` writer's exclusive create is keyed on id plus slug, so two concurrent writers with different text both succeed under the same numeric `id`, and because `markSuperseded` matches on `entryId` a later `supersedes` of that id retires both entries.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:2b62b4004acc600d",
+          "evaluatedRevision": 53
         },
         {
           "subject": "conformance-checking",
@@ -10827,7 +10831,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/components/deck/useSnapDeck.ts:3 These are presentational primitives whose state is at most view state like this scroll-snap class toggle, so no agent memory exists here: `recall`, `episodic`, `supersede`, `agent-memory` and `decay` have zero hits in src/components/deck and src/components/ui, and the only `memory` hit is a fake RetryStore helper in routeErrorModel.test.ts.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:2b62b4004acc600d",
+          "evaluatedRevision": 53
         },
         {
           "subject": "concurrency-guards",
