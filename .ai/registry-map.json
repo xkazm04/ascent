@@ -3589,7 +3589,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/db/teamRollup.test.ts:262 The pin searches unstripped source for a bare identifier that org-teams.ts already carries on its import line and in comments, so it stays green if every call to classifyDelta is removed.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "fleet-orchestration",
@@ -4328,7 +4332,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/org/security.test.ts:76 The paste-ready CI snippet is a shell block but is only substring-matched, so nothing establishes that a shell parses it or that curl receives the intended URL.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "translation-pipeline-topology",
@@ -8407,7 +8415,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/components/report/RoadmapSandboxCommit.test.ts:120 These tests pin N-of-M wording from sandboxCommitSummary, but production calls it only as (0, 0) inside summarizeCommitOutcome and committableRecs has no production caller, so this evidence is about a path the commit bar no longer takes.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "quality-gates",
