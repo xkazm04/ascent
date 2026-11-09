@@ -910,7 +910,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/scoring/gate-action-inputs.test.ts:8 The test header calls this chain end to end, but the action's bash step is modelled with regexes instead of being run in bash, so a defect in the shell logic, such as a broken final node invocation, stays green.",
+          "evaluatedAt": "2026-11-08",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "mcp-tools",
@@ -1329,7 +1333,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/analyze/guidance-graph.test.ts:44 The pin reads raw text with a single-line needle, so a multi-line import from node:fs, a bare \"fs\" specifier or a dynamic import all pass a test named as proving the file imports nothing from node:.",
+          "evaluatedAt": "2026-11-08",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "eval-harness",
@@ -7051,7 +7059,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/app/api/org/memory/route.test.ts:9 The route decides the Team+ gate through workspaceAllowsMemory, which this file mocks and sets to false in the non-Team case at line 153, so plans.ts never runs here and the header claims a decision the suite does not reach.",
+          "evaluatedAt": "2026-11-08",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "quality-gates",

@@ -1,0 +1,263 @@
+{
+ "schema": "conform-run/1",
+ "worker": "73a441de-b2a6-4a22-814a-34341102dd12",
+ "subject": "test-harness",
+ "evaluatedAt": "2026-11-08T23:58:32.512448+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Roadmap & Recommendation Tracking",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/recommendations/[id]/route.test.ts:27 The route now reaches those writers through an unmocked applyRecTransitionEffects, which imports them from @/lib/db/org-decisions, so the @/lib/db mocks this comment calls inert intercept nothing and the real never-throwing writers run under every status patch in this file.",
+   "techniques": [
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "deviation",
+     "evidence": "src/app/api/recommendations/[id]/route.test.ts:27 The stated isolation no longer holds: the file does not mock @/lib/db/rec-transition-effects, while its sibling route.consequences.test.ts does."
+    },
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "deviation",
+     "evidence": "src/app/api/recommendations/[id]/route.test.ts:67 The tenant-gate fake defaults to allow. Denials are tested case by case; the technique labels its no-default rule as inference."
+    },
+    {
+     "technique": "pin-the-call-not-the-name",
+     "verdict": "conformant",
+     "evidence": "src/app/api/recommendations/[id]/route.consequences.test.ts:75 An absence pin read after comment stripping, with a seeded pair; it makes no ordering claim, so a bare identifier is acceptable."
+    },
+    {
+     "technique": "negative-control-tests",
+     "verdict": "conformant",
+     "evidence": "src/app/api/recommendations/[id]/route.consequences.test.ts:77 The prose-only half of the seeded control is asserted in the same test that reads the real file."
+    },
+    {
+     "technique": "proved-off-the-path",
+     "verdict": "conformant",
+     "evidence": "src/app/api/recommendations/[id]/route.ts:135 The production entry point itself calls the extracted module, and route.consequences.test.ts drives that PATCH handler."
+    },
+    {
+     "technique": "fixture-economics",
+     "verdict": "conformant",
+     "evidence": "src/components/report/RoadmapSandboxCommit.test.ts:17 An in-memory builder is the cheapest fixture that can witness a pure join."
+    }
+   ]
+  },
+  {
+   "context": "Maturity Model & Scoring Engine",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/analyze/guidance-graph.test.ts:44 The pin reads raw text with a single-line needle, so a multi-line import from node:fs, a bare \"fs\" specifier or a dynamic import all pass a test named as proving the file imports nothing from node:.",
+   "techniques": [
+    {
+     "technique": "pin-the-call-not-the-name",
+     "verdict": "deviation",
+     "evidence": "src/lib/analyze/guidance-graph.test.ts:44 No comment stripping and no seeded violation. context-health.test.ts:243 has the opposite failure: a raw /contextHealth/i match that a comment alone would turn red."
+    },
+    {
+     "technique": "negative-control-tests",
+     "verdict": "conformant",
+     "evidence": "src/lib/analyze/signals.test.ts:383 The file records the control: the assertion is false against the r10 detector and true against r11."
+    },
+    {
+     "technique": "fixture-economics",
+     "verdict": "conformant",
+     "evidence": "src/lib/analyze/calibration.test.ts:13 An in-memory snapshot builder serves pure detector logic."
+    },
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "conformant",
+     "evidence": "src/lib/analyze/pulls.test.ts:16 The one remote fake has no passing default, so each test must state what it returns."
+    },
+    {
+     "technique": "proved-off-the-path",
+     "verdict": "conformant",
+     "evidence": "src/lib/analyze/evidence-source.test.ts:30 Assertions go through the shipped analyzeSignals and formatSignal, not a test-only rendering."
+    }
+   ]
+  },
+  {
+   "context": "CI Gate & Status Checks",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/scoring/gate-action-inputs.test.ts:8 The test header calls this chain end to end, but the action's bash step is modelled with regexes instead of being run in bash, so a defect in the shell logic, such as a broken final node invocation, stays green.",
+   "techniques": [
+    {
+     "technique": "assert-through-the-reader",
+     "verdict": "deviation",
+     "evidence": "src/lib/scoring/gate-action-inputs.test.ts:8 Bash is available at unit cost and argvFor restates what it would do. The only real execution is maturity.yml, which is manual dispatch with min-level and no-ungoverned, so the min-d<N> forwards are never run. GitHub's own reading of the `with:` lines is legitimately out of reach."
+    },
+    {
+     "technique": "pin-the-call-not-the-name",
+     "verdict": "conformant",
+     "evidence": "src/lib/scoring/gate-resolve.test.ts:102 The needle requires a call, the source is stripped of comments and strings, a seeded pair exists, and the allow-list is checked in both directions."
+    },
+    {
+     "technique": "negative-control-tests",
+     "verdict": "conformant",
+     "evidence": "src/lib/scoring/gate-action-inputs.test.ts:133 Seeds the broken form into the real action text, and line 138 proves the edit landed."
+    },
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "conformant",
+     "evidence": "src/app/api/gate/[owner]/[repo]/route.test.ts:60 Only the verdict is stubbed; the policy merge decision still runs through the route."
+    },
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "conformant",
+     "evidence": "src/app/api/gate/[owner]/[repo]/route.test.ts:69 The real helper is kept where its output is the thing being claimed, and the file says why."
+    },
+    {
+     "technique": "assert-the-schedule-not-the-stopwatch",
+     "verdict": "conformant",
+     "evidence": "src/lib/github/checks.test.ts:8 Retry backoff runs on a controlled clock rather than wall time."
+    },
+    {
+     "technique": "fixture-economics",
+     "verdict": "conformant",
+     "evidence": "src/lib/scoring/gate.test.ts:19 A minimal in-memory report for pure policy evaluation."
+    },
+    {
+     "technique": "proved-off-the-path",
+     "verdict": "conformant",
+     "evidence": "src/lib/scoring/gate-action-inputs.test.ts:18 The flag-to-query hop uses the shipped CLI's own function rather than a copy."
+    }
+   ]
+  },
+  {
+   "context": "Org Memory",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/org/memory/route.test.ts:9 The route decides the Team+ gate through workspaceAllowsMemory, which this file mocks and sets to false in the non-Team case at line 153, so plans.ts never runs here and the header claims a decision the suite does not reach.",
+   "techniques": [
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "deviation",
+     "evidence": "src/app/api/org/memory/route.test.ts:9 The file's claim is stale. The real gate has its own home in src/lib/db/personal.ts, but this route test pins only the mock's answer."
+    },
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/memory/route.test.ts:241 Scope, org and revocation go through the shipped authorizer with one mocked edge, and the tests confirm the outcomes."
+    },
+    {
+     "technique": "proved-off-the-path",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/memory/route.test.ts:97 Tests drive the production handlers."
+    },
+    {
+     "technique": "negative-control-tests",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/memory/reflect/route.test.ts:120 The regression test records the defect its fix removed."
+    },
+    {
+     "technique": "pin-the-call-not-the-name",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/id-routes-gated.test.ts:158 The walk covering memory [id] routes reads stripped source, has a file-count floor and a seeded prose-only case."
+    },
+    {
+     "technique": "fixture-economics",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/org-memory-lineage.test.ts:24 An in-memory row builder; lifecycle tests use a fake Prisma, so real-store behaviour is not witnessed at this rung."
+    },
+    {
+     "technique": "assert-the-schedule-not-the-stopwatch",
+     "verdict": "conformant",
+     "evidence": "src/features/shared/memory/useMemoryLibrary.test.ts:130 The cannot-be-overtaken claim is proved by the abort signal under fake timers, not by timing a race."
+    }
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "test-harness",
+   "context": "Scan Pipeline & Ingestion",
+   "reason": "evidence leans on stream/route.test.ts, which is not a tracked file"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-08T23:58:32.512448+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "fixture-economics",
+    "negative-control-tests",
+    "pin-the-call-not-the-name",
+    "proved-off-the-path",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "Roadmap & Recommendation Tracking",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-08T23:58:32.512448+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "fixture-economics",
+    "negative-control-tests",
+    "pin-the-call-not-the-name",
+    "proved-off-the-path"
+   ],
+   "deviations": 1,
+   "context": "Maturity Model & Scoring Engine",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-08T23:58:32.512448+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "assert-the-schedule-not-the-stopwatch",
+    "assert-through-the-reader",
+    "fixture-economics",
+    "negative-control-tests",
+    "pin-the-call-not-the-name",
+    "proved-off-the-path",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "CI Gate & Status Checks",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-08T23:58:32.512448+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "assert-the-schedule-not-the-stopwatch",
+    "fixture-economics",
+    "negative-control-tests",
+    "pin-the-call-not-the-name",
+    "proved-off-the-path",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "Org Memory",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
