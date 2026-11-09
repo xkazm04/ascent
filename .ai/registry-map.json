@@ -7470,7 +7470,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/registry/index-registry.ts:325 The index pass soft-archives every mirrored memory note missing from `seen`, with no truncated-tree or read-failure guard, so a note that failed to read or parse, or fell outside a truncated tree, is retired as if it had been deleted, while the sibling purges at lines 382-413 do guard on truncation.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:2b62b4004acc600d",
+          "evaluatedRevision": 53
         },
         {
           "subject": "conformance-checking",
@@ -7975,7 +7979,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/mcp/handlers.ts:333 `recall_org_memory` cuts its ranked selection to `limit` and drops `result.omitted` and `consideredCount` from the response, so an agent given five entries from fifty matches gets no sign that anything was left out unless the cut emptied the result or the population cap fired.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:2b62b4004acc600d",
+          "evaluatedRevision": 53
         },
         {
           "subject": "agent-instruction-files",

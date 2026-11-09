@@ -10520,6 +10520,88 @@
           "evidence": "src/app/api/mcp/route.test.ts:23 The fake sits at the db boundary so the shipped plan-gate resolver runs."
         }
       ]
+    },
+    "Org Knowledge & Skills/AI Registry Repo (Onboarding & Index)/agent-memory": {
+      "context": "AI Registry Repo (Onboarding & Index)",
+      "subject": "agent-memory",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T02:13:47.005Z",
+      "worker": "a036a7cb-064d-4807-86c9-14e43f7ac60d",
+      "techniques": [
+        {
+          "technique": "durable-store-failure-posture",
+          "verdict": "deviation",
+          "evidence": "src/lib/registry/index-registry.ts:325 A memory file that is present but unreadable or unparseable hits `continue` at lines 301-306, never enters `seen`, and is then archived: the write path treats broken as gone instead of refusing."
+        },
+        {
+          "technique": "decay-and-forgetting",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/org-registry-mirror.ts:146 Every index pass writes archived:false on each note still in the repo, and decay.ts/decayPopulationWhere do not exclude origin=registry, so a forget-pass or operator archive is undone on the next pass. The same write is also how line 325's false archives recover."
+        },
+        {
+          "technique": "memory-value-model",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/org-registry-mirror.ts:154 The update is unconditional: registryHash is written but never compared anywhere in src/lib, and OrgMemory.updatedAt is @updatedAt. Each pass therefore resets the age axis (and the decay population's updatedAt test) for unchanged notes; recall.ts only intends edits to refresh it."
+        },
+        {
+          "technique": "consolidation",
+          "verdict": "deviation",
+          "evidence": "src/lib/registry/parse.ts:157 An imported note that declares no confidence, or an unparseable one (line 160), is stored at the top trust grade through a direct mirror write beside the one ingest door that lesson-memory.ts insists on. PR review mitigates the bypass but does not make an unknown confidence a value."
+        }
+      ]
+    },
+    "Org Knowledge & Skills/MCP Server/agent-memory": {
+      "context": "MCP Server",
+      "subject": "agent-memory",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T02:13:47.005Z",
+      "worker": "a036a7cb-064d-4807-86c9-14e43f7ac60d",
+      "techniques": [
+        {
+          "technique": "loss-site-inventory",
+          "verdict": "deviation",
+          "evidence": "src/lib/mcp/handlers.ts:354 The budget notice fires only on total loss. Partial loss from the character budget and from the `limit` slice at line 333 carries no in-band notice; only the population cap has one (notConsideredCount)."
+        },
+        {
+          "technique": "recall-injection",
+          "verdict": "deviation",
+          "evidence": "src/lib/mcp/handlers.ts:351 The result reports selected and budget but never the considered count, and entries (lines 357-371) carry kind, source and confidence but no age or last-confirmed date. Conformant parts: whole-item packing, delivery counted after packing, a crash surfaced as isError in route.ts."
+        },
+        {
+          "technique": "filter-at-the-id-door",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/org-memory-citations.ts:96 The citation lane, which the technique names, checks only org ownership. A superseded, archived, expired, private or never-delivered id can still be voted on and has its counts returned, while recall's own predicate (activeMemoryWhere) applies those rules."
+        },
+        {
+          "technique": "memory-value-model",
+          "verdict": "conformant",
+          "evidence": "src/lib/mcp/handlers.ts:332 The door ranks with the shared pure scorer that decay.ts also uses, with no private ordering."
+        },
+        {
+          "technique": "exposure-is-not-credit",
+          "verdict": "conformant",
+          "evidence": "src/lib/mcp/registry-writes.ts:141 Credit flows only through a per-item deliberate citation, delivery stays a separate count, the term is bounded in recall.ts, and an absent citation scores neutral."
+        },
+        {
+          "technique": "probe-without-write-back",
+          "verdict": "conformant",
+          "evidence": "src/lib/mcp/handlers.ts:343 Write-back is a parameter on the production path and Athena's side-read opts out, with the reason at its call site. This is the weaker of the two shapes the technique allows, because a new caller counts by default."
+        },
+        {
+          "technique": "memory-governance",
+          "verdict": "conformant",
+          "evidence": "src/lib/mcp/registry-writes.ts:11 The MCP door offers agents no belief write; its only memory write is a usage vote, gated, ceilinged per token and audited."
+        },
+        {
+          "technique": "owner-and-counterpart-scope",
+          "verdict": "conformant",
+          "evidence": "src/app/api/mcp/route.ts:274 The owner comes from the verified token, never a caller argument, and recall passes a null viewer so only shared rows return. No counterpart axis exists at this door."
+        }
+      ]
     }
   }
 }
