@@ -1,0 +1,116 @@
+{
+ "schema": "conform-run/1",
+ "worker": "5d8d7285-9791-4652-a57e-248daf3c852a",
+ "subject": "agent-memory",
+ "evaluatedAt": "2026-11-09T05:29:02.642291+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Roadmap & Recommendation Tracking",
+   "subject": "agent-memory",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/memory/scan-feed.ts:244 A person's PATCH to done is written to Shared Org Memory with the scan-pipeline stamp and confidence 1.0 and the known actor is dropped, so readers see a colleague's claim as a machine observation, although scans-persist.ts:772 calls only the rescan witness the trustworthy close.",
+   "techniques": [
+    {
+     "technique": "memory-governance",
+     "verdict": "deviation",
+     "evidence": "src/lib/memory/scan-feed.ts:244 The route holds actorLogin but the close-memory effect never passes it and createdBy stays null; the rule that a reader can always tell a machine observation from a colleague's claim fails for human closes, which share one stamp with rescan-witnessed closes."
+    },
+    {
+     "technique": "episodic-capture",
+     "verdict": "deviation",
+     "evidence": "src/app/api/recommendations/[id]/route.ts:136 With from always null the same-status guard in planRecTransition cannot fire, and updateRecommendation returns the row on a no-op, so re-sending done on a later day writes a second close episode: the date token keeps a typical line (about 8 tokens) under the 0.95 dedup floor, contrary to the comment at route.ts:130-131."
+    },
+    {
+     "technique": "owner-and-counterpart-scope",
+     "verdict": "conformant",
+     "evidence": "src/lib/memory/scan-feed.ts:261 The close memory's org and namespace are derived from the recommendation's own row chain, not from anything the caller supplies."
+    },
+    {
+     "technique": "container-carries-decision-status",
+     "verdict": "conformant",
+     "evidence": "src/lib/report/rec-transitions.ts:44 Admission is by the lifecycle field done rather than by reading prose, and dismissed is deliberately excluded as a different fact."
+    }
+   ],
+   "registryProposal": "The fourth-writer section of memory-governance lists 'this gap was closed' as an automated observation but does not say how to stamp a human-asserted status change that the pipeline merely relays; it could state that the evidence's author decides the stamp even when a machine writes the row."
+  },
+  {
+   "context": "Org Import, Scan & Watchlist",
+   "subject": "agent-memory",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/memory/scan-feed.ts:300 Every fleet persist from the import route reaches this level-change writer, which compares raw scores and ignores the rulerChanged outcome and the scan engine, so a rubric bump or a default mock import (route.ts:147) after a real scan can record 'Maturity demoted' at confidence 1.0 as an observed fact when only the ruler moved.",
+   "techniques": [
+    {
+     "technique": "memory-governance",
+     "verdict": "deviation",
+     "evidence": "src/lib/memory/scan-feed.ts:300 The standard grants the observation writer high confidence only because its facts are observed; checkAndAlertRegression refuses a provable rubric change and scans-persist treats a mock/real boundary as a change of ruler, but this path applies neither guard, so memory and alert can disagree."
+    },
+    {
+     "technique": "episodic-capture",
+     "verdict": "conformant",
+     "evidence": "src/lib/scan-consequences.ts:127 The episode boundary is a real outcome, a newly written scored row; deduped runs and refused degraded floors capture nothing."
+    },
+    {
+     "technique": "scope-before-similarity",
+     "verdict": "conformant",
+     "evidence": "src/lib/memory/scan-feed.ts:91 The write-time dedup partitions by org, namespace and source before any similarity comparison runs."
+    }
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "agent-memory",
+   "context": "Maturity Model & Scoring Engine",
+   "reason": "absence contradicted: src/lib/athena/actions-execute.test.ts:20 contains 'OrgMemory' (475 hit(s) in the context's directories)"
+  },
+  {
+   "subject": "agent-memory",
+   "context": "App Shell, SEO & Error Pages",
+   "reason": "absence contradicted: src/app/api/athena/gate.ts:27 contains 'recallMemor' (611 hit(s) in the context's directories)"
+  },
+  {
+   "subject": "agent-memory",
+   "context": "GitHub OAuth & Session",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-09T05:29:02.642291+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-memory"
+   ],
+   "techniques": [
+    "container-carries-decision-status",
+    "episodic-capture",
+    "memory-governance",
+    "owner-and-counterpart-scope"
+   ],
+   "deviations": 1,
+   "context": "Roadmap & Recommendation Tracking",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T05:29:02.642291+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-memory"
+   ],
+   "techniques": [
+    "episodic-capture",
+    "memory-governance",
+    "scope-before-similarity"
+   ],
+   "deviations": 1,
+   "context": "Org Import, Scan & Watchlist",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

@@ -3869,7 +3869,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/memory/scan-feed.ts:300 Every fleet persist from the import route reaches this level-change writer, which compares raw scores and ignores the rulerChanged outcome and the scan engine, so a rubric bump or a default mock import (route.ts:147) after a real scan can record 'Maturity demoted' at confidence 1.0 as an observed fact when only the ruler moved.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:2b62b4004acc600d",
+          "evaluatedRevision": 53
         },
         {
           "subject": "concurrent-vcs",
@@ -8455,7 +8459,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/memory/scan-feed.ts:244 A person's PATCH to done is written to Shared Org Memory with the scan-pipeline stamp and confidence 1.0 and the known actor is dropped, so readers see a colleague's claim as a machine observation, although scans-persist.ts:772 calls only the rescan witness the trustworthy close.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:2b62b4004acc600d",
+          "evaluatedRevision": 53
         },
         {
           "subject": "untrusted-extension-host",
