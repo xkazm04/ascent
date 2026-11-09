@@ -1,0 +1,37 @@
+{
+ "schema": "conform-run/1",
+ "worker": "749dda75-6eeb-444a-a6e2-e6933bda49a1",
+ "subject": "agent-instruction-files",
+ "evaluatedAt": "2026-11-09T23:21:44.675453+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [],
+ "declined": [
+  {
+   "subject": "agent-instruction-files",
+   "context": "GitHub Repo Data Access",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "agent-instruction-files",
+   "context": "Repo Report Shell & Tabs",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "agent-instruction-files",
+   "context": "Repositories & Segments",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "agent-instruction-files",
+   "context": "Org Overview & Standing",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "agent-instruction-files",
+   "context": "Credits & Entitlements",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": []
+}
