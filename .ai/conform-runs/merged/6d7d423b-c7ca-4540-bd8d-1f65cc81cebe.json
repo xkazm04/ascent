@@ -1,0 +1,127 @@
+{
+ "schema": "conform-run/1",
+ "worker": "6d7d423b-c7ca-4540-bd8d-1f65cc81cebe",
+ "subject": "agent-instruction-files",
+ "evaluatedAt": "2026-11-09T22:56:51.730194+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "First-Run Onboarding Wizard",
+   "subject": "agent-instruction-files",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/app/onboarding/page.tsx:4 The onboarding page only composes the client wizard (pick, select, scan steps). Searching src/app/onboarding and src/components/onboarding found no instruction-file construct to author, load or redeliver; the only AGENTS.md hits are comments in sibling files that cite the 300-LOC rule, so the subject's precondition does not hold here.",
+   "techniques": [],
+   "absenceTerms": [
+    "instructionFile",
+    "instructionsFile",
+    "agentsMd",
+    "claudeMd",
+    "AGENTS.override"
+   ]
+  },
+  {
+   "context": "Repo Report Shell & Tabs",
+   "subject": "agent-instruction-files",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/app/report/[owner]/[repo]/page.tsx:1 The report shell is a permalink page plus client scan views. Searching src/app/report and src/components/report found no instruction-file authoring or loading; the only AGENTS.md hits are comments citing the LOC cap, so the subject's precondition does not hold.",
+   "techniques": [],
+   "absenceTerms": [
+    "instructionFile",
+    "instructionsFile",
+    "agentsMd",
+    "claudeMd",
+    "AGENTS.override"
+   ]
+  },
+  {
+   "context": "GitHub OAuth & Session",
+   "subject": "agent-instruction-files",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/auth.ts:1 This context is HMAC-signed session cookies and Supabase/GitHub OAuth routes. Searches of src/app/api/auth, src/app/auth, src/lib/supabase and src/lib found none of the listed instruction-file identifiers, so there is no agent instruction file to judge here.",
+   "techniques": [],
+   "absenceTerms": [
+    "instructionFile",
+    "instructionsFile",
+    "agentsMd",
+    "claudeMd",
+    "AGENTS.override"
+   ]
+  },
+  {
+   "context": "Fleet Rollups & Insights",
+   "subject": "agent-instruction-files",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/db/org-insights.ts:1 This context holds Prisma read models for fleet rollups, insights and team standings. Searches of src/lib/db and src/lib/org found none of the listed identifiers. The remaining hits are scanned-file names, LOC-cap comments and a knowledge-view fixture that lists this subject's slug as data, so the subject's precondition does not hold.",
+   "techniques": [],
+   "absenceTerms": [
+    "instructionFile",
+    "instructionsFile",
+    "agentsMd",
+    "claudeMd",
+    "AGENTS.override"
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "agent-instruction-files",
+   "context": "GitHub Repo Data Access",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-09T22:56:51.730194+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-instruction-files"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "First-Run Onboarding Wizard",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T22:56:51.730194+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-instruction-files"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Repo Report Shell & Tabs",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T22:56:51.730194+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-instruction-files"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "GitHub OAuth & Session",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T22:56:51.730194+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-instruction-files"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Fleet Rollups & Insights",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

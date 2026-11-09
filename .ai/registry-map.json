@@ -2241,7 +2241,11 @@
           "revision": 31,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/auth.ts:1 This context is HMAC-signed session cookies and Supabase/GitHub OAuth routes. Searches of src/app/api/auth, src/app/auth, src/lib/supabase and src/lib found none of the listed instruction-file identifiers, so there is no agent instruction file to judge here.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:9b02cf004a7ce444",
+          "evaluatedRevision": 32
         },
         {
           "subject": "terminal-multiplexing",
@@ -3269,7 +3273,11 @@
           "revision": 31,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/onboarding/page.tsx:4 The onboarding page only composes the client wizard (pick, select, scan steps). Searching src/app/onboarding and src/components/onboarding found no instruction-file construct to author, load or redeliver; the only AGENTS.md hits are comments in sibling files that cite the 300-LOC rule, so the subject's precondition does not hold here.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:9b02cf004a7ce444",
+          "evaluatedRevision": 32
         },
         {
           "subject": "hitl-approval",
@@ -3633,7 +3641,11 @@
           "revision": 31,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/db/org-insights.ts:1 This context holds Prisma read models for fleet rollups, insights and team standings. Searches of src/lib/db and src/lib/org found none of the listed identifiers. The remaining hits are scanned-file names, LOC-cap comments and a knowledge-view fixture that lists this subject's slug as data, so the subject's precondition does not hold.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:9b02cf004a7ce444",
+          "evaluatedRevision": 32
         },
         {
           "subject": "quality-gates",

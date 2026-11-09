@@ -7401,9 +7401,10 @@
       "context": "First-Run Onboarding Wizard",
       "subject": "agent-instruction-files",
       "bundle": "software-engineering",
-      "state": "unknown",
+      "state": "not-applicable",
       "evaluatedAt": "2026-11-09",
-      "evaluatedTs": "2026-11-09T22:04:56.571Z",
+      "evaluatedTs": "2026-11-09T22:56:51.730Z",
+      "worker": "6d7d423b-c7ca-4540-bd8d-1f65cc81cebe",
       "techniques": [
         {
           "technique": "capability-coverage-contract",
@@ -7423,13 +7424,7 @@
           "evidence": "src/components/onboarding/canRunReal.ts:4 This gate decides on credits for a billing outcome; it is not a tier of agent principals in an instruction file.",
           "carriedFrom": "2026-11-09"
         }
-      ],
-      "withdrawn": {
-        "worker": "3b379b41-f0f7-402a-9135-ea9bbc3890f5",
-        "state": "not-applicable",
-        "at": "2026-11-09T22:05:31.756715+00:00",
-        "reason": "reviewer (sonnet): The wizard's done step (OnboardingScanStep.tsx:270-272) renders SkillDownloadList to download the generated onboarding SKILL.md, and a nearby comment mentions a foundation PR. That is the wizard offering and writing agent-guidance files, so 'neither authors, loads nor writes' is contradicted, and th"
-      }
+      ]
     },
     "Org Knowledge & Skills/AI Registry Repo (Onboarding & Index)/concurrent-vcs": {
       "context": "AI Registry Repo (Onboarding & Index)",
@@ -11633,6 +11628,26 @@
       "evaluatedAt": "2026-11-09",
       "evaluatedTs": "2026-11-09T22:16:09.830Z",
       "worker": "35737e55-5a85-47a0-b075-bb240800c4fa",
+      "techniques": []
+    },
+    "Identity & GitHub Connectivity/GitHub OAuth & Session/agent-instruction-files": {
+      "context": "GitHub OAuth & Session",
+      "subject": "agent-instruction-files",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T22:56:51.730Z",
+      "worker": "6d7d423b-c7ca-4540-bd8d-1f65cc81cebe",
+      "techniques": []
+    },
+    "Org Scanning & Fleet Rollups/Fleet Rollups & Insights/agent-instruction-files": {
+      "context": "Fleet Rollups & Insights",
+      "subject": "agent-instruction-files",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T22:56:51.730Z",
+      "worker": "6d7d423b-c7ca-4540-bd8d-1f65cc81cebe",
       "techniques": []
     }
   }
