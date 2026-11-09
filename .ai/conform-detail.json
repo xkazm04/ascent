@@ -10897,16 +10897,84 @@
       "context": "Design System: UI Primitives & Deck",
       "subject": "quality-gates",
       "bundle": "software-engineering",
-      "state": "unknown",
+      "state": "deviation",
       "evaluatedAt": "2026-11-09",
-      "evaluatedTs": "2026-11-09T03:26:10.409Z",
-      "techniques": [],
-      "withdrawn": {
-        "worker": "91cac734-2e69-46fa-abe4-fdcd7bb03d37",
-        "state": "not-applicable",
-        "at": "2026-11-09T03:27:16.418307+00:00",
-        "reason": "reviewer (sonnet): Each not-applicable is anchored on a line that only shows other 'gate' wording (an auth gate at page.tsx:229, `armed` render gating at Reveal.tsx:46, a tenant-gate comment at segments/[id]/route.ts:14), and none of those lines shows that a quality gate is absent. The greps I re-ran did find no gate "
-      }
+      "evaluatedTs": "2026-11-09T03:37:23.252Z",
+      "worker": "9a9f170c-685c-49ea-8e71-909a617b6a33",
+      "techniques": [
+        {
+          "technique": "match-the-resolved-artifact",
+          "verdict": "deviation",
+          "evidence": "src/components/ui/format.test.ts:59 Literal search over layered declarations: it matches the shadowed @theme entry, and globals.css:210-211 says the :root override exists while this test pins the @theme value. It asks the file, not the resolved value."
+        }
+      ]
+    },
+    "Org Dashboard & Analytics/Practices, Governance & Adoption/quality-gates": {
+      "context": "Practices, Governance & Adoption",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T03:37:23.252Z",
+      "worker": "9a9f170c-685c-49ea-8e71-909a617b6a33",
+      "techniques": [
+        {
+          "technique": "policy-projection",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/governance.ts:218 Display cap consumed as data: the field is not named as display-bounded and the brief (:261-268) omits the 'worst N of M' note the panel has at GovernanceFailures.tsx:37-39. Also hand-walked: :250 drops byReason.provenance from 'Failing on', and :272 advertises '200 pass / 422 fail' on a gateQuery that still carries require_protection and min_ai_governed, which the token-less route answers 503 when named. describeGatePolicy itself is the correct single enumeration."
+        },
+        {
+          "technique": "unmeasurable-criteria",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/governance.ts:248 The incomplete bucket at :159 is a correct no-verdict state and measuredOn counts skips, but this brief shows the policy and a pass rate without measuredOn, barSet or admissionUnread, so skipped bars read as tested on that surface. The technique requires every surface showing the policy to render the skip."
+        },
+        {
+          "technique": "refusal-names-a-reachable-remedy",
+          "verdict": "conformant",
+          "evidence": "src/app/api/practices/apply/route.ts:103 The fingerprint refusal names an action available in the same control; PracticeApply.tsx:73 drops the stale preview on this code so the reader can re-preview."
+        }
+      ]
+    },
+    "Marketing Site & Design System/Marketing About Page/quality-gates": {
+      "context": "Marketing About Page",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T03:37:23.252Z",
+      "worker": "9a9f170c-685c-49ea-8e71-909a617b6a33",
+      "techniques": [
+        {
+          "technique": "match-the-resolved-artifact",
+          "verdict": "deviation",
+          "evidence": "src/app/about/page.test.ts:68 A presence assertion over raw text, where prose can satisfy the matcher and the raw read is not justified beside it. The siblings' strippers are also regex-only (AboutTransition.test.ts:11), which the technique says is not enough."
+        },
+        {
+          "technique": "self-reported-gate-inputs",
+          "verdict": "deviation",
+          "evidence": "src/components/about/claimAnchors.test.ts:15 The file claims every capability claim on /about resolves, but its population is a hand-written list of four arrays; copy outside them, such as the intro at AboutTransition.tsx:23, is never judged and nothing says so."
+        },
+        {
+          "technique": "gate-liveness",
+          "verdict": "conformant",
+          "evidence": "src/app/about/page.test.ts:40 Asserts the tree walk found files before trusting the empty-hits result."
+        },
+        {
+          "technique": "vacuous-by-evaluation",
+          "verdict": "conformant",
+          "evidence": "src/components/about/claimAnchors.test.ts:50 Seeded alias and empty-anchor counterexamples show the rules can fire, with the illustrative release tested alongside them."
+        },
+        {
+          "technique": "refusal-names-a-reachable-remedy",
+          "verdict": "conformant",
+          "evidence": "src/components/about/claimAnchors.ts:42 The refusal names the in-tree remedy, derived from the alias table rather than typed as a literal."
+        },
+        {
+          "technique": "prose-rule-drift",
+          "verdict": "conformant",
+          "evidence": "src/app/about/page.test.ts:39 The 'do not lead with ROI' copy rule is mechanised over a derived walk of the surface directories."
+        }
+      ]
     }
   }
 }

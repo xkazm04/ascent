@@ -4682,7 +4682,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/org/governance.ts:218 The worst-first list capped at 12 feeds governanceMarkdown with no truncation notice, and its ASK requests the repos closest to passing, so on a fleet with more than 12 failures the near-miss repos it asks about are exactly the ones cut.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a5b34d39a4b8edd3",
+          "evaluatedRevision": 56
         },
         {
           "subject": "codebase-scanning",
@@ -10904,7 +10908,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/components/ui/format.test.ts:59 The test that pins DIRECTION_TONE to the CSS tokens string-searches raw globals.css and is satisfied by the @theme declaration of #94a3b8, while the later :root block at globals.css:213 re-points --color-tone-flat to #b7bbcc, so the claimed pairing is green while CSS readers of the variable get the other value.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a5b34d39a4b8edd3",
+          "evaluatedRevision": 56
         },
         {
           "subject": "module-design",
@@ -11388,7 +11396,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/app/about/page.test.ts:68 The hero copy check matches a regex over raw source with no comment stripping, unlike its siblings AboutTransition.test.ts and AboutCTA.dom.test.tsx, so a comment holding the same text satisfies it even if the sentence stopped rendering.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a5b34d39a4b8edd3",
+          "evaluatedRevision": 56
         },
         {
           "subject": "talking-avatar",
