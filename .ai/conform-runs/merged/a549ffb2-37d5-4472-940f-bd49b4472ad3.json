@@ -1,0 +1,241 @@
+{
+ "schema": "conform-run/1",
+ "worker": "a549ffb2-37d5-4472-940f-bd49b4472ad3",
+ "subject": "quality-gates",
+ "evaluatedAt": "2026-11-09T04:08:10.928558+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Repo Report Shell & Tabs",
+   "subject": "quality-gates",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/report/[owner]/[repo]/page.tsx:131 The permalink splits its read into unavailable, empty and ok, then hands an ok report straight to ReportView with no incomplete-scan branch, while the sibling share card refuses to draw a score for that same report, so two surfaces of one URL decide 'measured nothing' differently.",
+   "techniques": [
+    {
+     "technique": "unmeasurable-criteria",
+     "verdict": "deviation",
+     "evidence": "src/app/report/[owner]/[repo]/reportMetadata.ts:61 The unfurl states 'scores N/100' from a type (UnfurlReport) that carries neither `incomplete` nor `dimensions`, so it cannot call isIncompleteReport. src/lib/og/report-card.tsx:75, the PDF and the LLM markdown all do call it. The technique says the predicate belongs in one function every surface calls. ScoringTab.tsx:48 likewise draws ScoreRing from report.overallScore unguarded; a case-insensitive search for 'incomplete' finds only comments in non-test code under src/components/report and src/app/report."
+    }
+   ]
+  },
+  {
+   "context": "Repositories & Segments",
+   "subject": "quality-gates",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/org/id-routes-gated.test.ts:159 The guard over the segment [id] routes passes on any surviving identifier in the file, so a route that keeps its gate import but loses the call, or gates only one of its handlers, stays green even though the header says a route has to call the gate.",
+   "techniques": [
+    {
+     "technique": "match-the-resolved-artifact",
+     "verdict": "deviation",
+     "evidence": "src/app/api/org/id-routes-gated.test.ts:158 The stripper removes the import's string but keeps the imported identifier. An inline run of the real stripper showed an import-only route and a route with one of two handlers gated both satisfy the guard. segments/[id]/route.ts has PATCH and DELETE behind one local gate helper, so dropping the helper call from DELETE stays green."
+    },
+    {
+     "technique": "gate-liveness",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/id-routes-gated.test.ts:131 Population floor on a filesystem-derived walk; the walker carries underId into nested paths, so segments/[id]/repos/bulk is included."
+    },
+    {
+     "technique": "vacuous-by-evaluation",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/id-routes-gated.test.ts:150 A seeded prose-only counterexample proves the rule can refuse. It does not seed the import-only case reported above."
+    },
+    {
+     "technique": "decidable-in-a-window",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/id-routes-gated.test.ts:26 Narrows a data-flow rule to a local one and says so, which is the technique's first resolution."
+    },
+    {
+     "technique": "instrument-answers-only-its-own-question",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/id-routes-gated.test.ts:31 The guard states the question its green does not answer and names who owns it."
+    },
+    {
+     "technique": "refusal-names-a-reachable-remedy",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/id-routes-gated.test.ts:163 The failure message names both repairs and points inside the shipped tree."
+    },
+    {
+     "technique": "severity-by-construction",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/id-routes-gated.test.ts:165 A hard assertion per route, so a finding fails the test run."
+    },
+    {
+     "technique": "blocking-by-input-determinism",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/segments/[id]/route.ts:22 The guard's verdict is a function of this source text alone, with no external feed."
+    }
+   ],
+   "registryProposal": "match-the-resolved-artifact could name a residue case: stripping comments and strings still leaves import specifiers, so a needle that is an imported name is satisfied by the import alone. Matching a call form or excluding import statements closes it."
+  },
+  {
+   "context": "Dev Inspector",
+   "subject": "quality-gates",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/dev/dev-surfaces-gated.test.ts:36 The one-definition guard strips string literals before looking for the flag, so a second floorless read written as process.env[\"DEV_INSPECT\"] goes undetected, and the handler matcher likewise skips handlers written in other forms.",
+   "techniques": [
+    {
+     "technique": "match-the-resolved-artifact",
+     "verdict": "deviation",
+     "evidence": "src/app/api/dev/dev-surfaces-gated.test.ts:43 Inline run of the real stripper: the bracket-string read is not detected, the dot read is. The technique says a literal key needs the raw read; the sibling admission guard does exactly that. Seeds cover dot access only. No such read exists in src, scripts or next.config.ts today, so the hole is latent. Line 60's positive control on the flag definition is sound."
+    },
+    {
+     "technique": "unparseable-form-is-a-finding",
+     "verdict": "deviation",
+     "evidence": "src/app/api/dev/dev-surfaces-gated.test.ts:65 Inline run: a route with a gated async POST plus an ungated `export const DELETE = async` and a non-async `export function GET` reports no ungated handlers. The `found === 0` branch refuses unrecognised forms only when no handler matches at all."
+    },
+    {
+     "technique": "gate-liveness",
+     "verdict": "conformant",
+     "evidence": "src/app/api/dev/dev-surfaces-gated.test.ts:96 Floor on a filesystem-derived route set."
+    },
+    {
+     "technique": "vacuous-by-evaluation",
+     "verdict": "conformant",
+     "evidence": "src/app/api/dev/dev-surfaces-gated.test.ts:118 Each of the three rules carries its own seeded counterexample."
+    },
+    {
+     "technique": "decidable-in-a-window",
+     "verdict": "conformant",
+     "evidence": "src/app/api/dev/dev-surfaces-gated.test.ts:77 'Gate is the first statement' is decided from the handler's opening, per handler."
+    },
+    {
+     "technique": "prose-rule-drift",
+     "verdict": "conformant",
+     "evidence": "src/app/api/dev/dev-surfaces-gated.test.ts:48 The AGENTS.md escape-hatch rule has a named refusing check for this flag, subject to the string-key hole above."
+    },
+    {
+     "technique": "blocking-by-input-determinism",
+     "verdict": "conformant",
+     "evidence": "src/app/api/dev/dev-surfaces-gated.test.ts:93 The population comes from the tree, with no external input."
+    },
+    {
+     "technique": "severity-by-construction",
+     "verdict": "conformant",
+     "evidence": "src/app/api/dev/dev-surfaces-gated.test.ts:100 A hard assertion per route."
+    },
+    {
+     "technique": "refusal-names-a-reachable-remedy",
+     "verdict": "conformant",
+     "evidence": "src/lib/dev/seed-auth.ts:26 The seed gate's refusal names an actionable remedy, and the empty-tenant refusal is worded separately so an operator is not told to set a secret they already have."
+    }
+   ]
+  },
+  {
+   "context": "Score Charts & Visuals",
+   "subject": "quality-gates",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/components/report/reportFallbacks.test.ts:72 This spec pins private copies of the chart fallbacks and imports neither component, so no change to them can turn it red, and its copied tint has already drifted from the real one at PostureQuadrant.tsx:77 (\"#94a3b8\") with the spec still passing.",
+   "techniques": [
+    {
+     "technique": "gate-liveness",
+     "verdict": "deviation",
+     "evidence": "src/components/report/reportFallbacks.test.ts:21 The file claims to guard the behaviour, but its only imports are vitest and a type. No input to the real components can fail it, and its cited locations are also stale (RadarChart.tsx:22 is now line 49; PostureQuadrant.tsx:62 is now line 77). The two sibling DOM tests contain neither fallback's string."
+    },
+    {
+     "technique": "vacuous-by-evaluation",
+     "verdict": "deviation",
+     "evidence": "src/components/report/reportFallbacks.test.ts:25 The predicate under test is defined in the spec, so the check is satisfied by its own copy rather than by RadarChart."
+    },
+    {
+     "technique": "decidable-in-a-window",
+     "verdict": "conformant",
+     "evidence": "src/lib/scoring/provenance.test.ts:89 The lockstep pin behind SIGNAL_ONLY_DIMENSIONS is a bounded-window scan of one named producer file."
+    },
+    {
+     "technique": "match-the-resolved-artifact",
+     "verdict": "conformant",
+     "evidence": "src/lib/scoring/provenance.test.ts:90 A positive control on the needle, so a reworded producer fails rather than passing over nothing."
+    }
+   ],
+   "registryProposal": "gate-liveness and vacuous-by-evaluation could name the mirror test: a spec that re-implements the predicate it claims to pin, because the component cannot be imported. It passes every fixture check and cannot be red-tested through the target."
+  }
+ ],
+ "declined": [
+  {
+   "subject": "quality-gates",
+   "context": "Portfolio & Public Leaderboard",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-09T04:08:10.928558+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "quality-gates"
+   ],
+   "techniques": [
+    "unmeasurable-criteria"
+   ],
+   "deviations": 1,
+   "context": "Repo Report Shell & Tabs",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T04:08:10.928558+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "quality-gates"
+   ],
+   "techniques": [
+    "blocking-by-input-determinism",
+    "decidable-in-a-window",
+    "gate-liveness",
+    "instrument-answers-only-its-own-question",
+    "match-the-resolved-artifact",
+    "refusal-names-a-reachable-remedy",
+    "severity-by-construction",
+    "vacuous-by-evaluation"
+   ],
+   "deviations": 1,
+   "context": "Repositories & Segments",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T04:08:10.928558+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "quality-gates"
+   ],
+   "techniques": [
+    "blocking-by-input-determinism",
+    "decidable-in-a-window",
+    "gate-liveness",
+    "match-the-resolved-artifact",
+    "prose-rule-drift",
+    "refusal-names-a-reachable-remedy",
+    "severity-by-construction",
+    "unparseable-form-is-a-finding",
+    "vacuous-by-evaluation"
+   ],
+   "deviations": 1,
+   "context": "Dev Inspector",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T04:08:10.928558+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "quality-gates"
+   ],
+   "techniques": [
+    "decidable-in-a-window",
+    "gate-liveness",
+    "match-the-resolved-artifact",
+    "vacuous-by-evaluation"
+   ],
+   "deviations": 1,
+   "context": "Score Charts & Visuals",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

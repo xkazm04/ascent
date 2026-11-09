@@ -11069,6 +11069,146 @@
         }
       ],
       "registryProposal": "The subject audits an installed capability's description only from the consumer's side (sibling-floor-ownership). It has no publisher-side rule for a server whose tool descriptions enter every client's floor: here tools.test.ts:38 sets a minimum description length and no maximum."
+    },
+    "Org Dashboard & Analytics/Repositories & Segments/quality-gates": {
+      "context": "Repositories & Segments",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T04:08:10.928Z",
+      "worker": "a549ffb2-37d5-4472-940f-bd49b4472ad3",
+      "techniques": [
+        {
+          "technique": "match-the-resolved-artifact",
+          "verdict": "deviation",
+          "evidence": "src/app/api/org/id-routes-gated.test.ts:158 The stripper removes the import's string but keeps the imported identifier. An inline run of the real stripper showed an import-only route and a route with one of two handlers gated both satisfy the guard. segments/[id]/route.ts has PATCH and DELETE behind one local gate helper, so dropping the helper call from DELETE stays green."
+        },
+        {
+          "technique": "gate-liveness",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/id-routes-gated.test.ts:131 Population floor on a filesystem-derived walk; the walker carries underId into nested paths, so segments/[id]/repos/bulk is included."
+        },
+        {
+          "technique": "vacuous-by-evaluation",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/id-routes-gated.test.ts:150 A seeded prose-only counterexample proves the rule can refuse. It does not seed the import-only case reported above."
+        },
+        {
+          "technique": "decidable-in-a-window",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/id-routes-gated.test.ts:26 Narrows a data-flow rule to a local one and says so, which is the technique's first resolution."
+        },
+        {
+          "technique": "instrument-answers-only-its-own-question",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/id-routes-gated.test.ts:31 The guard states the question its green does not answer and names who owns it."
+        },
+        {
+          "technique": "refusal-names-a-reachable-remedy",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/id-routes-gated.test.ts:163 The failure message names both repairs and points inside the shipped tree."
+        },
+        {
+          "technique": "severity-by-construction",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/id-routes-gated.test.ts:165 A hard assertion per route, so a finding fails the test run."
+        },
+        {
+          "technique": "blocking-by-input-determinism",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/segments/[id]/route.ts:22 The guard's verdict is a function of this source text alone, with no external feed."
+        }
+      ],
+      "registryProposal": "match-the-resolved-artifact could name a residue case: stripping comments and strings still leaves import specifiers, so a needle that is an imported name is satisfied by the import alone. Matching a call form or excluding import statements closes it."
+    },
+    "Onboarding, Shell & AI Standard/Dev Inspector/quality-gates": {
+      "context": "Dev Inspector",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T04:08:10.928Z",
+      "worker": "a549ffb2-37d5-4472-940f-bd49b4472ad3",
+      "techniques": [
+        {
+          "technique": "match-the-resolved-artifact",
+          "verdict": "deviation",
+          "evidence": "src/app/api/dev/dev-surfaces-gated.test.ts:43 Inline run of the real stripper: the bracket-string read is not detected, the dot read is. The technique says a literal key needs the raw read; the sibling admission guard does exactly that. Seeds cover dot access only. No such read exists in src, scripts or next.config.ts today, so the hole is latent. Line 60's positive control on the flag definition is sound."
+        },
+        {
+          "technique": "unparseable-form-is-a-finding",
+          "verdict": "deviation",
+          "evidence": "src/app/api/dev/dev-surfaces-gated.test.ts:65 Inline run: a route with a gated async POST plus an ungated `export const DELETE = async` and a non-async `export function GET` reports no ungated handlers. The `found === 0` branch refuses unrecognised forms only when no handler matches at all."
+        },
+        {
+          "technique": "gate-liveness",
+          "verdict": "conformant",
+          "evidence": "src/app/api/dev/dev-surfaces-gated.test.ts:96 Floor on a filesystem-derived route set."
+        },
+        {
+          "technique": "vacuous-by-evaluation",
+          "verdict": "conformant",
+          "evidence": "src/app/api/dev/dev-surfaces-gated.test.ts:118 Each of the three rules carries its own seeded counterexample."
+        },
+        {
+          "technique": "decidable-in-a-window",
+          "verdict": "conformant",
+          "evidence": "src/app/api/dev/dev-surfaces-gated.test.ts:77 'Gate is the first statement' is decided from the handler's opening, per handler."
+        },
+        {
+          "technique": "prose-rule-drift",
+          "verdict": "conformant",
+          "evidence": "src/app/api/dev/dev-surfaces-gated.test.ts:48 The AGENTS.md escape-hatch rule has a named refusing check for this flag, subject to the string-key hole above."
+        },
+        {
+          "technique": "blocking-by-input-determinism",
+          "verdict": "conformant",
+          "evidence": "src/app/api/dev/dev-surfaces-gated.test.ts:93 The population comes from the tree, with no external input."
+        },
+        {
+          "technique": "severity-by-construction",
+          "verdict": "conformant",
+          "evidence": "src/app/api/dev/dev-surfaces-gated.test.ts:100 A hard assertion per route."
+        },
+        {
+          "technique": "refusal-names-a-reachable-remedy",
+          "verdict": "conformant",
+          "evidence": "src/lib/dev/seed-auth.ts:26 The seed gate's refusal names an actionable remedy, and the empty-tenant refusal is worded separately so an operator is not told to set a secret they already have."
+        }
+      ]
+    },
+    "Reporting & Visualization/Score Charts & Visuals/quality-gates": {
+      "context": "Score Charts & Visuals",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T04:08:10.928Z",
+      "worker": "a549ffb2-37d5-4472-940f-bd49b4472ad3",
+      "techniques": [
+        {
+          "technique": "gate-liveness",
+          "verdict": "deviation",
+          "evidence": "src/components/report/reportFallbacks.test.ts:21 The file claims to guard the behaviour, but its only imports are vitest and a type. No input to the real components can fail it, and its cited locations are also stale (RadarChart.tsx:22 is now line 49; PostureQuadrant.tsx:62 is now line 77). The two sibling DOM tests contain neither fallback's string."
+        },
+        {
+          "technique": "vacuous-by-evaluation",
+          "verdict": "deviation",
+          "evidence": "src/components/report/reportFallbacks.test.ts:25 The predicate under test is defined in the spec, so the check is satisfied by its own copy rather than by RadarChart."
+        },
+        {
+          "technique": "decidable-in-a-window",
+          "verdict": "conformant",
+          "evidence": "src/lib/scoring/provenance.test.ts:89 The lockstep pin behind SIGNAL_ONLY_DIMENSIONS is a bounded-window scan of one named producer file."
+        },
+        {
+          "technique": "match-the-resolved-artifact",
+          "verdict": "conformant",
+          "evidence": "src/lib/scoring/provenance.test.ts:90 A positive control on the needle, so a reworded producer fails rather than passing over nothing."
+        }
+      ],
+      "registryProposal": "gate-liveness and vacuous-by-evaluation could name the mirror test: a spec that re-implements the predicate it claims to pin, because the component cannot be imported. It passes every fixture check and cannot be red-tested through the target."
     }
   }
 }
