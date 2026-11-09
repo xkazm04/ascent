@@ -9801,43 +9801,37 @@
       "context": "AI Registry Repo (Onboarding & Index)",
       "subject": "quality-gates",
       "bundle": "software-engineering",
-      "state": "unknown",
-      "evaluatedAt": "2026-11-08",
-      "evaluatedTs": "2026-11-08T23:24:08.594Z",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T00:58:47.204Z",
+      "worker": "5d3a89eb-5d37-4daf-91e7-70f60d5544b6",
       "techniques": [
         {
-          "technique": "unmeasurable-criteria",
+          "technique": "advancement-evidence-fields",
           "verdict": "deviation",
-          "evidence": "src/features/shared/registry/registryModel.ts:87 A surface advertising a bar whose input it cannot read for this org: no skip is declared per sink, unlike the neighbouring 'sync unmeasured' handling. The stepper blocks nothing, so the harm is a permanently unfinished step and a false zero."
+          "evidence": "src/app/api/org/[slug]/registry/migrate/route.ts:69 Counts files committed to the PR branch as moved at state pr-open; the fixture's pr-open row uses moved: 0 (registry-view.fixture.ts:191), and registryModel.ts:82 and :135 then resolve the step to done. These setMigrationStep writes are also .catch(() => {}), so the record can silently miss the advance."
         },
         {
-          "technique": "advancement-evidence-fields",
+          "technique": "unmeasurable-criteria",
           "verdict": "conformant",
-          "evidence": "src/lib/org/registry-view.ts:52 Each artifact's migration carries a closed state vocabulary with PR pointer and moved/total, so a non-satisfied row is readable rather than blank."
+          "evidence": "src/features/shared/registry/registryModel.ts:144 A missing fleet reading is announced as not measured and cannot satisfy the step; this is a stepper, so no refusal is involved."
         },
         {
           "technique": "gate-liveness",
           "verdict": "conformant",
-          "evidence": "src/lib/org/registry-view.ts:337 Never-swept, swept-without-map and swept-and-judged stay distinct, so an instrument that never ran cannot read as a clean fleet."
-        },
-        {
-          "technique": "policy-projection",
-          "verdict": "conformant",
-          "evidence": "src/lib/org/registry-view.ts:344 The display cap is fetched at cap+1 and disclosed as a flag, so a truncated matrix cannot be read as complete."
+          "evidence": "src/lib/org/registry-view.ts:337 Never swept stays distinct from a clean result, by analogy to could-not-run versus pass."
         },
         {
           "technique": "refusal-names-a-reachable-remedy",
           "verdict": "conformant",
-          "evidence": "src/app/api/org/[slug]/registry/migrate/route.ts:34 The refusal names the next action, and the caller has already passed the same write gate that action needs."
+          "evidence": "src/app/api/org/[slug]/registry/migrate/route.ts:34 Names the action, which step 1 of the same tab offers; the index route's not-mapped message states only the condition."
+        },
+        {
+          "technique": "policy-projection",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/org/registry-view.ts:344 A disclosed wire cap on a read model; it feeds no enforcement artifact."
         }
-      ],
-      "registryProposal": "unmeasurable-criteria could say whether a non-refusing completion bar (an onboarding stepper's 'done' state) counts as a surface advertising a bar; the technique's examples are all verdicts with a pass or fail outcome.",
-      "withdrawn": {
-        "worker": "271f5111-c8c4-4e36-83f0-22fa094fad28",
-        "state": "deviation",
-        "at": "2026-11-08T23:24:51.769847+00:00",
-        "reason": "reviewer (sonnet): The claim that an org on the api or off sink can never reach done is not supported: src/lib/registry/index-registry.ts reads the usage/ lane whatever telemetrySink says, and registry-view.ts takes invokes30d from that lane's row, so an api-sink org with usage files can pass the verify bar. The fixtu"
-      }
+      ]
     },
     "Org Knowledge & Skills/Org Memory/quality-gates": {
       "context": "Org Memory",
@@ -10117,6 +10111,100 @@
           "technique": "pin-the-call-not-the-name",
           "verdict": "conformant",
           "evidence": "src/lib/standard/standard.test.ts:298 The ordering pin uses a needle only code can spell and has a not-found floor at line 300. Limit: the EEXIST retry is pinned as text only, though the sibling execution suite spawns this script."
+        }
+      ]
+    },
+    "Repository Scanning & Scoring/Scan Pipeline & Ingestion/quality-gates": {
+      "context": "Scan Pipeline & Ingestion",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T00:58:47.204Z",
+      "worker": "5d3a89eb-5d37-4daf-91e7-70f60d5544b6",
+      "techniques": [
+        {
+          "technique": "blocking-by-input-determinism",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/scan/route.ts:261 Refuses on a caller's quota window, which is billing admission and not a verdict on a change being gated."
+        },
+        {
+          "technique": "refusal-names-a-reachable-remedy",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/scan/route.ts:411 It does name a remedy, but this is an HTTP method refusal to an API client and not a blocking check's message."
+        },
+        {
+          "technique": "gate-liveness",
+          "verdict": "not-applicable",
+          "evidence": "src/app/page.doors.test.ts:118 A control case in a behaviour test of the landing's degraded read; it does not prove a checker is alive."
+        }
+      ]
+    },
+    "Onboarding, Shell & AI Standard/First-Run Onboarding Wizard/quality-gates": {
+      "context": "First-Run Onboarding Wizard",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T00:58:47.204Z",
+      "worker": "5d3a89eb-5d37-4daf-91e7-70f60d5544b6",
+      "techniques": [
+        {
+          "technique": "blocking-by-input-determinism",
+          "verdict": "not-applicable",
+          "evidence": "src/components/onboarding/canRunReal.ts:29 A client-side billing predicate that selects a scan mode and blocks no change."
+        },
+        {
+          "technique": "unmeasurable-criteria",
+          "verdict": "not-applicable",
+          "evidence": "src/components/onboarding/importCost.ts:29 The ?? 0 affects a cost disclosure; no refusal machinery reads the value."
+        }
+      ]
+    },
+    "Org Dashboard & Analytics/Developer home (UC3 individual care)/quality-gates": {
+      "context": "Developer home (UC3 individual care)",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "unknown",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T00:58:47.204Z",
+      "techniques": [
+        {
+          "technique": "unmeasurable-criteria",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/org/developer-view-load.ts:82 Names why a reading is missing for display; no policy condition is evaluated."
+        },
+        {
+          "technique": "instrument-answers-only-its-own-question",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/org/developer-view-load.ts:8 The comment justifies a module split by citing a repo-level gap; this context owns no such check."
+        }
+      ],
+      "withdrawn": {
+        "worker": "5d3a89eb-5d37-4daf-91e7-70f60d5544b6",
+        "state": "not-applicable",
+        "at": "2026-11-09T00:59:13.708368+00:00",
+        "reason": "reviewer (sonnet): The anchor at developer-view-load.ts:23 is part of a doc comment and does not itself show that no check exists; the comment at line 8 mentions a 'build not in the gate' note, so the not-applicable rests only on a keyword search."
+      }
+    },
+    "Onboarding, Shell & AI Standard/App Shell, SEO & Error Pages/quality-gates": {
+      "context": "App Shell, SEO & Error Pages",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T00:58:47.204Z",
+      "worker": "5d3a89eb-5d37-4daf-91e7-70f60d5544b6",
+      "techniques": [
+        {
+          "technique": "gate-liveness",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/health/route.ts:82 A database uptime probe for a monitor, not a checker proving it ran."
+        },
+        {
+          "technique": "policy-projection",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/site.ts:29 Single-sources marketing copy; no enforced policy is projected."
         }
       ]
     }

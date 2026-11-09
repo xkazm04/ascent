@@ -1,0 +1,211 @@
+{
+  "schema": "conform-run/1",
+  "worker": "5d3a89eb-5d37-4daf-91e7-70f60d5544b6",
+  "subject": "quality-gates",
+  "evaluatedAt": "2026-11-09T00:58:47.204772+00:00",
+  "provider": "claude",
+  "model": "claude-opus-5-5",
+  "pairs": [
+    {
+      "context": "Scan Pipeline & Ingestion",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evidence": "src/app/api/scan/route.ts:231 The word 'gate' is all over these files but names per-request admission (burst limit, sign-in, quota, credit), so no check here renders a verdict on a tree or item; a search of src/app and src/components for reference-transaction, pre-receive, max-warnings and no-verify found nothing, and no listed test reads source text.",
+      "techniques": [
+        {
+          "technique": "blocking-by-input-determinism",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/scan/route.ts:261 Refuses on a caller's quota window, which is billing admission and not a verdict on a change being gated."
+        },
+        {
+          "technique": "refusal-names-a-reachable-remedy",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/scan/route.ts:411 It does name a remedy, but this is an HTTP method refusal to an API client and not a blocking check's message."
+        },
+        {
+          "technique": "gate-liveness",
+          "verdict": "not-applicable",
+          "evidence": "src/app/page.doors.test.ts:118 A control case in a behaviour test of the landing's degraded read; it does not prove a checker is alive."
+        }
+      ],
+      "absenceTerms": [
+        "reference-transaction",
+        "pre-receive",
+        "max-warnings",
+        "no-verify"
+      ]
+    },
+    {
+      "context": "AI Registry Repo (Onboarding & Index)",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evidence": "src/features/shared/registry/registryModel.ts:82 The migrate route stores moved: pr.committed.length while the state is still pr-open, and registrySteps tests migrateDone before migrateOpen, so a migration whose draft PR holds every file reads step 4 as done and the verdict line as n/n artifacts in the registry before anything has merged, filing in-progress work as satisfied.",
+      "techniques": [
+        {
+          "technique": "advancement-evidence-fields",
+          "verdict": "deviation",
+          "evidence": "src/app/api/org/[slug]/registry/migrate/route.ts:69 Counts files committed to the PR branch as moved at state pr-open; the fixture's pr-open row uses moved: 0 (registry-view.fixture.ts:191), and registryModel.ts:82 and :135 then resolve the step to done. These setMigrationStep writes are also .catch(() => {}), so the record can silently miss the advance."
+        },
+        {
+          "technique": "unmeasurable-criteria",
+          "verdict": "conformant",
+          "evidence": "src/features/shared/registry/registryModel.ts:144 A missing fleet reading is announced as not measured and cannot satisfy the step; this is a stepper, so no refusal is involved."
+        },
+        {
+          "technique": "gate-liveness",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/registry-view.ts:337 Never swept stays distinct from a clean result, by analogy to could-not-run versus pass."
+        },
+        {
+          "technique": "refusal-names-a-reachable-remedy",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/[slug]/registry/migrate/route.ts:34 Names the action, which step 1 of the same tab offers; the index route's not-mapped message states only the condition."
+        },
+        {
+          "technique": "policy-projection",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/org/registry-view.ts:344 A disclosed wire cap on a read model; it feeds no enforcement artifact."
+        }
+      ]
+    },
+    {
+      "context": "First-Run Onboarding Wizard",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evidence": "src/components/onboarding/canRunReal.ts:4 The wizard's gates choose between a real and a preview scan or classify an access refusal, so nothing here judges a tree or an advancing item; a search of src/components/onboarding and src/app for reference-transaction, max-warnings, no-verify, husky and lint-staged found nothing.",
+      "techniques": [
+        {
+          "technique": "blocking-by-input-determinism",
+          "verdict": "not-applicable",
+          "evidence": "src/components/onboarding/canRunReal.ts:29 A client-side billing predicate that selects a scan mode and blocks no change."
+        },
+        {
+          "technique": "unmeasurable-criteria",
+          "verdict": "not-applicable",
+          "evidence": "src/components/onboarding/importCost.ts:29 The ?? 0 affects a cost disclosure; no refusal machinery reads the value."
+        }
+      ],
+      "absenceTerms": [
+        "reference-transaction",
+        "max-warnings",
+        "no-verify",
+        "husky",
+        "lint-staged"
+      ]
+    },
+    {
+      "context": "App Shell, SEO & Error Pages",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evidence": "src/app/api/health/route.ts:49 The 'liveness' here is service uptime and the rest of the context is layout, SEO and brand copy, so no gate exists to judge; reference-transaction, pre-receive and branch-provenance appear nowhere in src, while broader words such as husky and max-warnings occur only in other areas (mainly the scanner's detectors and landing copy) and in none of this context's files.",
+      "techniques": [
+        {
+          "technique": "gate-liveness",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/health/route.ts:82 A database uptime probe for a monitor, not a checker proving it ran."
+        },
+        {
+          "technique": "policy-projection",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/site.ts:29 Single-sources marketing copy; no enforced policy is projected."
+        }
+      ],
+      "absenceTerms": [
+        "reference-transaction",
+        "pre-receive"
+      ]
+    }
+  ],
+  "declined": [
+    {
+      "subject": "quality-gates",
+      "context": "Developer home (UC3 individual care)",
+      "reason": "withdrawn after review: reviewer (sonnet): The anchor at developer-view-load.ts:23 is part of a doc comment and does not itself show that no check exists; the comment at line 8 mentions a 'build not in the gate' note, so the not-applicable rests only on a keyword search."
+    }
+  ],
+  "consults": [
+    {
+      "ts": "2026-11-09T00:58:47.204772+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "quality-gates"
+      ],
+      "techniques": [
+        "blocking-by-input-determinism",
+        "gate-liveness",
+        "refusal-names-a-reachable-remedy"
+      ],
+      "deviations": 0,
+      "context": "Scan Pipeline & Ingestion",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-09T00:58:47.204772+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "quality-gates"
+      ],
+      "techniques": [
+        "advancement-evidence-fields",
+        "gate-liveness",
+        "policy-projection",
+        "refusal-names-a-reachable-remedy",
+        "unmeasurable-criteria"
+      ],
+      "deviations": 1,
+      "context": "AI Registry Repo (Onboarding & Index)",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-09T00:58:47.204772+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "quality-gates"
+      ],
+      "techniques": [
+        "blocking-by-input-determinism",
+        "unmeasurable-criteria"
+      ],
+      "deviations": 0,
+      "context": "First-Run Onboarding Wizard",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-09T00:58:47.204772+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "quality-gates"
+      ],
+      "techniques": [
+        "instrument-answers-only-its-own-question",
+        "unmeasurable-criteria"
+      ],
+      "deviations": 0,
+      "context": "Developer home (UC3 individual care)",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    },
+    {
+      "ts": "2026-11-09T00:58:47.204772+00:00",
+      "bundle": "software-engineering",
+      "subjects": [
+        "quality-gates"
+      ],
+      "techniques": [
+        "gate-liveness",
+        "policy-projection"
+      ],
+      "deviations": 0,
+      "context": "App Shell, SEO & Error Pages",
+      "via": "curator-multi:claude",
+      "model": "claude-opus-5-5"
+    }
+  ]
+}

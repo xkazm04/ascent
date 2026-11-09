@@ -1515,7 +1515,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/scan/route.ts:231 The word 'gate' is all over these files but names per-request admission (burst limit, sign-in, quota, credit), so no check here renders a verdict on a tree or item; a search of src/app and src/components for reference-transaction, pre-receive, max-warnings and no-verify found nothing, and no listed test reads source text.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a5b34d39a4b8edd3",
+          "evaluatedRevision": 56
         },
         {
           "subject": "docs-sync",
@@ -2555,7 +2559,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/health/route.ts:49 The 'liveness' here is service uptime and the rest of the context is layout, SEO and brand copy, so no gate exists to judge; reference-transaction, pre-receive and branch-provenance appear nowhere in src, while broader words such as husky and max-warnings occur only in other areas (mainly the scanner's detectors and landing copy) and in none of this context's files.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a5b34d39a4b8edd3",
+          "evaluatedRevision": 56
         },
         {
           "subject": "voice-io",
@@ -3159,7 +3167,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/components/onboarding/canRunReal.ts:4 The wizard's gates choose between a real and a preview scan or classify an access refusal, so nothing here judges a tree or an advancing item; a search of src/components/onboarding and src/app for reference-transaction, max-warnings, no-verify, husky and lint-staged found nothing.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a5b34d39a4b8edd3",
+          "evaluatedRevision": 56
         },
         {
           "subject": "wizard-flows",
@@ -7466,7 +7478,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/features/shared/registry/registryModel.ts:82 The migrate route stores moved: pr.committed.length while the state is still pr-open, and registrySteps tests migrateDone before migrateOpen, so a migration whose draft PR holds every file reads step 4 as done and the verdict line as n/n artifacts in the registry before anything has merged, filing in-progress work as satisfied.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a5b34d39a4b8edd3",
+          "evaluatedRevision": 56
         },
         {
           "subject": "test-harness",
