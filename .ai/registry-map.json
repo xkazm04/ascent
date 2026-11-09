@@ -1556,7 +1556,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "e2e/scan.spec.ts:48 The only two specs that drive a successful scan through the running product (form or URL, SSE stream, rendered report) are excluded from ci.yml and not selected by smoke.yml's --grep @smoke, so no automatic or scheduled lane ever observes them and they run by hand only, while the ladder puts the live rung at scheduled plus on demand.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "codebase-scanning",
@@ -2527,7 +2531,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/app/seo.test.ts:186 The sitemap/robots disjointness test re-implements the crawler's matching with a slash boundary real robots prefix rules do not have, so a future sitemap entry such as /metrics passes while the disallow of /me blocks it; no current sitemap path collides, and seo.test.ts:50-51 shows the prefix semantics are already known for /org/.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "agent-memory",
@@ -7999,7 +8007,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/app/api/mcp/route.test.ts:32 The daily ceiling is covered only by driving assertWriteAllowed directly, while every route-level test runs with isDbConfigured false so route.ts:248 always hands over null, and no test touches countTokenWritesToday's result, so the route could stop passing a real count with the suite green.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "voice-io",

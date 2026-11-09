@@ -1,0 +1,244 @@
+{
+ "schema": "conform-run/1",
+ "worker": "43e330e5-9bec-4534-ac2d-0b68e2b4f808",
+ "subject": "test-harness",
+ "evaluatedAt": "2026-11-09T01:56:45.101358+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Scan Pipeline & Ingestion",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "e2e/scan.spec.ts:48 The only two specs that drive a successful scan through the running product (form or URL, SSE stream, rendered report) are excluded from ci.yml and not selected by smoke.yml's --grep @smoke, so no automatic or scheduled lane ever observes them and they run by hand only, while the ladder puts the live rung at scheduled plus on demand.",
+   "techniques": [
+    {
+     "technique": "live-app-harness",
+     "verdict": "deviation",
+     "evidence": "e2e/scan.spec.ts:48 Excluding them from the PR gate is sound; the gap is that no schedule picks them up. ci.yml:95 inverts @livescan, smoke.yml:26 selects @smoke only, and the third workflow (maturity.yml) has no playwright run."
+    },
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "conformant",
+     "evidence": "src/app/api/scan/stream/route.ambient.test.ts:5 Declares the one unreachable region; line 90 of the same file reads the crossing argument (noAmbientToken) off the attempt's own record."
+    },
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "conformant",
+     "evidence": "src/app/api/scan/route.ambient.test.ts:5 Runs the shipped guard and lifecycle. Cheaper variants elsewhere say what they drop (route.test.ts:24 'Passthrough'), and route.test.ts re-installs its passing defaults per describe, which is weaker than the no-default rule the technique labels its own inference."
+    },
+    {
+     "technique": "fixture-economics",
+     "verdict": "conformant",
+     "evidence": "src/app/api/scan/route.ambient.test.ts:55 In-memory tier: a private double built per test, so no shared mutable fixture and no call log carried between tests."
+    },
+    {
+     "technique": "recorded-interaction-fixtures",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/scan/github-fake.fixture.ts:6 A hand-written double of three endpoints with small responses, which falls under the technique's 'trivial enough to fake honestly' exclusion; no recording exists."
+    },
+    {
+     "technique": "assert-the-schedule-not-the-stopwatch",
+     "verdict": "conformant",
+     "evidence": "src/app/api/scan/stream/route.test.ts:418 The rejoin claim is held open by a deferred promise and proved by a call count, with no elapsed-time bound."
+    }
+   ]
+  },
+  {
+   "context": "Roadmap & Recommendation Tracking",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/recommendations/[id]/route.test.ts:27 The two side-write stubs sit on the @/lib/db barrel, but the route now reaches those writers through @/lib/db/rec-transition-effects, which imports @/lib/db/org-decisions and @/lib/memory/scan-feed directly, so the stubs are dead and every status patch runs the real effects, inert only while the real @/lib/db/client finds no DATABASE_URL.",
+   "techniques": [
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "deviation",
+     "evidence": "src/app/api/recommendations/[id]/route.test.ts:27 The injected seam is no longer on the driver's path, and a failing effect is swallowed by the never-throwing module. The sibling route.consequences.test.ts:26 mocks the real seam."
+    },
+    {
+     "technique": "pin-the-call-not-the-name",
+     "verdict": "conformant",
+     "evidence": "src/app/api/recommendations/[id]/route.consequences.test.ts:75 The haystack is comment-stripped, and the reason for the pin lives in the asserting file."
+    },
+    {
+     "technique": "negative-control-tests",
+     "verdict": "conformant",
+     "evidence": "src/app/api/recommendations/[id]/route.consequences.test.ts:76 The structural pin is proved live on every run by a seeded offending shape, paired with a prose-only fragment on line 77."
+    },
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "conformant",
+     "evidence": "src/app/api/recommendations/[id]/route.test.ts:116 The body smuggles attacker-org, so the fixture disagrees with the wrong producer and the gate's argument alone discriminates."
+    }
+   ]
+  },
+  {
+   "context": "Repo Report Shell & Tabs",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/report/[owner]/[repo]/opengraph-image.doors.test.ts:11 The card tree is input for a foreign renderer, yet the renderer never runs in any lane (the only other test touching it mocks next/og to throw), so a card it would reject stays green while opengraph-image.tsx:41 builds the response outside the try and line 12 of that file promises an unfurl can NEVER fail.",
+   "techniques": [
+    {
+     "technique": "assert-through-the-reader",
+     "verdict": "deviation",
+     "evidence": "src/app/report/[owner]/[repo]/opengraph-image.doors.test.ts:11 Asserts which element was handed over, not what the reader does with it. next/og is already a dependency of the lane, though nobody has measured the cost of running it under vitest."
+    },
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "conformant",
+     "evidence": "src/app/report/[owner]/[repo]/page.unreachable.test.tsx:9 Names the shadowing producer of the earlier suite and moves the fake down to the Prisma client so the decision is reached."
+    },
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "conformant",
+     "evidence": "src/app/report/[owner]/[repo]/page.unreachable.test.tsx:30 The shipped readers and client wrappers run; only the Prisma client is fake."
+    }
+   ]
+  },
+  {
+   "context": "App Shell, SEO & Error Pages",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/seo.test.ts:186 The sitemap/robots disjointness test re-implements the crawler's matching with a slash boundary real robots prefix rules do not have, so a future sitemap entry such as /metrics passes while the disallow of /me blocks it; no current sitemap path collides, and seo.test.ts:50-51 shows the prefix semantics are already known for /org/.",
+   "techniques": [
+    {
+     "technique": "assert-through-the-reader",
+     "verdict": "deviation",
+     "evidence": "src/app/seo.test.ts:186 The oracle is a hand-written stand-in for the foreign reader and it disagrees with that reader on exactly the rules with no trailing slash (/launch, /me)."
+    },
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "conformant",
+     "evidence": "src/app/seo.test.ts:117 The negative 'never leaks' assertions carry a positive reach check beside them."
+    },
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "conformant",
+     "evidence": "src/app/error.test.ts:17 The plain-function invocation says what it leaves out; the shared RouteError card also has a DOM suite (src/components/ui/RouteError.dom.test.tsx, existence checked, not opened)."
+    }
+   ],
+   "registryProposal": "assert-through-the-reader names a string assertion and a near-side write as the failure shapes; it could also name a third: a hand-written re-implementation of the reader's rules inside the test, which looks like reader-based evidence while encoding the author's reading of the protocol."
+  },
+  {
+   "context": "MCP Server",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/mcp/route.test.ts:32 The daily ceiling is covered only by driving assertWriteAllowed directly, while every route-level test runs with isDbConfigured false so route.ts:248 always hands over null, and no test touches countTokenWritesToday's result, so the route could stop passing a real count with the suite green.",
+   "techniques": [
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "deviation",
+     "evidence": "src/app/api/mcp/route.test.ts:32 The comment declares the predicate's half and not the crossing. A grep of src and e2e tests finds countTokenWritesToday only in two comments, so adoption of a non-null count is pinned nowhere."
+    },
+    {
+     "technique": "assert-through-the-reader",
+     "verdict": "deviation",
+     "evidence": "src/lib/mcp/tools.test.ts:29 The schemas and envelopes are read by foreign MCP clients, but the test checks only type === object and validate-args is an in-house subset; no MCP client SDK or JSON Schema compiler is declared in package.json or used by these tests. Lower confidence than the ceiling finding, since installing a reader is a cost nobody has estimated."
+    },
+    {
+     "technique": "negative-control-tests",
+     "verdict": "conformant",
+     "evidence": "src/app/api/mcp/route.test.ts:210 The mutation that proves the plan-gate tests is recorded in the test's own comment; the same note recurs at route.test.ts:303 and tools.test.ts:156."
+    },
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "conformant",
+     "evidence": "src/app/api/mcp/route.test.ts:23 The fake sits at the db boundary so the shipped plan-gate resolver runs."
+    }
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-11-09T01:56:45.101358+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "assert-the-schedule-not-the-stopwatch",
+    "fixture-economics",
+    "live-app-harness",
+    "recorded-interaction-fixtures",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "Scan Pipeline & Ingestion",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T01:56:45.101358+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "negative-control-tests",
+    "pin-the-call-not-the-name",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "Roadmap & Recommendation Tracking",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T01:56:45.101358+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "assert-through-the-reader",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "Repo Report Shell & Tabs",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T01:56:45.101358+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "assert-through-the-reader",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "App Shell, SEO & Error Pages",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T01:56:45.101358+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "assert-through-the-reader",
+    "negative-control-tests",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "MCP Server",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

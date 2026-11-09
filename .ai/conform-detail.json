@@ -10421,6 +10421,105 @@
           "evidence": "src/lib/report/validate.ts:143 Missing rubric provenance is preserved as null for display and diffing; no policy condition or verdict consumes it here."
         }
       ]
+    },
+    "Repository Scanning & Scoring/Scan Pipeline & Ingestion/test-harness": {
+      "context": "Scan Pipeline & Ingestion",
+      "subject": "test-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T01:56:45.101Z",
+      "worker": "43e330e5-9bec-4534-ac2d-0b68e2b4f808",
+      "techniques": [
+        {
+          "technique": "live-app-harness",
+          "verdict": "deviation",
+          "evidence": "e2e/scan.spec.ts:48 Excluding them from the PR gate is sound; the gap is that no schedule picks them up. ci.yml:95 inverts @livescan, smoke.yml:26 selects @smoke only, and the third workflow (maturity.yml) has no playwright run."
+        },
+        {
+          "technique": "unreached-decisions-pin-nothing",
+          "verdict": "conformant",
+          "evidence": "src/app/api/scan/stream/route.ambient.test.ts:5 Declares the one unreachable region; line 90 of the same file reads the crossing argument (noAmbientToken) off the attempt's own record."
+        },
+        {
+          "technique": "a-test-helper-is-a-fork-of-the-driver",
+          "verdict": "conformant",
+          "evidence": "src/app/api/scan/route.ambient.test.ts:5 Runs the shipped guard and lifecycle. Cheaper variants elsewhere say what they drop (route.test.ts:24 'Passthrough'), and route.test.ts re-installs its passing defaults per describe, which is weaker than the no-default rule the technique labels its own inference."
+        },
+        {
+          "technique": "fixture-economics",
+          "verdict": "conformant",
+          "evidence": "src/app/api/scan/route.ambient.test.ts:55 In-memory tier: a private double built per test, so no shared mutable fixture and no call log carried between tests."
+        },
+        {
+          "technique": "recorded-interaction-fixtures",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/scan/github-fake.fixture.ts:6 A hand-written double of three endpoints with small responses, which falls under the technique's 'trivial enough to fake honestly' exclusion; no recording exists."
+        },
+        {
+          "technique": "assert-the-schedule-not-the-stopwatch",
+          "verdict": "conformant",
+          "evidence": "src/app/api/scan/stream/route.test.ts:418 The rejoin claim is held open by a deferred promise and proved by a call count, with no elapsed-time bound."
+        }
+      ]
+    },
+    "Onboarding, Shell & AI Standard/App Shell, SEO & Error Pages/test-harness": {
+      "context": "App Shell, SEO & Error Pages",
+      "subject": "test-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T01:56:45.101Z",
+      "worker": "43e330e5-9bec-4534-ac2d-0b68e2b4f808",
+      "techniques": [
+        {
+          "technique": "assert-through-the-reader",
+          "verdict": "deviation",
+          "evidence": "src/app/seo.test.ts:186 The oracle is a hand-written stand-in for the foreign reader and it disagrees with that reader on exactly the rules with no trailing slash (/launch, /me)."
+        },
+        {
+          "technique": "unreached-decisions-pin-nothing",
+          "verdict": "conformant",
+          "evidence": "src/app/seo.test.ts:117 The negative 'never leaks' assertions carry a positive reach check beside them."
+        },
+        {
+          "technique": "a-test-helper-is-a-fork-of-the-driver",
+          "verdict": "conformant",
+          "evidence": "src/app/error.test.ts:17 The plain-function invocation says what it leaves out; the shared RouteError card also has a DOM suite (src/components/ui/RouteError.dom.test.tsx, existence checked, not opened)."
+        }
+      ],
+      "registryProposal": "assert-through-the-reader names a string assertion and a near-side write as the failure shapes; it could also name a third: a hand-written re-implementation of the reader's rules inside the test, which looks like reader-based evidence while encoding the author's reading of the protocol."
+    },
+    "Org Knowledge & Skills/MCP Server/test-harness": {
+      "context": "MCP Server",
+      "subject": "test-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T01:56:45.101Z",
+      "worker": "43e330e5-9bec-4534-ac2d-0b68e2b4f808",
+      "techniques": [
+        {
+          "technique": "unreached-decisions-pin-nothing",
+          "verdict": "deviation",
+          "evidence": "src/app/api/mcp/route.test.ts:32 The comment declares the predicate's half and not the crossing. A grep of src and e2e tests finds countTokenWritesToday only in two comments, so adoption of a non-null count is pinned nowhere."
+        },
+        {
+          "technique": "assert-through-the-reader",
+          "verdict": "deviation",
+          "evidence": "src/lib/mcp/tools.test.ts:29 The schemas and envelopes are read by foreign MCP clients, but the test checks only type === object and validate-args is an in-house subset; no MCP client SDK or JSON Schema compiler is declared in package.json or used by these tests. Lower confidence than the ceiling finding, since installing a reader is a cost nobody has estimated."
+        },
+        {
+          "technique": "negative-control-tests",
+          "verdict": "conformant",
+          "evidence": "src/app/api/mcp/route.test.ts:210 The mutation that proves the plan-gate tests is recorded in the test's own comment; the same note recurs at route.test.ts:303 and tools.test.ts:156."
+        },
+        {
+          "technique": "a-test-helper-is-a-fork-of-the-driver",
+          "verdict": "conformant",
+          "evidence": "src/app/api/mcp/route.test.ts:23 The fake sits at the db boundary so the shipped plan-gate resolver runs."
+        }
+      ]
     }
   }
 }
