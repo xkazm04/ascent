@@ -6958,7 +6958,11 @@
           "revision": 31,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/local/agent-stream.ts:171 The loop launches unattended agents in directories it creates and compares arms across them, but its stream parser acts only on result and assistant frames, so the system init and hook-trace frames are dropped and no run can state which instruction files it loaded.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:9b02cf004a7ce444",
+          "evaluatedRevision": 32
         },
         {
           "subject": "quality-gates",
@@ -7845,7 +7849,11 @@
           "revision": 31,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/api/athena/gate.ts:218 Athena's standing text is read from database rows and composed by the application, which makes it prompt-assembly rather than a repo-owned file a harness injects; cursorrules, copilot-instructions and 'instruction file' have zero hits across all its directories, while CLAUDE.md, AGENTS.md and SKILL.md have zero hits in its own four directories and appear only in unrelated shared src/lib/db files.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:9b02cf004a7ce444",
+          "evaluatedRevision": 32
         },
         {
           "subject": "agent-runtime-assembly",
@@ -8027,7 +8035,11 @@
           "revision": 31,
           "changedAt": "2026-09-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/mcp/tools.ts:534 The tools/list scope copy is a hand-kept list of which tools sit behind which scope and omits get_fix_brief, the tenth scope-gated tool in MCP_TOOLS, so the published model is already a subset of a catalog that could generate it.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:9b02cf004a7ce444",
+          "evaluatedRevision": 32
         },
         {
           "subject": "test-harness",

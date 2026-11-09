@@ -1,0 +1,186 @@
+{
+ "schema": "conform-run/1",
+ "worker": "879192ec-d94c-4a98-b0dc-5f74ac148c30",
+ "subject": "agent-instruction-files",
+ "evaluatedAt": "2026-11-09T03:51:43.965015+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Local Autopilot & Loop Engine",
+   "subject": "agent-instruction-files",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/local/agent-stream.ts:171 The loop launches unattended agents in directories it creates and compares arms across them, but its stream parser acts only on result and assistant frames, so the system init and hook-trace frames are dropped and no run can state which instruction files it loaded.",
+   "techniques": [
+    {
+     "technique": "workspace-ancestry-isolation",
+     "verdict": "deviation",
+     "evidence": "src/lib/local/agent-stream.ts:171 Layout half is right: loop-worktree.ts:75 places each worktree under tmpdir, outside any other checkout. The 'make the loaded set an artifact' half is absent: a search of src/lib/local, loop-runs-types.ts and prisma/schema.prisma for InstructionsLoaded, loaded-instruction and memory_paths terms found nothing, so the isolation is asserted from layout only."
+    },
+    {
+     "technique": "capability-before-steering",
+     "verdict": "conformant",
+     "evidence": "src/lib/local/lane-commit.ts:7 A brief that asked for a commit the flags forbade was diagnosed as a capability gap and fixed by having the lane commit, not by sharper wording."
+    },
+    {
+     "technique": "capability-coverage-contract",
+     "verdict": "conformant",
+     "evidence": "src/lib/org/followups.ts:469 Judged on the forward-promise clause only: the brief names the verification net only when the guard is armed. Completeness of named capabilities was not judged. The file sits outside the context's paths but is the prompt the engine sends."
+    },
+    {
+     "technique": "enforcement-demotion",
+     "verdict": "conformant",
+     "evidence": "src/lib/local/lane-plan-prompt.ts:102 The prompt names the gate and its consequence; lane-plan.ts:15 and :226 show the program check on git status and HEAD."
+    },
+    {
+     "technique": "inherited-default-ownership",
+     "verdict": "conformant",
+     "evidence": "src/lib/local/agent.ts:65 A harness-supplied default was noticed and owned by using a separate env name. lane-commit.ts:15 records keeping git out of the agent's grant, and claude.ts stamps the verified CLI version."
+    },
+    {
+     "technique": "machine-owned-regions",
+     "verdict": "conformant",
+     "evidence": "src/lib/local/install-files.ts:14 Judged on the rule that a generator must not write outside what it owns. Marker fences in the generated files belong to src/lib/standard and were not judged."
+    },
+    {
+     "technique": "restraint-amplifier-balance",
+     "verdict": "conformant",
+     "evidence": "src/lib/local/lane-plan-prompt.ts:48 An amplifier written as a checkable target, with a required field and a sentinel, beside the planning session's read-only restraint."
+    }
+   ]
+  },
+  {
+   "context": "Athena Companion",
+   "subject": "agent-instruction-files",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/app/api/athena/gate.ts:218 Athena's standing text is read from database rows and composed by the application, which makes it prompt-assembly rather than a repo-owned file a harness injects; cursorrules, copilot-instructions and 'instruction file' have zero hits across all its directories, while CLAUDE.md, AGENTS.md and SKILL.md have zero hits in its own four directories and appear only in unrelated shared src/lib/db files.",
+   "techniques": [
+    {
+     "technique": "line-earning",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/athena/prompt.ts:3 The system author assembles this prompt per turn, the case the golden path calls the inverse of this subject."
+    },
+    {
+     "technique": "workspace-ancestry-isolation",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/athena/gate.ts:29 Turns run through the in-process tool loop; these routes create no workspace and launch no harness in a directory."
+    }
+   ],
+   "absenceTerms": [
+    "cursorrules",
+    "copilot-instructions",
+    "instruction file"
+   ]
+  },
+  {
+   "context": "MCP Server",
+   "subject": "agent-instruction-files",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/mcp/tools.ts:534 The tools/list scope copy is a hand-kept list of which tools sit behind which scope and omits get_fix_brief, the tenth scope-gated tool in MCP_TOOLS, so the published model is already a subset of a catalog that could generate it.",
+   "techniques": [
+    {
+     "technique": "capability-coverage-contract",
+     "verdict": "deviation",
+     "evidence": "src/lib/mcp/tools.ts:534 get_fix_brief needs followups:write (tools.ts:271) and is absent from the copy. tools.test.ts:158 is the named form: it asserts a few literal tokens and never iterates MCP_TOOLS, so it stays green. Low severity, since a token holding the scope does see the tool in its list."
+    },
+    {
+     "technique": "enforcement-demotion",
+     "verdict": "conformant",
+     "evidence": "src/lib/mcp/tools.ts:242 The tool tells the agent which controls are enforced and which rest on its own judgment, the same split this technique requires."
+    },
+    {
+     "technique": "write-back-sink-class",
+     "verdict": "conformant",
+     "evidence": "src/lib/mcp/tools.ts:461 The outbound report is deduped on a session key; registry-writes.ts:25 and :46 confirm the idempotency key in the collector."
+    },
+    {
+     "technique": "capability-before-steering",
+     "verdict": "conformant",
+     "evidence": "src/lib/mcp/tools.ts:31 Listing follows capability, so no description steers an agent toward a call it cannot make."
+    },
+    {
+     "technique": "instruction-freshness",
+     "verdict": "conformant",
+     "evidence": "src/lib/mcp/tools.ts:475 A stale local copy of a skill is reported to the agent; registry-writes.ts:71 and :92 implement the warning. Applies to delivered skills, not a repo file."
+    },
+    {
+     "technique": "principal-tier-gating",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/mcp/tools.ts:136 There are no tiered prose sections here; access is decided by token scopes. The adjacent principle holds: a self-declared identity is labelled as unverified."
+    }
+   ],
+   "registryProposal": "The subject audits an installed capability's description only from the consumer's side (sibling-floor-ownership). It has no publisher-side rule for a server whose tool descriptions enter every client's floor: here tools.test.ts:38 sets a minimum description length and no maximum."
+  }
+ ],
+ "declined": [
+  {
+   "subject": "agent-instruction-files",
+   "context": "First-Run Onboarding Wizard",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "agent-instruction-files",
+   "context": "GitHub Repo Data Access",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-09T03:51:43.965015+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-instruction-files"
+   ],
+   "techniques": [
+    "capability-before-steering",
+    "capability-coverage-contract",
+    "enforcement-demotion",
+    "inherited-default-ownership",
+    "machine-owned-regions",
+    "restraint-amplifier-balance",
+    "workspace-ancestry-isolation"
+   ],
+   "deviations": 1,
+   "context": "Local Autopilot & Loop Engine",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T03:51:43.965015+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-instruction-files"
+   ],
+   "techniques": [
+    "line-earning",
+    "workspace-ancestry-isolation"
+   ],
+   "deviations": 0,
+   "context": "Athena Companion",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T03:51:43.965015+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-instruction-files"
+   ],
+   "techniques": [
+    "capability-before-steering",
+    "capability-coverage-contract",
+    "enforcement-demotion",
+    "instruction-freshness",
+    "principal-tier-gating",
+    "write-back-sink-class"
+   ],
+   "deviations": 1,
+   "context": "MCP Server",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
