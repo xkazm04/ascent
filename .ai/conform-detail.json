@@ -10007,6 +10007,46 @@
           "evidence": "src/features/shared/memory/useMemoryLibrary.test.ts:130 The cannot-be-overtaken claim is proved by the abort signal under fake timers, not by timing a race."
         }
       ]
+    },
+    "Org Scanning & Fleet Rollups/Fleet Rollups & Insights/agent-memory": {
+      "context": "Fleet Rollups & Insights",
+      "subject": "agent-memory",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T00:18:34.981Z",
+      "worker": "07fe95ea-abe1-413b-8f88-af48a435003b",
+      "techniques": []
+    },
+    "Org Dashboard & Analytics/Provider Integrations/agent-memory": {
+      "context": "Provider Integrations",
+      "subject": "agent-memory",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T00:18:34.981Z",
+      "worker": "07fe95ea-abe1-413b-8f88-af48a435003b",
+      "techniques": []
+    },
+    "Billing, Credits & Metering/Checkout & Plans (Polar)/agent-memory": {
+      "context": "Checkout & Plans (Polar)",
+      "subject": "agent-memory",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T00:18:34.981Z",
+      "worker": "07fe95ea-abe1-413b-8f88-af48a435003b",
+      "techniques": []
+    },
+    "Repository Scanning & Scoring/CI Gate & Status Checks/agent-memory": {
+      "context": "CI Gate & Status Checks",
+      "subject": "agent-memory",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T00:18:34.981Z",
+      "worker": "07fe95ea-abe1-413b-8f88-af48a435003b",
+      "techniques": []
     }
   }
 }

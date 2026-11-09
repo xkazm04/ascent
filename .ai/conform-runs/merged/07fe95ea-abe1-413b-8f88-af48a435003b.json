@@ -1,0 +1,183 @@
+{
+ "schema": "conform-run/1",
+ "worker": "07fe95ea-abe1-413b-8f88-af48a435003b",
+ "subject": "agent-memory",
+ "evaluatedAt": "2026-11-09T00:18:34.981033+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Fleet Rollups & Insights",
+   "subject": "agent-memory",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/org/teamStandings.ts:2 These modules are deterministic aggregations of scan rows with no agent store, capture, recall or forgetting: a search of the context's own files for memory/recall/consolidat/episodic found only in-process-memory and refactoring comments, and the sibling org-memory*.ts files in src/lib/db belong to a different context.",
+   "techniques": [],
+   "absenceTerms": [
+    "distill",
+    "halfLife",
+    "forgetting",
+    "memoryValue"
+   ]
+  },
+  {
+   "context": "AI Registry Repo (Onboarding & Index)",
+   "subject": "agent-memory",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/org/[slug]/registry/migrate/route.ts:36 The memory migration exports rows without the scope and expiry predicates every recall path applies, so another author's private scratch and already-expired notes are pushed to the shared registry branch, and the indexer then re-mirrors them with the default shared visibility and no expiry.",
+   "techniques": [
+    {
+     "technique": "scope-before-similarity",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/org-registry-hosted.ts:39 The export window has no visibility or author predicate although OrgMemory holds private author-only rows; upsertRegistryMemory sets no visibility, so a private note comes back shared."
+    },
+    {
+     "technique": "decay-and-forgetting",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/org-registry-hosted.ts:33 No notExpired fragment, unlike the recall path in org-memory.ts; an expired note is exported and the mirror row carries no expiresAt, so a fact that expired by its own terms becomes permanent."
+    },
+    {
+     "technique": "loss-site-inventory",
+     "verdict": "deviation",
+     "evidence": "src/app/api/org/[slug]/registry/migrate/route.ts:70 files is already capped by MAX_MIGRATION_ROWS = 300, and registry-view.ts:193 keeps saved.total, so an org with more hosted notes reads as 300 of 300 with no notice of what the cap left behind."
+    },
+    {
+     "technique": "lane-reconciliation",
+     "verdict": "deviation",
+     "evidence": "src/lib/registry/index-registry.ts:325 The set difference runs even when tree.truncated is true (later purges in this file guard on it), and a file whose read returned null never enters seen, so an incomplete enumeration archives live memory rows."
+    },
+    {
+     "technique": "consolidation",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/org-registry-mirror.ts:152 Unlike skills and practices there is no adoption of the hosted original, so after a merged migration both copies stay live with no dedup or supersedence, contradicting migrate.ts:8-9; the export also drops createdAt and createdBy."
+    },
+    {
+     "technique": "memory-governance",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/[slug]/registry/migrate/route.ts:9 Bulk movement of memory goes through a human-reviewed draft PR per artifact type rather than committing directly."
+    },
+    {
+     "technique": "durable-store-failure-posture",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/[slug]/registry/index/route.ts:5 A whole-tree read failure is reported as an error and leaves the mirror intact instead of reading as an empty registry; per-file read failures are covered under lane-reconciliation."
+    }
+   ],
+   "registryProposal": "memory-value-model states defaults for an unknown kind and an unparseable instant but none for an unknown or unparseable trust value; src/lib/registry/parse.ts:160 indexes a malformed confidence at the maximum 1.0 with only a warning, the same maximum-award reflex the technique rejects for timestamps."
+  },
+  {
+   "context": "Provider Integrations",
+   "subject": "agent-memory",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/integrations/otlp.ts:3 This context ingests vendor usage telemetry into usage records and holds no agent beliefs or recall path: a search of its files for memory/recall/consolidat/episodic found only a pointer comment in providers.ts and a process-memory comment in ingest-guard.ts.",
+   "techniques": [],
+   "absenceTerms": [
+    "distill",
+    "halfLife",
+    "forgetting",
+    "memoryValue"
+   ]
+  },
+  {
+   "context": "Checkout & Plans (Polar)",
+   "subject": "agent-memory",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/plans.ts:518 The context's only contact with the subject is a plan entitlement over who may write to the memory product (the word memory does appear in plans.ts for that gate), and it implements no capture, consolidation, recall or decay of agent memory.",
+   "techniques": [],
+   "absenceTerms": [
+    "distill",
+    "workingMemory",
+    "recallBudget",
+    "episodicCapture",
+    "memoryDecay"
+   ]
+  },
+  {
+   "context": "CI Gate & Status Checks",
+   "subject": "agent-memory",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/scoring/gate.ts:1 The gate evaluates a stored maturity report against a threshold policy and posts checks, and it has no agent memory store: a search of its files for memory/recall/consolidat/episodic found only warm-cache tier comments in the gate route.",
+   "techniques": [],
+   "absenceTerms": [
+    "distill",
+    "halfLife",
+    "forgetting",
+    "memoryValue"
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-11-09T00:18:34.981033+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-memory"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Fleet Rollups & Insights",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T00:18:34.981033+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-memory"
+   ],
+   "techniques": [
+    "consolidation",
+    "decay-and-forgetting",
+    "durable-store-failure-posture",
+    "lane-reconciliation",
+    "loss-site-inventory",
+    "memory-governance",
+    "scope-before-similarity"
+   ],
+   "deviations": 1,
+   "context": "AI Registry Repo (Onboarding & Index)",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T00:18:34.981033+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-memory"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Provider Integrations",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T00:18:34.981033+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-memory"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Checkout & Plans (Polar)",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T00:18:34.981033+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-memory"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "CI Gate & Status Checks",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

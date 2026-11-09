@@ -852,7 +852,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/scoring/gate.ts:1 The gate evaluates a stored maturity report against a threshold policy and posts checks, and it has no agent memory store: a search of its files for memory/recall/consolidat/episodic found only warm-cache tier comments in the gate route.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:2b62b4004acc600d",
+          "evaluatedRevision": 53
         },
         {
           "subject": "hitl-approval",
@@ -3497,7 +3501,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/org/teamStandings.ts:2 These modules are deterministic aggregations of scan rows with no agent store, capture, recall or forgetting: a search of the context's own files for memory/recall/consolidat/episodic found only in-process-memory and refactoring comments, and the sibling org-memory*.ts files in src/lib/db belong to a different context.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:2b62b4004acc600d",
+          "evaluatedRevision": 53
         },
         {
           "subject": "prompt-assembly",
@@ -4881,7 +4889,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "strong",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/integrations/otlp.ts:3 This context ingests vendor usage telemetry into usage records and holds no agent beliefs or recall path: a search of its files for memory/recall/consolidat/episodic found only a pointer comment in providers.ts and a process-memory comment in ingest-guard.ts.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:2b62b4004acc600d",
+          "evaluatedRevision": 53
         },
         {
           "subject": "agent-runtime-assembly",
@@ -9495,7 +9507,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/plans.ts:518 The context's only contact with the subject is a plan entitlement over who may write to the memory product (the word memory does appear in plans.ts for that gate), and it implements no capture, consolidation, recall or decay of agent memory.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:2b62b4004acc600d",
+          "evaluatedRevision": 53
         },
         {
           "subject": "agent-cli-transport",
