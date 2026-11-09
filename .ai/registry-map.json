@@ -9555,7 +9555,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/app/portfolio/page.test.tsx:119 The context's one convention check judges only elements whose author added data-portfolio-copy, so a new sentence containing an em dash and no attribute passes while the test still reports that new copy carries none; no such sentence exists today, so this is a coverage hole rather than a live violation.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a5b34d39a4b8edd3",
+          "evaluatedRevision": 56
         },
         {
           "subject": "browser-credential-boundary",
@@ -9991,7 +9995,11 @@
           "revision": 54,
           "changedAt": "2026-10-14",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/entitlement.ts:122 The refusals here decide whether an org may spend or mint credits at request time, a predicate on a wallet rather than on a tree, change or advancing item; a search of the context's directories for reference-transaction, pre-receive and branch-provenance found nothing, and broader terms such as husky and pre-push occur under src/lib only in modules outside this context.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:a5b34d39a4b8edd3",
+          "evaluatedRevision": 56
         },
         {
           "subject": "test-harness",

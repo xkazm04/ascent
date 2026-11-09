@@ -11209,6 +11209,88 @@
         }
       ],
       "registryProposal": "gate-liveness and vacuous-by-evaluation could name the mirror test: a spec that re-implements the predicate it claims to pin, because the component cannot be imported. It passes every fixture check and cannot be red-tested through the target."
+    },
+    "Reporting & Visualization/Portfolio & Public Leaderboard/quality-gates": {
+      "context": "Portfolio & Public Leaderboard",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T04:19:12.623Z",
+      "worker": "443002ca-b1c1-4607-a820-e91046181dbf",
+      "techniques": [
+        {
+          "technique": "self-reported-gate-inputs",
+          "verdict": "deviation",
+          "evidence": "src/app/portfolio/page.test.tsx:119 The judged population is enrolled by hand with an attribute the gated author writes, instead of being derived from the rendered page with data glyphs excluded; not enrolling is free."
+        },
+        {
+          "technique": "renameable-detector-keys",
+          "verdict": "deviation",
+          "evidence": "src/app/portfolio/page.test.tsx:117 The pass names the property (new copy has no em dash) when it establishes only that no tagged element has one: a floor reporting as a ceiling."
+        },
+        {
+          "technique": "gate-liveness",
+          "verdict": "conformant",
+          "evidence": "src/app/portfolio/page.test.tsx:120 Asserts the instrument found something, so an empty selection cannot pass. This covers the empty-population floor only; no seeded red case is in the suite."
+        },
+        {
+          "technique": "false-positive-economics",
+          "verdict": "conformant",
+          "evidence": "src/app/portfolio/PortfolioTable.tsx:12 This no-data glyph is correct content that a whole-body read would flag; leaving it out keeps the check from firing on it, though opt-in is what creates the hole recorded above."
+        },
+        {
+          "technique": "unmeasurable-criteria",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/org/portfolioBookModel.ts:86 Skips an unmeasured dimension when naming the weakest for display; nothing is refused on it."
+        },
+        {
+          "technique": "policy-projection",
+          "verdict": "not-applicable",
+          "evidence": "src/app/portfolio/page.tsx:38 'Gated' here is per-org read authorization, with no gate policy described across surfaces."
+        }
+      ]
+    },
+    "Billing, Credits & Metering/Credits & Entitlements/quality-gates": {
+      "context": "Credits & Entitlements",
+      "subject": "quality-gates",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T04:19:12.623Z",
+      "worker": "443002ca-b1c1-4607-a820-e91046181dbf",
+      "techniques": [
+        {
+          "technique": "unmeasurable-criteria",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/entitlement.ts:90 Unknown-org handling is tenant admission, not a quality condition with a missing measurement."
+        },
+        {
+          "technique": "severity-by-construction",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/entitlement.ts:92 A runtime allow/deny on a request, with no severity label or pipeline exit path."
+        },
+        {
+          "technique": "refusal-names-a-reachable-remedy",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/entitlement.ts:109 A customer-facing paywall message, not a check's instruction to a contributor."
+        },
+        {
+          "technique": "policy-projection",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/credit-estimate.ts:63 A spend estimate derived from billing inputs; it does not describe a quality policy."
+        },
+        {
+          "technique": "gate-laddering",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/credits.ts:345 Soft and hard here describe concurrency on a money counter, not rungs of a pipeline."
+        },
+        {
+          "technique": "blocking-by-input-determinism",
+          "verdict": "not-applicable",
+          "evidence": "src/app/api/org/credits/grant/route.ts:50 A deployment flag on a mint endpoint; there is no check over a tree whose input could move."
+        }
+      ]
     }
   }
 }

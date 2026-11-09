@@ -1,0 +1,196 @@
+{
+ "schema": "conform-run/1",
+ "worker": "443002ca-b1c1-4607-a820-e91046181dbf",
+ "subject": "quality-gates",
+ "evaluatedAt": "2026-11-09T04:19:12.623788+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Repo Report Shell & Tabs",
+   "subject": "quality-gates",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/app/report/[owner]/[repo]/page.tsx:229 In these files 'gate' only names sign-in, org-access, credit and quota admission for a report read or scan, and the tests are behaviour specs, so nothing renders a verdict on a change or an advancing item; a search of src/app/report and src/components/report for reference-transaction, pre-receive and branch-provenance found nothing, and a search of the context's files for ratchet and waiver found nothing either.",
+   "techniques": [
+    {
+     "technique": "unmeasurable-criteria",
+     "verdict": "not-applicable",
+     "evidence": "src/app/report/[owner]/[repo]/page.tsx:128 Separates a failed read from an empty one for display; no policy condition is being evaluated, so this is the neighbouring measurement-honesty concern."
+    },
+    {
+     "technique": "severity-by-construction",
+     "verdict": "not-applicable",
+     "evidence": "src/app/report/[owner]/[repo]/page.tsx:159 A role probe that hides UI affordances; there is no severity level or exit-code path to trace."
+    },
+    {
+     "technique": "refusal-names-a-reachable-remedy",
+     "verdict": "not-applicable",
+     "evidence": "src/components/report/ReportClient.tsx:86 A product paywall shown to an end user, not a blocking check's refusal to a contributor."
+    },
+    {
+     "technique": "gate-liveness",
+     "verdict": "not-applicable",
+     "evidence": "src/app/report/[owner]/[repo]/opengraph-image.doors.test.ts:108 An ordinary behaviour spec with a control case; it does not guard a convention over a population."
+    },
+    {
+     "technique": "match-the-resolved-artifact",
+     "verdict": "not-applicable",
+     "evidence": "src/app/report/[owner]/[repo]/page.unreachable.test.tsx:126 Asserts on one rendered failure state of this page, not a source-pattern gate over the tree."
+    },
+    {
+     "technique": "policy-projection",
+     "verdict": "not-applicable",
+     "evidence": "src/components/report/useReportScan.ts:304 The client classifies an HTTP refusal; no gate policy is projected to a surface here."
+    }
+   ],
+   "absenceTerms": [
+    "reference-transaction",
+    "pre-receive"
+   ],
+   "registryProposal": "The golden path defines a gate as a mechanism that can refuse, but does not say when an ordinary unit test counts as one. Seats must decide this per context, so a line separating a behaviour spec from a convention guard over a population would make verdicts on product-UI contexts more consistent."
+  },
+  {
+   "context": "Portfolio & Public Leaderboard",
+   "subject": "quality-gates",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/portfolio/page.test.tsx:119 The context's one convention check judges only elements whose author added data-portfolio-copy, so a new sentence containing an em dash and no attribute passes while the test still reports that new copy carries none; no such sentence exists today, so this is a coverage hole rather than a live violation.",
+   "techniques": [
+    {
+     "technique": "self-reported-gate-inputs",
+     "verdict": "deviation",
+     "evidence": "src/app/portfolio/page.test.tsx:119 The judged population is enrolled by hand with an attribute the gated author writes, instead of being derived from the rendered page with data glyphs excluded; not enrolling is free."
+    },
+    {
+     "technique": "renameable-detector-keys",
+     "verdict": "deviation",
+     "evidence": "src/app/portfolio/page.test.tsx:117 The pass names the property (new copy has no em dash) when it establishes only that no tagged element has one: a floor reporting as a ceiling."
+    },
+    {
+     "technique": "gate-liveness",
+     "verdict": "conformant",
+     "evidence": "src/app/portfolio/page.test.tsx:120 Asserts the instrument found something, so an empty selection cannot pass. This covers the empty-population floor only; no seeded red case is in the suite."
+    },
+    {
+     "technique": "false-positive-economics",
+     "verdict": "conformant",
+     "evidence": "src/app/portfolio/PortfolioTable.tsx:12 This no-data glyph is correct content that a whole-body read would flag; leaving it out keeps the check from firing on it, though opt-in is what creates the hole recorded above."
+    },
+    {
+     "technique": "unmeasurable-criteria",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/org/portfolioBookModel.ts:86 Skips an unmeasured dimension when naming the weakest for display; nothing is refused on it."
+    },
+    {
+     "technique": "policy-projection",
+     "verdict": "not-applicable",
+     "evidence": "src/app/portfolio/page.tsx:38 'Gated' here is per-org read authorization, with no gate policy described across surfaces."
+    }
+   ]
+  },
+  {
+   "context": "Credits & Entitlements",
+   "subject": "quality-gates",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/entitlement.ts:122 The refusals here decide whether an org may spend or mint credits at request time, a predicate on a wallet rather than on a tree, change or advancing item; a search of the context's directories for reference-transaction, pre-receive and branch-provenance found nothing, and broader terms such as husky and pre-push occur under src/lib only in modules outside this context.",
+   "techniques": [
+    {
+     "technique": "unmeasurable-criteria",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/entitlement.ts:90 Unknown-org handling is tenant admission, not a quality condition with a missing measurement."
+    },
+    {
+     "technique": "severity-by-construction",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/entitlement.ts:92 A runtime allow/deny on a request, with no severity label or pipeline exit path."
+    },
+    {
+     "technique": "refusal-names-a-reachable-remedy",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/entitlement.ts:109 A customer-facing paywall message, not a check's instruction to a contributor."
+    },
+    {
+     "technique": "policy-projection",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/credit-estimate.ts:63 A spend estimate derived from billing inputs; it does not describe a quality policy."
+    },
+    {
+     "technique": "gate-laddering",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/credits.ts:345 Soft and hard here describe concurrency on a money counter, not rungs of a pipeline."
+    },
+    {
+     "technique": "blocking-by-input-determinism",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/org/credits/grant/route.ts:50 A deployment flag on a mint endpoint; there is no check over a tree whose input could move."
+    }
+   ],
+   "absenceTerms": [
+    "reference-transaction",
+    "pre-receive"
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-11-09T04:19:12.623788+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "quality-gates"
+   ],
+   "techniques": [
+    "gate-liveness",
+    "match-the-resolved-artifact",
+    "policy-projection",
+    "refusal-names-a-reachable-remedy",
+    "severity-by-construction",
+    "unmeasurable-criteria"
+   ],
+   "deviations": 0,
+   "context": "Repo Report Shell & Tabs",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T04:19:12.623788+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "quality-gates"
+   ],
+   "techniques": [
+    "false-positive-economics",
+    "gate-liveness",
+    "policy-projection",
+    "renameable-detector-keys",
+    "self-reported-gate-inputs",
+    "unmeasurable-criteria"
+   ],
+   "deviations": 1,
+   "context": "Portfolio & Public Leaderboard",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T04:19:12.623788+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "quality-gates"
+   ],
+   "techniques": [
+    "blocking-by-input-determinism",
+    "gate-laddering",
+    "policy-projection",
+    "refusal-names-a-reachable-remedy",
+    "severity-by-construction",
+    "unmeasurable-criteria"
+   ],
+   "deviations": 0,
+   "context": "Credits & Entitlements",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
