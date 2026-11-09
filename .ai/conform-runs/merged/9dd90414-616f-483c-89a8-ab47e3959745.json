@@ -1,0 +1,95 @@
+{
+ "schema": "conform-run/1",
+ "worker": "9dd90414-616f-483c-89a8-ab47e3959745",
+ "subject": "agent-memory",
+ "evaluatedAt": "2026-11-09T02:43:15.794957+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Marketing About Page",
+   "subject": "agent-memory",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/app/about/page.tsx:30 The page's only data read is the public scan gallery; consolidation, episodic, supersede, decay and embedding have zero hits in src/app/about and src/components/about, and the 12 listed files contain no memor or recall text (the only such hits in those directories are in FleetGrid.dom.test.tsx, asserting an illustrative sample count), so no agent memory exists here to judge.",
+   "techniques": [],
+   "absenceTerms": [
+    "episodic",
+    "supersede",
+    "decay",
+    "embedding"
+   ]
+  },
+  {
+   "context": "Scan Pipeline & Ingestion",
+   "subject": "agent-memory",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/memory/repo-memory-mirror.ts:154 The scan pipeline these routes run (src/lib/scan.ts calls mirrorRepoMemory) commits untrusted repo-authored `.ai/memory` entries directly into OrgMemory as semantic or procedural rows through a dedup-only door, so an import creates beliefs without the validation the consolidation pass applies.",
+   "techniques": [
+    {
+     "technique": "consolidation",
+     "verdict": "deviation",
+     "evidence": "src/lib/memory/scan-feed.ts:97 writeMemoryCandidate's only judgment is same-source duplicate detection before create; the mirror import gets no contradiction or supersedence check against existing items and a fixed confidence of 0.6, rather than being routed through the pass as the technique requires for imports. The grade is at least marked by source and confidence."
+    },
+    {
+     "technique": "memory-governance",
+     "verdict": "deviation",
+     "evidence": "src/lib/standard/memory-read.ts:104 A repo-authored convention, which the mirror's own header calls untrusted content, commits as a procedural 'what to do next time' item with no review lane, where third-party material may commit only as an observation about its source. The attribution header and 0.6 confidence mitigate but do not change the lane. The scan-pipeline observation writer in scan-feed.ts does meet the fourth-writer rules (fixed stamp, confidence 1.0, never throws, 0.95 dedup floor)."
+    },
+    {
+     "technique": "scope-before-similarity",
+     "verdict": "conformant",
+     "evidence": "src/lib/memory/scan-feed.ts:91 The write-time dedup partitions by org, namespace and source before measuring text overlap, and this door only writes shared rows, so similarity cannot cross a scope boundary."
+    }
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "agent-memory",
+   "context": "Maturity Model & Scoring Engine",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "agent-memory",
+   "context": "Usage Metering",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "agent-memory",
+   "context": "App Shell, SEO & Error Pages",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-09T02:43:15.794957+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-memory"
+   ],
+   "techniques": [],
+   "deviations": 0,
+   "context": "Marketing About Page",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-09T02:43:15.794957+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "agent-memory"
+   ],
+   "techniques": [
+    "consolidation",
+    "memory-governance",
+    "scope-before-similarity"
+   ],
+   "deviations": 1,
+   "context": "Scan Pipeline & Ingestion",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

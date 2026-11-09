@@ -10674,6 +10674,42 @@
         }
       ],
       "registryProposal": "episodic-capture could name the suffixed-filename form as a failure of atomic allocation: an exclusive create on `<id>-<slug>` satisfies a check for an exclusive-create flag while still minting duplicate ids, because the claimed name is not the identity."
+    },
+    "Marketing Site & Design System/Marketing About Page/agent-memory": {
+      "context": "Marketing About Page",
+      "subject": "agent-memory",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T02:43:15.794Z",
+      "worker": "9dd90414-616f-483c-89a8-ab47e3959745",
+      "techniques": []
+    },
+    "Repository Scanning & Scoring/Scan Pipeline & Ingestion/agent-memory": {
+      "context": "Scan Pipeline & Ingestion",
+      "subject": "agent-memory",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-09",
+      "evaluatedTs": "2026-11-09T02:43:15.794Z",
+      "worker": "9dd90414-616f-483c-89a8-ab47e3959745",
+      "techniques": [
+        {
+          "technique": "consolidation",
+          "verdict": "deviation",
+          "evidence": "src/lib/memory/scan-feed.ts:97 writeMemoryCandidate's only judgment is same-source duplicate detection before create; the mirror import gets no contradiction or supersedence check against existing items and a fixed confidence of 0.6, rather than being routed through the pass as the technique requires for imports. The grade is at least marked by source and confidence."
+        },
+        {
+          "technique": "memory-governance",
+          "verdict": "deviation",
+          "evidence": "src/lib/standard/memory-read.ts:104 A repo-authored convention, which the mirror's own header calls untrusted content, commits as a procedural 'what to do next time' item with no review lane, where third-party material may commit only as an observation about its source. The attribution header and 0.6 confidence mitigate but do not change the lane. The scan-pipeline observation writer in scan-feed.ts does meet the fourth-writer rules (fixed stamp, confidence 1.0, never throws, 0.95 dedup floor)."
+        },
+        {
+          "technique": "scope-before-similarity",
+          "verdict": "conformant",
+          "evidence": "src/lib/memory/scan-feed.ts:91 The write-time dedup partitions by org, namespace and source before measuring text overlap, and this door only writes shared rows, so similarity cannot cross a scope boundary."
+        }
+      ]
     }
   }
 }

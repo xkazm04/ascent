@@ -1656,7 +1656,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/memory/repo-memory-mirror.ts:154 The scan pipeline these routes run (src/lib/scan.ts calls mirrorRepoMemory) commits untrusted repo-authored `.ai/memory` entries directly into OrgMemory as semantic or procedural rows through a dedup-only door, so an import creates beliefs without the validation the consolidation pass applies.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:2b62b4004acc600d",
+          "evaluatedRevision": 53
         },
         {
           "subject": "deterministic-prefix-caching",
@@ -11202,7 +11206,11 @@
           "revision": 52,
           "changedAt": "2026-10-25",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/app/about/page.tsx:30 The page's only data read is the public scan gallery; consolidation, episodic, supersede, decay and embedding have zero hits in src/app/about and src/components/about, and the 12 listed files contain no memor or recall text (the only such hits in those directories are in FleetGrid.dom.test.tsx, asserting an illustrative sample count), so no agent memory exists here to judge.",
+          "evaluatedAt": "2026-11-09",
+          "evaluatedAgainst": "sha256-b2:2b62b4004acc600d",
+          "evaluatedRevision": 53
         },
         {
           "subject": "narrative-scroll-surface",
