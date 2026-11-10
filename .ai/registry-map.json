@@ -5136,7 +5136,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/features/admin/integrations/envSnippet.test.ts:23 The shell setup snippet offered to users (single-quote escaping via quote() plus an unquoted $(git remote get-url origin)) is asserted only by substring containment and never run through a shell. The substring passes on both the quoted and the unquoted header, so it cannot catch the quoting defect the technique describes.",
+          "evaluatedAt": "2026-11-10",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "browser-credential-boundary",
@@ -10496,7 +10500,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/db/retention.test.ts:2851 The 'nothing survives an erasure' claim is checked against a hand-written list of 37 tables, not a population derived from the schema. prisma/schema.prisma has 67 models with an orgId field, and AiUsageRecord (orgId, with user email in scopeKey) is deleted by no code in src, yet the erase suite stays green because that table was never on the list.",
+          "evaluatedAt": "2026-11-10",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "agent-runtime-assembly",

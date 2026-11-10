@@ -1,0 +1,134 @@
+{
+ "schema": "conform-run/1",
+ "worker": "3da23c76-60e3-4dd7-8907-10419db06c3d",
+ "subject": "test-harness",
+ "evaluatedAt": "2026-11-10T22:27:15.271441+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Data Retention & Purge",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/db/retention.test.ts:2851 The 'nothing survives an erasure' claim is checked against a hand-written list of 37 tables, not a population derived from the schema. prisma/schema.prisma has 67 models with an orgId field, and AiUsageRecord (orgId, with user email in scopeKey) is deleted by no code in src, yet the erase suite stays green because that table was never on the list.",
+   "techniques": [
+    {
+     "technique": "gate-scope-is-not-report-scope",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/retention.test.ts:2851 This is the single-test form of the defect: a completeness claim made over a closed set whose members are listed by hand. A new org-scoped model is outside the claim, and the test reads as covering the whole set."
+    },
+    {
+     "technique": "fixture-economics",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/retention.test.ts:55 The fake store's table vocabulary is hand-maintained and grown one wave at a time; comments repeat that a missing delegate is how a table 'quietly stops being erased'. Nothing hands the fixture the list of tables."
+    },
+    {
+     "technique": "assert-the-schedule-not-the-stopwatch",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/retention.test.ts:1426 The budget cutoff (stoppedEarly) is proven from an injected clock sequence, not wall time."
+    },
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/retention.test.ts:30 Only getPrisma and isDbConfigured are faked; the shipped withRetry and conflict classifier run. The file-wide RETENTION_FORCE opt-in is named and justified in the file."
+    },
+    {
+     "technique": "negative-control-tests",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/retention.test.ts:2825 The regression control (reverting the fix makes the test fail) is recorded beside the test."
+    },
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "conformant",
+     "evidence": "src/lib/db/retention.test.ts:2738 Every listed table is seeded, so an empty default cannot satisfy 'nothing survives'. This repair covers only the tables on the list."
+    }
+   ]
+  },
+  {
+   "context": "Provider Integrations",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/features/admin/integrations/envSnippet.test.ts:23 The shell setup snippet offered to users (single-quote escaping via quote() plus an unquoted $(git remote get-url origin)) is asserted only by substring containment and never run through a shell. The substring passes on both the quoted and the unquoted header, so it cannot catch the quoting defect the technique describes.",
+   "techniques": [
+    {
+     "technique": "assert-through-the-reader",
+     "verdict": "deviation",
+     "evidence": "src/features/admin/integrations/envSnippet.test.ts:23 Matches the technique's own trap: a contains-assertion over a value with a space that the broken and fixed forms share. No test runs the block in sh with a synthetic token and reads the resulting environment."
+    },
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "conformant",
+     "evidence": "src/app/api/integrations/ingest/v1/metrics/route.test.ts:7 The cheaper variant says what it leaves out, so the claim is limited to the dispatch it kept."
+    },
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "conformant",
+     "evidence": "src/app/api/integrations/ingest/v1/metrics/route.test.ts:19 The file names the decision its default-pass mock cannot cover and where it is covered instead. integrations-attribution.test.ts:29 likewise uses an 'Acme/X' fixture that only case-folding can join."
+    },
+    {
+     "technique": "fixture-economics",
+     "verdict": "conformant",
+     "evidence": "src/lib/integrations/otlp.test.ts:42 In-memory payload builder at the unit tier."
+    }
+   ],
+   "registryProposal": "recorded-interaction-fixtures covers outbound calls to a service someone else operates. It does not address an inbound push from a third-party producer (OTLP from a vendor CLI), where the hand-synthesized payload in otlp.test.ts ages against upstream metric-name changes in the same way. The technique could say whether a captured inbound payload counts as a recorded interaction."
+  }
+ ],
+ "declined": [
+  {
+   "subject": "test-harness",
+   "context": "Repo Report Shell & Tabs",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "test-harness",
+   "context": "Trends & Comparison",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "test-harness",
+   "context": "Repositories & Segments",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-10T22:27:15.271441+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "assert-the-schedule-not-the-stopwatch",
+    "fixture-economics",
+    "gate-scope-is-not-report-scope",
+    "negative-control-tests",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "Data Retention & Purge",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-10T22:27:15.271441+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "assert-through-the-reader",
+    "fixture-economics",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "Provider Integrations",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

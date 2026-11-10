@@ -11697,6 +11697,79 @@
         }
       ],
       "registryProposal": "assert-through-the-reader is written around shells and VCS tools. A binary document format such as PDF, written through a font that cannot encode some glyphs, fits the same law: the claim belongs to the viewer or text extractor. A short note in the technique that document formats are in scope would stop seats from reading the technique as shell-only."
+    },
+    "Data & Persistence/Data Retention & Purge/test-harness": {
+      "context": "Data Retention & Purge",
+      "subject": "test-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-10",
+      "evaluatedTs": "2026-11-10T22:27:15.271Z",
+      "worker": "3da23c76-60e3-4dd7-8907-10419db06c3d",
+      "techniques": [
+        {
+          "technique": "gate-scope-is-not-report-scope",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/retention.test.ts:2851 This is the single-test form of the defect: a completeness claim made over a closed set whose members are listed by hand. A new org-scoped model is outside the claim, and the test reads as covering the whole set."
+        },
+        {
+          "technique": "fixture-economics",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/retention.test.ts:55 The fake store's table vocabulary is hand-maintained and grown one wave at a time; comments repeat that a missing delegate is how a table 'quietly stops being erased'. Nothing hands the fixture the list of tables."
+        },
+        {
+          "technique": "assert-the-schedule-not-the-stopwatch",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/retention.test.ts:1426 The budget cutoff (stoppedEarly) is proven from an injected clock sequence, not wall time."
+        },
+        {
+          "technique": "a-test-helper-is-a-fork-of-the-driver",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/retention.test.ts:30 Only getPrisma and isDbConfigured are faked; the shipped withRetry and conflict classifier run. The file-wide RETENTION_FORCE opt-in is named and justified in the file."
+        },
+        {
+          "technique": "negative-control-tests",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/retention.test.ts:2825 The regression control (reverting the fix makes the test fail) is recorded beside the test."
+        },
+        {
+          "technique": "unreached-decisions-pin-nothing",
+          "verdict": "conformant",
+          "evidence": "src/lib/db/retention.test.ts:2738 Every listed table is seeded, so an empty default cannot satisfy 'nothing survives'. This repair covers only the tables on the list."
+        }
+      ]
+    },
+    "Org Dashboard & Analytics/Provider Integrations/test-harness": {
+      "context": "Provider Integrations",
+      "subject": "test-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-10",
+      "evaluatedTs": "2026-11-10T22:27:15.271Z",
+      "worker": "3da23c76-60e3-4dd7-8907-10419db06c3d",
+      "techniques": [
+        {
+          "technique": "assert-through-the-reader",
+          "verdict": "deviation",
+          "evidence": "src/features/admin/integrations/envSnippet.test.ts:23 Matches the technique's own trap: a contains-assertion over a value with a space that the broken and fixed forms share. No test runs the block in sh with a synthetic token and reads the resulting environment."
+        },
+        {
+          "technique": "a-test-helper-is-a-fork-of-the-driver",
+          "verdict": "conformant",
+          "evidence": "src/app/api/integrations/ingest/v1/metrics/route.test.ts:7 The cheaper variant says what it leaves out, so the claim is limited to the dispatch it kept."
+        },
+        {
+          "technique": "unreached-decisions-pin-nothing",
+          "verdict": "conformant",
+          "evidence": "src/app/api/integrations/ingest/v1/metrics/route.test.ts:19 The file names the decision its default-pass mock cannot cover and where it is covered instead. integrations-attribution.test.ts:29 likewise uses an 'Acme/X' fixture that only case-folding can join."
+        },
+        {
+          "technique": "fixture-economics",
+          "verdict": "conformant",
+          "evidence": "src/lib/integrations/otlp.test.ts:42 In-memory payload builder at the unit tier."
+        }
+      ],
+      "registryProposal": "recorded-interaction-fixtures covers outbound calls to a service someone else operates. It does not address an inbound push from a third-party producer (OTLP from a vendor CLI), where the hand-synthesized payload in otlp.test.ts ages against upstream metric-name changes in the same way. The technique could say whether a captured inbound payload counts as a recorded interaction."
     }
   }
 }
