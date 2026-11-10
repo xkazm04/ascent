@@ -9800,7 +9800,11 @@
           "revision": 1,
           "changedAt": "2026-09-07",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/plans.ts:6 Ascent never turns a measured quantity into money: the charge is a fixed-price Polar product (subscription or credit pack), and a metered scan only draws an allowance slot or one integer credit. Searches for graduated, tiersMode, unit_amount and groupingKey across src/ and prisma/ found nothing, so there is no tier ladder, no volume model, no grouping key and no amount arithmetic for this subject to govern.",
+          "evaluatedAt": "2026-11-10",
+          "evaluatedAgainst": "sha256-b2:19da164d50059c7d",
+          "evaluatedRevision": 1
         },
         {
           "subject": "agent-instruction-files",
@@ -10330,7 +10334,11 @@
           "revision": 1,
           "changedAt": "2026-09-07",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/db/usage.ts:150 The dollar figures here are estimates of LLM spend priced from model rate tables, which is the payer's-seat cost-metering discipline this subject excludes. No invoice line or charge is produced, and searches for graduated, tiersMode, unit_amount and groupingKey across the context's directories found nothing.",
+          "evaluatedAt": "2026-11-10",
+          "evaluatedAgainst": "sha256-b2:19da164d50059c7d",
+          "evaluatedRevision": 1
         },
         {
           "subject": "usage-analytics",

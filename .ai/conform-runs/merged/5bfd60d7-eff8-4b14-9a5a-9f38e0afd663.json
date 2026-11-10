@@ -1,0 +1,111 @@
+{
+ "schema": "conform-run/1",
+ "worker": "5bfd60d7-eff8-4b14-9a5a-9f38e0afd663",
+ "subject": "usage-pricing-models",
+ "evaluatedAt": "2026-11-10T23:40:00.925051+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Checkout & Plans (Polar)",
+   "subject": "usage-pricing-models",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/plans.ts:6 Ascent never turns a measured quantity into money: the charge is a fixed-price Polar product (subscription or credit pack), and a metered scan only draws an allowance slot or one integer credit. Searches for graduated, tiersMode, unit_amount and groupingKey across src/ and prisma/ found nothing, so there is no tier ladder, no volume model, no grouping key and no amount arithmetic for this subject to govern.",
+   "techniques": [
+    {
+     "technique": "advance-billing-refuses-retroactive-models",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/plans.ts:415 Prepaid credits are spent per unit, one credit per scan past the allowance. No retroactive (volume) shape exists to refuse, although the technique's shape \u00d7 timing table is still not written down."
+    },
+    {
+     "technique": "exact-money-with-one-rounding-boundary",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/plans.ts:183 Ascent stores only a display-only whole-USD mirror. Polar computes and rounds the charged amount, so this context has no rounding boundary of its own."
+    },
+    {
+     "technique": "grouping-key-reruns-the-ladder",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/plans.ts:425 The charge decision takes one org-wide month-to-date quantity. No dimension splits it into per-group ladders or allowances."
+    },
+    {
+     "technique": "inferred-tier-boundary-convention",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/plans.ts:414 The only boundary is a single free-allowance threshold, an exclusive count over integer scans. Plan 'tiers' are entitlement levels, not price ranges, so there are no adjacent ranges whose convention could be inferred."
+    }
+   ],
+   "absenceTerms": [
+    "graduated",
+    "tiersMode",
+    "unit_amount",
+    "groupingKey"
+   ]
+  },
+  {
+   "context": "Usage Metering",
+   "subject": "usage-pricing-models",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/db/usage.ts:150 The dollar figures here are estimates of LLM spend priced from model rate tables, which is the payer's-seat cost-metering discipline this subject excludes. No invoice line or charge is produced, and searches for graduated, tiersMode, unit_amount and groupingKey across the context's directories found nothing.",
+   "techniques": [
+    {
+     "technique": "advance-billing-refuses-retroactive-models",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/usage.ts:155 This is an estimate shown on a dashboard and collects no money, which falls under the technique's 'quotes, previews and estimates' exemption."
+    },
+    {
+     "technique": "exact-money-with-one-rounding-boundary",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/usage.ts:259 Lane costs are summed in binary floats. That is acceptable for a payer-side estimate, but it would be a deviation if this figure ever became a charged amount."
+    },
+    {
+     "technique": "grouping-key-reruns-the-ladder",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/usage.ts:48 Per-repo and per-team breakdowns are reporting over the event stream, not a pricing dimension, and the invoice shape does not change. This is the route the technique prescribes for analytical dimensions."
+    }
+   ],
+   "absenceTerms": [
+    "graduated",
+    "tiersMode",
+    "unit_amount",
+    "groupingKey"
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-11-10T23:40:00.925051+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "usage-pricing-models"
+   ],
+   "techniques": [
+    "advance-billing-refuses-retroactive-models",
+    "exact-money-with-one-rounding-boundary",
+    "grouping-key-reruns-the-ladder",
+    "inferred-tier-boundary-convention"
+   ],
+   "deviations": 0,
+   "context": "Checkout & Plans (Polar)",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-10T23:40:00.925051+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "usage-pricing-models"
+   ],
+   "techniques": [
+    "advance-billing-refuses-retroactive-models",
+    "exact-money-with-one-rounding-boundary",
+    "grouping-key-reruns-the-ladder"
+   ],
+   "deviations": 0,
+   "context": "Usage Metering",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

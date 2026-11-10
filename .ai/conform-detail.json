@@ -5703,25 +5703,25 @@
       "context": "Usage Metering",
       "subject": "usage-pricing-models",
       "bundle": "software-engineering",
-      "state": "unknown",
-      "evaluatedAt": "2026-10-24",
-      "evaluatedTs": "2026-10-24T23:28:10.486Z",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-10",
+      "evaluatedTs": "2026-11-10T23:40:00.925Z",
+      "worker": "5bfd60d7-eff8-4b14-9a5a-9f38e0afd663",
       "techniques": [
+        {
+          "technique": "advance-billing-refuses-retroactive-models",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/db/usage.ts:155 This is an estimate shown on a dashboard and collects no money, which falls under the technique's 'quotes, previews and estimates' exemption."
+        },
         {
           "technique": "exact-money-with-one-rounding-boundary",
           "verdict": "not-applicable",
-          "evidence": "src/lib/db/usage.ts:150 The USD figures are payer-side estimates of LLM spend (cost metering), not amounts charged to a customer."
+          "evidence": "src/lib/db/usage.ts:259 Lane costs are summed in binary floats. That is acceptable for a payer-side estimate, but it would be a deviation if this figure ever became a charged amount."
         },
         {
           "technique": "grouping-key-reruns-the-ladder",
           "verdict": "not-applicable",
-          "evidence": "src/lib/db/usage.ts:163 The per-team and per-lane breakdowns are showback over the event ledger, which is the reporting path the technique recommends. They are not a grouping key on a charge."
-        },
-        {
-          "technique": "advance-billing-refuses-retroactive-models",
-          "verdict": "not-applicable",
-          "evidence": "src/app/api/usage/route.ts:134 The endpoint reads a usage summary; it does not select billing timing or collect an incremental usage charge.",
-          "carriedFrom": "2026-10-17"
+          "evidence": "src/lib/db/usage.ts:48 Per-repo and per-team breakdowns are reporting over the event stream, not a pricing dimension, and the invoice shape does not change. This is the route the technique prescribes for analytical dimensions."
         },
         {
           "technique": "inferred-tier-boundary-convention",
@@ -5729,13 +5729,7 @@
           "evidence": "src/app/usage/AllotmentPanel.tsx:35 The numeric thresholds classify allowance utilization for display, rather than defining tiers that price usage.",
           "carriedFrom": "2026-10-17"
         }
-      ],
-      "withdrawn": {
-        "worker": "a46cf3eb-2860-48a6-b1d9-71ba1cd291a2",
-        "state": "not-applicable",
-        "at": "2026-10-24T23:28:38.921247+00:00",
-        "reason": "reviewer (sonnet): The anchor at usage.ts:150 documents the payer-side LLM cost estimate. It doesn't show that no seller-side usage pricing is present, because the same file and context meter the seller's billable unit. usage.ts:1-3 says pricing is usage-based per private scan, usage.ts:133 defines `privateScans` as t"
-      }
+      ]
     },
     "Reporting & Visualization/Trends & Comparison/analytics-time-windows": {
       "context": "Trends & Comparison",
@@ -12152,6 +12146,37 @@
           "technique": "in-place-document-patch",
           "verdict": "not-applicable",
           "evidence": "src/lib/db/org-settings.ts:142 The blob is one key's 3-field structured value, not the whole settings space as one document. Note that normalize-then-stringify drops unknown members a newer build might add."
+        }
+      ]
+    },
+    "Billing, Credits & Metering/Checkout & Plans (Polar)/usage-pricing-models": {
+      "context": "Checkout & Plans (Polar)",
+      "subject": "usage-pricing-models",
+      "bundle": "software-engineering",
+      "state": "not-applicable",
+      "evaluatedAt": "2026-11-10",
+      "evaluatedTs": "2026-11-10T23:40:00.925Z",
+      "worker": "5bfd60d7-eff8-4b14-9a5a-9f38e0afd663",
+      "techniques": [
+        {
+          "technique": "advance-billing-refuses-retroactive-models",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/plans.ts:415 Prepaid credits are spent per unit, one credit per scan past the allowance. No retroactive (volume) shape exists to refuse, although the technique's shape × timing table is still not written down."
+        },
+        {
+          "technique": "exact-money-with-one-rounding-boundary",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/plans.ts:183 Ascent stores only a display-only whole-USD mirror. Polar computes and rounds the charged amount, so this context has no rounding boundary of its own."
+        },
+        {
+          "technique": "grouping-key-reruns-the-ladder",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/plans.ts:425 The charge decision takes one org-wide month-to-date quantity. No dimension splits it into per-group ladders or allowances."
+        },
+        {
+          "technique": "inferred-tier-boundary-convention",
+          "verdict": "not-applicable",
+          "evidence": "src/lib/plans.ts:414 The only boundary is a single free-allowance threshold, an exclusive count over integer scans. Plan 'tiers' are entitlement levels, not price ranges, so there are no adjacent ranges whose convention could be inferred."
         }
       ]
     }
