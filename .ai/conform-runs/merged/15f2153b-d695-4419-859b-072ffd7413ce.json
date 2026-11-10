@@ -1,0 +1,112 @@
+{
+ "schema": "conform-run/1",
+ "worker": "15f2153b-d695-4419-859b-072ffd7413ce",
+ "subject": "prompt-safety",
+ "evaluatedAt": "2026-11-10T23:25:48.141238+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Org Memory",
+   "subject": "prompt-safety",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/memory/consolidation.ts:331 The write-check model response goes straight into parseVerdict and is never passed through the existing screenModelOutput boundary-machinery screen, which has no non-test caller anywhere in src; a run that echoes the fence or reproduces the boundary header is therefore never detected or quarantined on the memory path.",
+   "techniques": [
+    {
+     "technique": "untrusted-span-fencing",
+     "verdict": "conformant",
+     "evidence": "src/lib/memory/consolidation.ts:196 Every foreign-authored fragment (proposed content, candidates, kind and namespace) is neutralized and then wrapped in one fixed named block. Forged markers are stripped at one door (untrusted.ts neutralize), and MEMORY_UNTRUSTED_BOUNDARY denies the block's contents any authority. This is the technique's stripped-fixed-marker route, chosen for a cacheable prefix."
+    },
+    {
+     "technique": "canary-tripwires",
+     "verdict": "deviation",
+     "evidence": "src/lib/memory/consolidation.ts:331 No planted canary, and the raw output is never screened for boundary machinery. screenModelOutput exists in src/lib/llm/untrusted.ts but has no production caller, so the leaked-marker canary is never applied here and there is no trip protocol."
+    },
+    {
+     "technique": "input-caps-and-clamps",
+     "verdict": "deviation",
+     "evidence": "src/lib/memory/consolidation.ts:200 Candidate excerpts are cut after neutralizing and carry a visible ' \u2026[truncated]' marker (line 191). The proposed memory, the largest attacker-controlled span, is cut at 4000 chars with no marker. That is the silent clamp the technique calls 'the lie': the model judges a prefix while the route stores up to 20,000 chars."
+    },
+    {
+     "technique": "model-output-as-untrusted",
+     "verdict": "conformant",
+     "evidence": "src/lib/memory/consolidation.ts:268 Every id the model emits is checked against the shortlist it was shown, and relation and recommendation are coerced to a closed set. Reflection does the same per cluster (reflection.ts:332), and applyReflection re-resolves members scoped to orgId and visibility in a transaction before writing."
+    },
+    {
+     "technique": "payoff-removal",
+     "verdict": "deviation",
+     "evidence": "src/lib/llm/untrusted.ts:92 Partly done: the prompt names the prize (ids retire memories), MEMORY_OUTPUT_PAYOFF classifies the fields, and apply is a separate explicit call. But a found instruction is to be 'treated as ordinary text', and neither memory schema (consolidation.ts:216-222, reflection.ts:263-272) has a non-consequential channel to report it. The technique names that silent drop as a failure mode."
+    },
+    {
+     "technique": "output-sanitization",
+     "verdict": "conformant",
+     "evidence": "src/features/shared/memory/MemoryReflectProposal.tsx:33 Model-authored rollup text renders as an escaped React text node, never as HTML. Credentials are redacted (sanitizeAgentText \u2192 redactSecrets) before the model ever sees memory content, so there is no credential for it to echo. The stored summary itself is only trimmed and capped, with no mask at storage."
+    },
+    {
+     "technique": "trusted-author-verdict-channel",
+     "verdict": "not-applicable",
+     "evidence": "src/app/api/org/memory/check/route.ts:81 The verdict comes back over a private, typed JSON response to the caller. It is not posted to a shared text surface that others write in, which is this technique's stated 'when not to use it' case."
+    }
+   ]
+  },
+  {
+   "context": "Dev Inspector",
+   "subject": "prompt-safety",
+   "bundle": "software-engineering",
+   "state": "not-applicable",
+   "evidence": "src/lib/dev/fleet-seed.ts:243 The dev seed routes write fabricated rows stamped with a mock engine and never call a model, and the inspector only copies path:line strings to the clipboard. A grep over src/app/_dev-inspector, src/app/api/dev and src/lib/dev found no runPrompt, wrapUntrusted, untrusted, neutralize or @/lib/llm import, so no untrusted span ever reaches a prompt here.",
+   "techniques": [
+    {
+     "technique": "untrusted-span-fencing",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/dev/fleet-seed.ts:243 No prompt is ever assembled in this context; seed scan rows are stamped with a mock provider."
+    }
+   ],
+   "absenceTerms": [
+    "runPrompt",
+    "wrapUntrusted",
+    "untrusted",
+    "neutralize",
+    "@/lib/llm"
+   ]
+  }
+ ],
+ "declined": [],
+ "consults": [
+  {
+   "ts": "2026-11-10T23:25:48.141238+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "prompt-safety"
+   ],
+   "techniques": [
+    "canary-tripwires",
+    "input-caps-and-clamps",
+    "model-output-as-untrusted",
+    "output-sanitization",
+    "payoff-removal",
+    "trusted-author-verdict-channel",
+    "untrusted-span-fencing"
+   ],
+   "deviations": 1,
+   "context": "Org Memory",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-10T23:25:48.141238+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "prompt-safety"
+   ],
+   "techniques": [
+    "untrusted-span-fencing"
+   ],
+   "deviations": 0,
+   "context": "Dev Inspector",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

@@ -2457,7 +2457,11 @@
           "revision": 8,
           "changedAt": "2026-10-27",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "not-applicable",
+          "evidence": "src/lib/dev/fleet-seed.ts:243 The dev seed routes write fabricated rows stamped with a mock engine and never call a model, and the inspector only copies path:line strings to the clipboard. A grep over src/app/_dev-inspector, src/app/api/dev and src/lib/dev found no runPrompt, wrapUntrusted, untrusted, neutralize or @/lib/llm import, so no untrusted span ever reaches a prompt here.",
+          "evaluatedAt": "2026-11-10",
+          "evaluatedAgainst": "sha256-b2:33b072141695f2eb",
+          "evaluatedRevision": 8
         },
         {
           "subject": "embedded-preview",
@@ -7379,7 +7383,11 @@
           "revision": 8,
           "changedAt": "2026-10-27",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/memory/consolidation.ts:331 The write-check model response goes straight into parseVerdict and is never passed through the existing screenModelOutput boundary-machinery screen, which has no non-test caller anywhere in src; a run that echoes the fence or reproduces the boundary header is therefore never detected or quarantined on the memory path.",
+          "evaluatedAt": "2026-11-10",
+          "evaluatedAgainst": "sha256-b2:33b072141695f2eb",
+          "evaluatedRevision": 8
         },
         {
           "subject": "conversation-orchestration",
