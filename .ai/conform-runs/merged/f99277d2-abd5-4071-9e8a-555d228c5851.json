@@ -1,0 +1,70 @@
+{
+ "schema": "conform-run/1",
+ "worker": "f99277d2-abd5-4071-9e8a-555d228c5851",
+ "subject": "test-harness",
+ "evaluatedAt": "2026-11-10T23:20:29.908935+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Repo Report Shell & Tabs",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/report/[owner]/[repo]/opengraph-image.doors.test.ts:11 The route claims an unfurl can never fail (opengraph-image.tsx:12), but its element tree is input for a foreign renderer (satori via next/og) that no test in the repo ever runs (both tests touching next/og mock ImageResponse), so a card satori would reject still passes every assertion.",
+   "techniques": [
+    {
+     "technique": "assert-through-the-reader",
+     "verdict": "deviation",
+     "evidence": "src/app/report/[owner]/[repo]/opengraph-image.doors.test.ts:11 Asserts which card element was built, the near-side check. The renderer is installed and costs about a unit test to run, yet it is replaced. A grep of all tests for next/og, satori and ImageResponse finds only mocks."
+    },
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "conformant",
+     "evidence": "src/app/report/[owner]/[repo]/page.unreachable.test.tsx:30 The outage test runs the real readers and the real dbReadSafe/dbReadStrict wrappers, and fakes only the Prisma client. Its header records that the earlier wholesale-mock fixture had forked from the driver and hidden the defect."
+    },
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "conformant",
+     "evidence": "src/app/report/[owner]/[repo]/page.unreachable.test.tsx:129 Asserts which producer answered (the typed unavailable error that reached telemetry), not only the rendered notice. Line 141 also pins that the non-strict path still degrades to null."
+    },
+    {
+     "technique": "live-app-harness",
+     "verdict": "conformant",
+     "evidence": "e2e/scan.spec.ts:92 Playwright drives /report on the real dev server and reads the result back through data-testid=\"report\"."
+    }
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "test-harness",
+   "context": "Trends & Comparison",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "test-harness",
+   "context": "Launch Fleet Map",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-10T23:20:29.908935+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "assert-through-the-reader",
+    "live-app-harness",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "Repo Report Shell & Tabs",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
