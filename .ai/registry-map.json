@@ -11302,7 +11302,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/components/landing/prism/PrismHero.tsx:48 The Prism redesign changed the hero h1 and turned 'Scan a repository' into a link (PrismScanLink), but the live-app smoke that CI and the post-deploy job run still finds the hero by old copy and an old role. The harness was not moved with the product, and the landing's only live-lane check cannot pass against the shipped page.",
+          "evaluatedAt": "2026-11-10",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "voice-io",

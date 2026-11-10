@@ -1,0 +1,109 @@
+{
+ "schema": "conform-run/1",
+ "worker": "51f38e09-8fd8-4d96-a0e4-8a493e72ae21",
+ "subject": "test-harness",
+ "evaluatedAt": "2026-11-10T23:00:12.611032+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Repo Report Shell & Tabs",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/report/[owner]/[repo]/opengraph-image.doors.test.ts:11 The permalink's social card is JSX for an outside renderer (next/og / satori) that has its own rules, and the only tests of this route swap that renderer for a recorder (the share-card failure test makes it throw), so no lane checks that the renderer accepts the real card. That leaves the route's 'an unfurl can NEVER fail' claim (opengraph-image.tsx:12) asserted only on the near side.",
+   "techniques": [
+    {
+     "technique": "assert-through-the-reader",
+     "verdict": "deviation",
+     "evidence": "src/app/report/[owner]/[repo]/opengraph-image.doors.test.ts:11 The test reads which card element was built 'without rasterising anything'. The renderer is available in the lane and is never run on the real ReportShareCard."
+    },
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "conformant",
+     "evidence": "src/app/report/[owner]/[repo]/page.unreachable.test.tsx:9 The file names the producer the earlier tests asserted against and now runs the real readers and dbReadSafe, so the null-on-outage decision is actually reached."
+    },
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "conformant",
+     "evidence": "src/app/report/[owner]/[repo]/page.unreachable.test.tsx:30 The only fake is the Prisma client. The shipped reader and wrapper chain is used instead of a convenience stub that forks it."
+    }
+   ]
+  },
+  {
+   "context": "Landing Page",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/components/landing/prism/PrismHero.tsx:48 The Prism redesign changed the hero h1 and turned 'Scan a repository' into a link (PrismScanLink), but the live-app smoke that CI and the post-deploy job run still finds the hero by old copy and an old role. The harness was not moved with the product, and the landing's only live-lane check cannot pass against the shipped page.",
+   "techniques": [
+    {
+     "technique": "live-app-harness",
+     "verdict": "deviation",
+     "evidence": "e2e/scan.spec.ts:11 The test finds the hero by display copy, not a stable identifier. That copy no longer exists anywhere in src, and the visible CTA is now a link, not a button (scan.spec.ts:13). The product changed without its harness."
+    },
+    {
+     "technique": "assert-the-schedule-not-the-stopwatch",
+     "verdict": "conformant",
+     "evidence": "src/components/landing/prism/PrismLadder.dom.test.tsx:12 The swap beat is flushed by advancing fake timers, not by waiting on real time."
+    },
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "conformant",
+     "evidence": "src/components/landing/prism/PrismLanding.smoke.test.tsx:14 The stub says what it leaves out and limits its claim to mounting."
+    }
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "test-harness",
+   "context": "Trends & Comparison",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "test-harness",
+   "context": "Score Charts & Visuals",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "test-harness",
+   "context": "Launch Fleet Map",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-10T23:00:12.611032+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "assert-through-the-reader",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "Repo Report Shell & Tabs",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-10T23:00:12.611032+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "assert-the-schedule-not-the-stopwatch",
+    "live-app-harness"
+   ],
+   "deviations": 1,
+   "context": "Landing Page",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

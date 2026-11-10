@@ -11912,6 +11912,32 @@
         }
       ],
       "registryProposal": "recorded-interaction-fixtures is written from the outbound-client side; an inbound variant (provider-delivered webhooks, where the 'recording' is a captured delivery and its schema version is the event's API version header) would make the technique's precondition easier to recognize on webhook receivers."
+    },
+    "Marketing Site & Design System/Landing Page/test-harness": {
+      "context": "Landing Page",
+      "subject": "test-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-10",
+      "evaluatedTs": "2026-11-10T23:00:12.611Z",
+      "worker": "51f38e09-8fd8-4d96-a0e4-8a493e72ae21",
+      "techniques": [
+        {
+          "technique": "live-app-harness",
+          "verdict": "deviation",
+          "evidence": "e2e/scan.spec.ts:11 The test finds the hero by display copy, not a stable identifier. That copy no longer exists anywhere in src, and the visible CTA is now a link, not a button (scan.spec.ts:13). The product changed without its harness."
+        },
+        {
+          "technique": "assert-the-schedule-not-the-stopwatch",
+          "verdict": "conformant",
+          "evidence": "src/components/landing/prism/PrismLadder.dom.test.tsx:12 The swap beat is flushed by advancing fake timers, not by waiting on real time."
+        },
+        {
+          "technique": "a-test-helper-is-a-fork-of-the-driver",
+          "verdict": "conformant",
+          "evidence": "src/components/landing/prism/PrismLanding.smoke.test.tsx:14 The stub says what it leaves out and limits its claim to mounting."
+        }
+      ]
     }
   }
 }
