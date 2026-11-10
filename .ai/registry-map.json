@@ -8238,7 +8238,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/pdf/report-document.test.ts:621 The PDF export is asserted only on the near side: element-tree text, plus a non-empty buffer that starts with %PDF-. No test reads the rendered PDF back, so the hard-coded '⚠' at src/lib/pdf/report-document.tsx:115 is pinned as present in the tree (test line 282) even though the repo's own latin1 rule says Helvetica drops glyphs above U+00FF.",
+          "evaluatedAt": "2026-11-10",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "prompt-assembly",

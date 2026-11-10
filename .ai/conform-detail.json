@@ -11670,6 +11670,33 @@
           "evidence": "src/lib/alerts.test.ts:70 The cooldown window is proved with an injected clock value, not wall time, so load cannot make it flake."
         }
       ]
+    },
+    "Reporting & Visualization/PDF & LLM Export/test-harness": {
+      "context": "PDF & LLM Export",
+      "subject": "test-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-10",
+      "evaluatedTs": "2026-11-10T22:17:11.492Z",
+      "worker": "efebd4f5-378d-4ad8-a472-36f50d1296dc",
+      "techniques": [
+        {
+          "technique": "assert-through-the-reader",
+          "verdict": "deviation",
+          "evidence": "src/lib/pdf/report-document.test.ts:621 The oracle is the bytes' magic header, not a PDF reader. Text extraction over the rendered buffer would show whether the warning glyph and the latin1Safe output survive."
+        },
+        {
+          "technique": "proved-off-the-path",
+          "verdict": "conformant",
+          "evidence": "src/app/api/report/llm/route.test.ts:6 The route test runs the shipped generator rather than a twin, and the header test reads the same function back from the UI end."
+        },
+        {
+          "technique": "unreached-decisions-pin-nothing",
+          "verdict": "conformant",
+          "evidence": "src/app/api/report/llm/route.failures.test.ts:39 The 503 mapping is pinned together with the strict-read producer, so a default reader that returns null and yields a 404 cannot pass."
+        }
+      ],
+      "registryProposal": "assert-through-the-reader is written around shells and VCS tools. A binary document format such as PDF, written through a font that cannot encode some glyphs, fits the same law: the claim belongs to the viewer or text extractor. A short note in the technique that document formats are in scope would stop seats from reading the technique as shell-only."
     }
   }
 }

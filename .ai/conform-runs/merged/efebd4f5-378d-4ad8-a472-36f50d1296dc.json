@@ -1,0 +1,75 @@
+{
+ "schema": "conform-run/1",
+ "worker": "efebd4f5-378d-4ad8-a472-36f50d1296dc",
+ "subject": "test-harness",
+ "evaluatedAt": "2026-11-10T22:17:11.492845+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "PDF & LLM Export",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/pdf/report-document.test.ts:621 The PDF export is asserted only on the near side: element-tree text, plus a non-empty buffer that starts with %PDF-. No test reads the rendered PDF back, so the hard-coded '\u26a0' at src/lib/pdf/report-document.tsx:115 is pinned as present in the tree (test line 282) even though the repo's own latin1 rule says Helvetica drops glyphs above U+00FF.",
+   "techniques": [
+    {
+     "technique": "assert-through-the-reader",
+     "verdict": "deviation",
+     "evidence": "src/lib/pdf/report-document.test.ts:621 The oracle is the bytes' magic header, not a PDF reader. Text extraction over the rendered buffer would show whether the warning glyph and the latin1Safe output survive."
+    },
+    {
+     "technique": "proved-off-the-path",
+     "verdict": "conformant",
+     "evidence": "src/app/api/report/llm/route.test.ts:6 The route test runs the shipped generator rather than a twin, and the header test reads the same function back from the UI end."
+    },
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "conformant",
+     "evidence": "src/app/api/report/llm/route.failures.test.ts:39 The 503 mapping is pinned together with the strict-read producer, so a default reader that returns null and yields a 404 cannot pass."
+    }
+   ],
+   "registryProposal": "assert-through-the-reader is written around shells and VCS tools. A binary document format such as PDF, written through a font that cannot encode some glyphs, fits the same law: the claim belongs to the viewer or text extractor. A short note in the technique that document formats are in scope would stop seats from reading the technique as shell-only."
+  }
+ ],
+ "declined": [
+  {
+   "subject": "test-harness",
+   "context": "Repo Report Shell & Tabs",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "test-harness",
+   "context": "Trends & Comparison",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "test-harness",
+   "context": "Data Retention & Purge",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "test-harness",
+   "context": "Repositories & Segments",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-10T22:17:11.492845+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "assert-through-the-reader",
+    "proved-off-the-path",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "PDF & LLM Export",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
