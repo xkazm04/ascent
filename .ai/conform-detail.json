@@ -11938,6 +11938,63 @@
           "evidence": "src/components/landing/prism/PrismLanding.smoke.test.tsx:14 The stub says what it leaves out and limits its claim to mounting."
         }
       ]
+    },
+    "Reporting & Visualization/Score Charts & Visuals/test-harness": {
+      "context": "Score Charts & Visuals",
+      "subject": "test-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-10",
+      "evaluatedTs": "2026-11-10T23:07:32.244Z",
+      "worker": "ac927d53-a143-49bc-861f-a3cf27aee635",
+      "techniques": [
+        {
+          "technique": "unreached-decisions-pin-nothing",
+          "verdict": "deviation",
+          "evidence": "src/components/report/dimensionShareParity.test.ts:53 The rule 'when a condition is extracted into a shared predicate, assert its adoption' is not met: the suite drives the predicate and supplies its output at the call site, so the adoption in DimensionExplorer is never reached. Reach probe: remove shares.get(d.id) at DimensionExplorer.tsx:37 and nothing in the suite fails."
+        },
+        {
+          "technique": "proved-off-the-path",
+          "verdict": "not-applicable",
+          "evidence": "src/components/report/DimensionExplorer.tsx:36 Production does take this composition, so this is not a path that only the test builds. The defect is the unpinned adoption recorded above."
+        }
+      ]
+    },
+    "Onboarding, Shell & AI Standard/Dev Inspector/test-harness": {
+      "context": "Dev Inspector",
+      "subject": "test-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-10",
+      "evaluatedTs": "2026-11-10T23:07:32.244Z",
+      "worker": "ac927d53-a143-49bc-861f-a3cf27aee635",
+      "techniques": [
+        {
+          "technique": "unreached-decisions-pin-nothing",
+          "verdict": "deviation",
+          "evidence": "src/app/_dev-inspector/devLocate.test.ts:104 The describe name claims more than the test checks. Reach probe for that claim: add a shared root without listing it. That is the current tree (src/components/kit/), and the suite is green. Elsewhere in this context, fleet-seed.test.ts:45 does it right (it raised the count above 144 so the disambiguation branch actually runs)."
+        },
+        {
+          "technique": "assert-the-schedule-not-the-stopwatch",
+          "verdict": "conformant",
+          "evidence": "src/app/api/dev/seed-history/route.test.ts:27 Streaming order is proved with a barrier: the first NDJSON line must arrive while repo two is held. There is no wall-clock bound."
+        },
+        {
+          "technique": "fixture-economics",
+          "verdict": "conformant",
+          "evidence": "src/app/api/dev/seed-fleet/route.ts:42 Seed data goes through the product's own write path rather than raw inserts, which is what seeded-data honesty asks for. fleet-seed.test also pins that real stars and visibility are carried through."
+        },
+        {
+          "technique": "isolation-lanes",
+          "verdict": "conformant",
+          "evidence": "src/lib/dev/empty-gate.test.ts:28 The gate takes its env explicitly, so the test inherits nothing from the developer's process environment."
+        },
+        {
+          "technique": "assert-through-the-reader",
+          "verdict": "not-applicable",
+          "evidence": "src/app/_dev-inspector/devLocate.test.ts:63 This emits a command line for the VS Code CLI, which is not available in the unit lane. The test uses the fallback the technique allows: a whole-line, anchored string pin rather than a substring."
+        }
+      ]
     }
   }
 }

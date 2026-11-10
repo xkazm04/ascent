@@ -2505,7 +2505,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/app/_dev-inspector/devLocate.test.ts:104 The guard only checks that each declared root exists (declared to disk), never that each shared root on disk is declared. src/components/kit/ exists and AGENTS.md names it as a shared root, yet it is absent from LIBRARY_ROOTS (devLocate.ts:57-62), and the guard named 'tracks the real repo layout' is green.",
+          "evaluatedAt": "2026-11-10",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "prompt-assembly",
@@ -8885,7 +8889,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/components/report/dimensionShareParity.test.ts:53 The parity gate computes dimensionShares and passes the share into dimFacts/DimensionDetail itself. No test drives DimensionExplorer, so if the production call site (DimensionExplorer.tsx:37) dropped the share, dimFacts would fall back to the raw lens weight (dimensionExplorerDerive.ts:45) and the gate that 'keeps either side from re-forking' would stay green.",
+          "evaluatedAt": "2026-11-10",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "eval-harness",
