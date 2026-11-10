@@ -11843,6 +11843,75 @@
           "evidence": "src/lib/org/briefing.test.ts:1655 An absence pin over the unstripped source of a renderable card, so a comment naming g.etaDays turns it red. The same file shows the house-conformant form at line 1787 (comments stripped, construct-shaped needle)."
         }
       ]
+    },
+    "Marketing Site & Design System/Design System: UI Primitives & Deck/test-harness": {
+      "context": "Design System: UI Primitives & Deck",
+      "subject": "test-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-10",
+      "evaluatedTs": "2026-11-10T22:48:54.342Z",
+      "worker": "cb206a43-7199-43de-8851-69d74b187845",
+      "techniques": [
+        {
+          "technique": "pin-the-call-not-the-name",
+          "verdict": "deviation",
+          "evidence": "src/components/ui/format.test.ts:56 The haystack is the whole file read as text, with no comment stripping and no notion of cascade. Any one occurrence satisfies toContain, so the predicate does not read the construct for the resource the rule is about: the resolved token value."
+        },
+        {
+          "technique": "unreached-decisions-pin-nothing",
+          "verdict": "deviation",
+          "evidence": "src/components/ui/format.test.ts:53 The test name overstates. Pairing is already broken for flat by the :root override at globals.css:213, whose own comment says it works around this pin. Per the technique, an overstating name is renamed as part of the fix."
+        },
+        {
+          "technique": "negative-control-tests",
+          "verdict": "conformant",
+          "evidence": "src/components/deck/Reveal.test.tsx:20 Output is quieted inside the one test body that needs it, with the reason written above it (lines 17-19). It is not done in shared setup or through a process-global hook, which is the technique's rule for keeping the failure channel open."
+        },
+        {
+          "technique": "a-test-helper-is-a-fork-of-the-driver",
+          "verdict": "conformant",
+          "evidence": "src/components/deck/Reveal.test.tsx:19 The SSR assertion runs under jsdom, so it forks from production on the mode axis. The test names the fork, and with no effects run by renderToStaticMarkup it cannot change the asserted markup."
+        }
+      ],
+      "registryProposal": "pin-the-call-not-the-name could name declarative cascades: in CSS custom properties, layered @theme blocks and later :root overrides, the first textual declaration is not the effective value, so a token-pairing pin must resolve precedence (or read the built stylesheet) rather than match declaration text."
+    },
+    "Identity & GitHub Connectivity/GitHub App Installation & Webhooks/test-harness": {
+      "context": "GitHub App Installation & Webhooks",
+      "subject": "test-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-10",
+      "evaluatedTs": "2026-11-10T22:48:54.342Z",
+      "worker": "cb206a43-7199-43de-8851-69d74b187845",
+      "techniques": [
+        {
+          "technique": "recorded-interaction-fixtures",
+          "verdict": "deviation",
+          "evidence": "src/lib/github/app.test.ts:101 These are hand-written fakes of a service someone else operates. The multi-page listing and webhook event shapes are not 'trivial enough to fake honestly'. A search for cassettes, msw, nock or Polly found none for GitHub, and the connect e2e mocks every network call."
+        },
+        {
+          "technique": "a-test-helper-is-a-fork-of-the-driver",
+          "verdict": "deviation",
+          "evidence": "src/app/api/app/webhook/route.test.ts:31 This is the passing default the technique names as the worst setting. It is disclosed at line 6, line 1350 overrides it to prove the 401, and line 75 shows the suite deliberately keeps the real gate-policy merge, so the risk is bounded. The default is still 'satisfied' for the rest of the suite (~1,300 lines)."
+        },
+        {
+          "technique": "pin-the-call-not-the-name",
+          "verdict": "conformant",
+          "evidence": "src/lib/github/app.test.ts:336 The maxDuration walk strips comments and string literals (line 329), proves itself with a seeded violation and a commented-out decoy, and declares a population floor at line 349."
+        },
+        {
+          "technique": "assert-the-schedule-not-the-stopwatch",
+          "verdict": "conformant",
+          "evidence": "src/lib/github/app.test.ts:578 The 180-second reconcile cutoff is proven from the fixture's own clock (each page advances fake time) and asserted as a count of pages (18), not by wall time on the runner."
+        },
+        {
+          "technique": "unreached-decisions-pin-nothing",
+          "verdict": "conformant",
+          "evidence": "src/app/api/app/webhook/route.test.ts:1442 With the verifier stubbed, the suite still pins the value at the crossing: the exact raw bytes and the header handed to the real HMAC check, which app.test.ts drives with independently computed signatures."
+        }
+      ],
+      "registryProposal": "recorded-interaction-fixtures is written from the outbound-client side; an inbound variant (provider-delivered webhooks, where the 'recording' is a captured delivery and its schema version is the event's API version header) would make the technique's precondition easier to recognize on webhook receivers."
     }
   }
 }

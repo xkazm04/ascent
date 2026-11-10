@@ -2012,7 +2012,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/github/app.test.ts:101 Every GitHub App interaction (token mint, installation lookup, paginated repo listing, webhook payloads) is served from hand-written response models, with no recorded exchanges, no captured contract revision and no live lane. Even e2e/connect mocks GitHub \"so it can't flake on live GitHub\", so an upstream shape change cannot turn this suite red.",
+          "evaluatedAt": "2026-11-10",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "voice-io",
@@ -11094,7 +11098,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/components/ui/format.test.ts:59 The pin claims the TS DIRECTION_TONE hexes stay paired with the CSS tokens. globals.css:213 deliberately re-points --color-tone-flat to #b7bbcc in an unlayered :root that wins over the @theme value, so the effective token no longer matches DIRECTION_TONE.flat (#94a3b8), and the text matcher stays green on the @theme line.",
+          "evaluatedAt": "2026-11-10",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "async-ui-states",
