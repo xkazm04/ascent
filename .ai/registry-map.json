@@ -3357,7 +3357,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/app/api/cron/digest/route.test.ts:100 The digest route suite mocks @/lib/alerts with hand-restated copies of real helpers (digestMovementFields, sinkKindForOrg) and with defaults that pass (dispatchAlert → true, digestHasSignal → true), so the route is tested against a fork that will not follow a change to the shipped helpers.",
+          "evaluatedAt": "2026-11-10",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "prompt-assembly",

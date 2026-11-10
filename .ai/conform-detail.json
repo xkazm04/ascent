@@ -11649,6 +11649,27 @@
       "evaluatedTs": "2026-11-09T22:56:51.730Z",
       "worker": "6d7d423b-c7ca-4540-bd8d-1f65cc81cebe",
       "techniques": []
+    },
+    "Org Scanning & Fleet Rollups/Fleet Alerts & Digests/test-harness": {
+      "context": "Fleet Alerts & Digests",
+      "subject": "test-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-10",
+      "evaluatedTs": "2026-11-10T22:06:07.984Z",
+      "worker": "3075feca-bd3a-4e06-bf2c-6ef80733b735",
+      "techniques": [
+        {
+          "technique": "a-test-helper-is-a-fork-of-the-driver",
+          "verdict": "deviation",
+          "evidence": "src/app/api/cron/digest/route.test.ts:100 The mock re-implements digestMovementFields; the real one (src/lib/alerts.ts:163) goes through isMeasurableDigestCohort. The rule is to share the construction function instead (importActual), and the fake also defaults to 'satisfied' (line 99, digestHasSignal → true)."
+        },
+        {
+          "technique": "assert-the-schedule-not-the-stopwatch",
+          "verdict": "conformant",
+          "evidence": "src/lib/alerts.test.ts:70 The cooldown window is proved with an injected clock value, not wall time, so load cannot make it flake."
+        }
+      ]
     }
   }
 }
