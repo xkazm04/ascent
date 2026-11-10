@@ -11770,6 +11770,79 @@
         }
       ],
       "registryProposal": "recorded-interaction-fixtures covers outbound calls to a service someone else operates. It does not address an inbound push from a third-party producer (OTLP from a vendor CLI), where the hand-synthesized payload in otlp.test.ts ages against upstream metric-name changes in the same way. The technique could say whether a captured inbound payload counts as a recorded interaction."
+    },
+    "Org Dashboard & Analytics/Repositories & Segments/test-harness": {
+      "context": "Repositories & Segments",
+      "subject": "test-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-10",
+      "evaluatedTs": "2026-11-10T22:35:55.463Z",
+      "worker": "6a1c8b06-b37f-4f4b-bd6b-a5a35068fd44",
+      "techniques": [
+        {
+          "technique": "a-test-helper-is-a-fork-of-the-driver",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/segments.test.ts:157 The fake re-implements the store and answers with a passing default (count 0 = 'nothing changed'). Constraint and conflict behaviour, which the technique calls the mode axis, never runs."
+        },
+        {
+          "technique": "unreached-decisions-pin-nothing",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/segments.test.ts:444 The 0 asserted for an idempotent re-tag comes from the fixture's createCount, not from the database skipping duplicates. Two producers can yield it, and the test cannot tell which one did (it does also check the skipDuplicates flag is passed)."
+        }
+      ]
+    },
+    "Marketing Site & Design System/Marketing About Page/test-harness": {
+      "context": "Marketing About Page",
+      "subject": "test-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-10",
+      "evaluatedTs": "2026-11-10T22:35:55.463Z",
+      "worker": "6a1c8b06-b37f-4f4b-bd6b-a5a35068fd44",
+      "techniques": [
+        {
+          "technique": "pin-the-call-not-the-name",
+          "verdict": "deviation",
+          "evidence": "src/app/about/page.test.ts:41 The haystack is unstripped and the needle ('highest-ROI') is pure prose. The hero pin at line 68 likewise reads AboutHero.tsx source, while AboutHero.dom.test.tsx already renders that lede, and the technique says to execute where the site can be executed."
+        },
+        {
+          "technique": "derived-selection-must-be-measured",
+          "verdict": "conformant",
+          "evidence": "src/app/about/page.test.ts:40 The source walk declares a floor, so a walk that selects zero files fails instead of reporting a clean tree."
+        }
+      ]
+    },
+    "Org Planning & Execution/Executive Briefing/test-harness": {
+      "context": "Executive Briefing",
+      "subject": "test-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-10",
+      "evaluatedTs": "2026-11-10T22:35:55.463Z",
+      "worker": "6a1c8b06-b37f-4f4b-bd6b-a5a35068fd44",
+      "techniques": [
+        {
+          "technique": "unreached-decisions-pin-nothing",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/briefing-narrative.test.ts:424 The test name claims the cutoff, but the generic catch-all fallback answers instead. The file header (line 36) says the timeout wrapper is under test, yet no case drives it to its deadline."
+        },
+        {
+          "technique": "a-test-helper-is-a-fork-of-the-driver",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/briefing-narrative.test.ts:47 The seam is mocked only at the selection layer. The production metering/timeout wrapper is imported for real rather than re-implemented in the test."
+        },
+        {
+          "technique": "isolation-lanes",
+          "verdict": "conformant",
+          "evidence": "src/lib/org/briefing-narrative.test.ts:171 The flag, ANTHROPIC_API_KEY and the timeout env var are cleared before each test and restored afterwards, so the suite inherits nothing from the developer's machine."
+        },
+        {
+          "technique": "pin-the-call-not-the-name",
+          "verdict": "deviation",
+          "evidence": "src/lib/org/briefing.test.ts:1655 An absence pin over the unstripped source of a renderable card, so a comment naming g.etaDays turns it red. The same file shows the house-conformant form at line 1787 (comments stripped, construct-shaped needle)."
+        }
+      ]
     }
   }
 }

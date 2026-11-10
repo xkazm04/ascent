@@ -1,0 +1,173 @@
+{
+ "schema": "conform-run/1",
+ "worker": "6a1c8b06-b37f-4f4b-bd6b-a5a35068fd44",
+ "subject": "test-harness",
+ "evaluatedAt": "2026-11-10T22:35:55.463267+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Repo Report Shell & Tabs",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/report/[owner]/[repo]/opengraph-image.doors.test.ts:24 The permalink's social card claims 'an unfurl can never fail' (file header), but next/og's ImageResponse is replaced by a recorder and no test anywhere in src rasterises ReportShareCard/ReportShareCardFallback through the real renderer, so a card element the renderer rejects passes every test while the unfurl breaks.",
+   "techniques": [
+    {
+     "technique": "assert-through-the-reader",
+     "verdict": "deviation",
+     "evidence": "src/app/report/[owner]/[repo]/opengraph-image.doors.test.ts:24 The card element is input for another program (the OG image renderer), and the test asserts only which element was built. A grep for ReportShareCard/ImageResponse across *.test.* finds no test that runs the real renderer."
+    },
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "conformant",
+     "evidence": "src/app/report/[owner]/[repo]/page.unreachable.test.tsx:30 The outage tests run the real readers over the real dbReadSafe/dbReadStrict wrappers; only the Prisma client is fake. The file says the earlier wholesale @/lib/db mock hid the outage-to-ColdScanGate defect."
+    },
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "conformant",
+     "evidence": "src/app/report/[owner]/[repo]/page.unreachable.test.tsx:141 Both arms of the strict/non-strict decision are reached against the real reader, so the decision itself is pinned and not just a mock's answer."
+    }
+   ]
+  },
+  {
+   "context": "Repositories & Segments",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/db/segments.test.ts:157 The membership idempotency and no-duplicate claims depend on the @@unique([segmentId, repoId]) constraint plus skipDuplicates in Postgres. They are proved only against a hand-written fakePrisma whose createMany/deleteMany answer a defaulted count of 0, even though the repo already runs the real migration chain in-process (PGlite, migration-chain.test.ts).",
+   "techniques": [
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/segments.test.ts:157 The fake re-implements the store and answers with a passing default (count 0 = 'nothing changed'). Constraint and conflict behaviour, which the technique calls the mode axis, never runs."
+    },
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/segments.test.ts:444 The 0 asserted for an idempotent re-tag comes from the fixture's createCount, not from the database skipping duplicates. Two producers can yield it, and the test cannot tell which one did (it does also check the skipDuplicates flag is passed)."
+    }
+   ]
+  },
+  {
+   "context": "Marketing About Page",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/about/page.test.ts:41 The 'does not lead with ROI' pin regex-matches raw source text of every /about production file, comments included, with a needle prose can spell. A comment that explains the rule would turn it red, which is the over-matching pin the technique names. A sibling test in the same directory (AboutHero.dom.test.tsx) strips comments and renders the hero.",
+   "techniques": [
+    {
+     "technique": "pin-the-call-not-the-name",
+     "verdict": "deviation",
+     "evidence": "src/app/about/page.test.ts:41 The haystack is unstripped and the needle ('highest-ROI') is pure prose. The hero pin at line 68 likewise reads AboutHero.tsx source, while AboutHero.dom.test.tsx already renders that lede, and the technique says to execute where the site can be executed."
+    },
+    {
+     "technique": "derived-selection-must-be-measured",
+     "verdict": "conformant",
+     "evidence": "src/app/about/page.test.ts:40 The source walk declares a floor, so a walk that selects zero files fails instead of reporting a clean tree."
+    }
+   ]
+  },
+  {
+   "context": "Executive Briefing",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/org/briefing-narrative.test.ts:424 The 'falls back when the call times out' case arranges a provider that throws a timeout-shaped error, so the real deadline (BRIEFING_NARRATIVE_TIMEOUT_MS / the 20 s default passed as timeoutMs) is never reached. A grep finds no test asserting that wiring, so a hanging provider would stall the board PDF while this case stays green.",
+   "techniques": [
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "deviation",
+     "evidence": "src/lib/org/briefing-narrative.test.ts:424 The test name claims the cutoff, but the generic catch-all fallback answers instead. The file header (line 36) says the timeout wrapper is under test, yet no case drives it to its deadline."
+    },
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "conformant",
+     "evidence": "src/lib/org/briefing-narrative.test.ts:47 The seam is mocked only at the selection layer. The production metering/timeout wrapper is imported for real rather than re-implemented in the test."
+    },
+    {
+     "technique": "isolation-lanes",
+     "verdict": "conformant",
+     "evidence": "src/lib/org/briefing-narrative.test.ts:171 The flag, ANTHROPIC_API_KEY and the timeout env var are cleared before each test and restored afterwards, so the suite inherits nothing from the developer's machine."
+    },
+    {
+     "technique": "pin-the-call-not-the-name",
+     "verdict": "deviation",
+     "evidence": "src/lib/org/briefing.test.ts:1655 An absence pin over the unstripped source of a renderable card, so a comment naming g.etaDays turns it red. The same file shows the house-conformant form at line 1787 (comments stripped, construct-shaped needle)."
+    }
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "test-harness",
+   "context": "Trends & Comparison",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-10T22:35:55.463267+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "assert-through-the-reader",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "Repo Report Shell & Tabs",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-10T22:35:55.463267+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "Repositories & Segments",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-10T22:35:55.463267+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "derived-selection-must-be-measured",
+    "pin-the-call-not-the-name"
+   ],
+   "deviations": 1,
+   "context": "Marketing About Page",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  },
+  {
+   "ts": "2026-11-10T22:35:55.463267+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "isolation-lanes",
+    "pin-the-call-not-the-name",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "Executive Briefing",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}

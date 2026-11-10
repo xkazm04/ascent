@@ -4465,7 +4465,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/db/segments.test.ts:157 The membership idempotency and no-duplicate claims depend on the @@unique([segmentId, repoId]) constraint plus skipDuplicates in Postgres. They are proved only against a hand-written fakePrisma whose createMany/deleteMany answer a defaulted count of 0, even though the repo already runs the real migration chain in-process (PGlite, migration-chain.test.ts).",
+          "evaluatedAt": "2026-11-10",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "prompt-assembly",
@@ -5794,7 +5798,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/org/briefing-narrative.test.ts:424 The 'falls back when the call times out' case arranges a provider that throws a timeout-shaped error, so the real deadline (BRIEFING_NARRATIVE_TIMEOUT_MS / the 20 s default passed as timeoutMs) is never reached. A grep finds no test asserting that wiring, so a hanging provider would stall the board PDF while this case stays green.",
+          "evaluatedAt": "2026-11-10",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "docs-sync",
@@ -11403,7 +11411,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/app/about/page.test.ts:41 The 'does not lead with ROI' pin regex-matches raw source text of every /about production file, comments included, with a needle prose can spell. A comment that explains the rule would turn it red, which is the over-matching pin the technique names. A sibling test in the same directory (AboutHero.dom.test.tsx) strips comments and renders the hero.",
+          "evaluatedAt": "2026-11-10",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "module-design",
