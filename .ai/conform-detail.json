@@ -11995,6 +11995,32 @@
           "evidence": "src/app/_dev-inspector/devLocate.test.ts:63 This emits a command line for the VS Code CLI, which is not available in the unit lane. The test uses the fallback the technique allows: a whole-line, anchored string pin rather than a substring."
         }
       ]
+    },
+    "Billing, Credits & Metering/Credits & Entitlements/test-harness": {
+      "context": "Credits & Entitlements",
+      "subject": "test-harness",
+      "bundle": "software-engineering",
+      "state": "deviation",
+      "evaluatedAt": "2026-11-10",
+      "evaluatedTs": "2026-11-10T23:12:27.149Z",
+      "worker": "4fcb2e7e-175a-4a58-8480-d1bb638627a1",
+      "techniques": [
+        {
+          "technique": "unreached-decisions-pin-nothing",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/credits.test.ts:314 The decision being pinned (one idempotency key per invocation, reused across retries) is never reached, because the retry wrapper is stubbed out. The name claims a stronger guard than the assertions make."
+        },
+        {
+          "technique": "a-test-helper-is-a-fork-of-the-driver",
+          "verdict": "deviation",
+          "evidence": "src/lib/db/credits.test.ts:17 The client-module mock restates isP2002Error by hand and replaces withRetry with a single call, instead of spreading importOriginal. The fixture forks from the shipped driver on both behaviour and mode (retry)."
+        },
+        {
+          "technique": "negative-control-tests",
+          "verdict": "conformant",
+          "evidence": "src/app/api/org/credits/grant/route.test.ts:64 Each of the five mint guards is removed in turn and grantCredits is asserted never called, so each guard's test is proven able to fail."
+        }
+      ]
     }
   }
 }

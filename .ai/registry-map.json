@@ -10115,7 +10115,11 @@
           "revision": 27,
           "changedAt": "2026-10-23",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/lib/db/credits.test.ts:314 The test's name claims retry idempotency, but the suite stubs withRetry to a single call (fn => fn()), so no retry ever runs. It asserts only that a first-attempt P2002 is swallowed. If the auto:<uuid> key were moved inside the retried closure (one key per attempt), the over-refund defect this test claims to close would come back and the test would stay green.",
+          "evaluatedAt": "2026-11-10",
+          "evaluatedAgainst": "sha256-b2:a3c517733d58374b",
+          "evaluatedRevision": 29
         },
         {
           "subject": "native-shell-integration",

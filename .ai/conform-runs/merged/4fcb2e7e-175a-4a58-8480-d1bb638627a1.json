@@ -1,0 +1,69 @@
+{
+ "schema": "conform-run/1",
+ "worker": "4fcb2e7e-175a-4a58-8480-d1bb638627a1",
+ "subject": "test-harness",
+ "evaluatedAt": "2026-11-10T23:12:27.149346+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Credits & Entitlements",
+   "subject": "test-harness",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/lib/db/credits.test.ts:314 The test's name claims retry idempotency, but the suite stubs withRetry to a single call (fn => fn()), so no retry ever runs. It asserts only that a first-attempt P2002 is swallowed. If the auto:<uuid> key were moved inside the retried closure (one key per attempt), the over-refund defect this test claims to close would come back and the test would stay green.",
+   "techniques": [
+    {
+     "technique": "unreached-decisions-pin-nothing",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/credits.test.ts:314 The decision being pinned (one idempotency key per invocation, reused across retries) is never reached, because the retry wrapper is stubbed out. The name claims a stronger guard than the assertions make."
+    },
+    {
+     "technique": "a-test-helper-is-a-fork-of-the-driver",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/credits.test.ts:17 The client-module mock restates isP2002Error by hand and replaces withRetry with a single call, instead of spreading importOriginal. The fixture forks from the shipped driver on both behaviour and mode (retry)."
+    },
+    {
+     "technique": "negative-control-tests",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/credits/grant/route.test.ts:64 Each of the five mint guards is removed in turn and grantCredits is asserted never called, so each guard's test is proven able to fail."
+    }
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "test-harness",
+   "context": "Repo Report Shell & Tabs",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "test-harness",
+   "context": "Trends & Comparison",
+   "reason": "the seat returned unknown"
+  },
+  {
+   "subject": "test-harness",
+   "context": "Launch Fleet Map",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-10T23:12:27.149346+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "test-harness"
+   ],
+   "techniques": [
+    "a-test-helper-is-a-fork-of-the-driver",
+    "negative-control-tests",
+    "unreached-decisions-pin-nothing"
+   ],
+   "deviations": 1,
+   "context": "Credits & Entitlements",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
