@@ -10163,7 +10163,11 @@
           "revision": 13,
           "changedAt": "2026-09-05",
           "confidence": "probable",
-          "state": "unknown"
+          "state": "deviation",
+          "evidence": "src/app/api/billing/autorecharge/route.ts:110 The context's one stored setting is the per-org low-balance preference (rendered and saved from CreditsControl). Its change record carries only the new value, written even on no-op saves. Its legacy audit-row fallback has no reaper. A malformed or unreadable column falls through to the stale legacy row instead of stopping, and closing the popover silently discards an unsaved edit.",
+          "evaluatedAt": "2026-11-10",
+          "evaluatedAgainst": "sha256-b2:85c48ec5bdb5581f",
+          "evaluatedRevision": 13
         },
         {
           "subject": "agent-instruction-files",

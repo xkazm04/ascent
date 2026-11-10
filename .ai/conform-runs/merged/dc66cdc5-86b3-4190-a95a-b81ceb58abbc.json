@@ -1,0 +1,113 @@
+{
+ "schema": "conform-run/1",
+ "worker": "dc66cdc5-86b3-4190-a95a-b81ceb58abbc",
+ "subject": "settings",
+ "evaluatedAt": "2026-11-10T23:31:18.803509+00:00",
+ "provider": "claude",
+ "model": "claude-opus-5-5",
+ "pairs": [
+  {
+   "context": "Credits & Entitlements",
+   "subject": "settings",
+   "bundle": "software-engineering",
+   "state": "deviation",
+   "evidence": "src/app/api/billing/autorecharge/route.ts:110 The context's one stored setting is the per-org low-balance preference (rendered and saved from CreditsControl). Its change record carries only the new value, written even on no-op saves. Its legacy audit-row fallback has no reaper. A malformed or unreadable column falls through to the stale legacy row instead of stopping, and closing the popover silently discards an unsaved edit.",
+   "techniques": [
+    {
+     "technique": "settings-audit-and-history",
+     "verdict": "deviation",
+     "evidence": "src/app/api/billing/autorecharge/route.ts:110 Records key, new value, actor and time, best-effort relative to the write (correct). But there is no old value, so revert is impossible, and an identical re-save is not detected, so no-ops pollute the trail."
+    },
+    {
+     "technique": "key-registry",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/org-settings.ts:104 The storage was relocated (audit row -> autoRechargeJson column) without a migration and with no named reaper. Orgs that never re-save stay on the legacy read forever, and an audit purge can still silently revert their threshold."
+    },
+    {
+     "technique": "cross-source-precedence-chain",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/org-settings.ts:120 Declared order column -> legacy audit -> default, with provenance (source) recorded (good). But a failed column read is swallowed to null and the resolver falls past it to the legacy audit row, contradicting the line-111 claim that any read failure degrades to the default."
+    },
+    {
+     "technique": "presence-decides-precedence",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/org-settings.ts:122 `stored` is the PARSE result, so a present-but-unusable column loses to the deprecated audit-row source. Precedence is decided on value, not presence, and there is no deprecation notice or release-named retirement of the old source."
+    },
+    {
+     "technique": "typed-accessors",
+     "verdict": "deviation",
+     "evidence": "src/lib/db/org-settings.ts:145 Strong single door: getOrgAutoRecharge plus normalizeAutoRecharge clamp on read, the write door 400s an out-of-range threshold, and the default is declared with rationale. But the parse-failure branch reports nothing (no telemetry) and treats corruption as unset."
+    },
+    {
+     "technique": "save-experience",
+     "verdict": "deviation",
+     "evidence": "src/components/shared/credits/useCreditsControl.ts:54 An explicit Save button and adoption of the server's echoed value (no optimistic flip), plus an aria-live error, are conformant (CreditsControl.tsx:189 re-seeds the draft from stored). But an outside click or Escape closes the popover and unmounts a dirty draft without any unsaved-changes guard."
+    },
+    {
+     "technique": "setting-kinds",
+     "verdict": "conformant",
+     "evidence": "src/app/api/org/credits/grant/route.ts:39 The mint ceiling fails closed and cannot be raised from env. creditGrantsEnabled is a flag that defaults off with a production floor. The low-balance preference defaults off and is owner-gated. Per-kind fail directions match the table, though kinds are not declared in a registry."
+    },
+    {
+     "technique": "read-batching",
+     "verdict": "not-applicable",
+     "evidence": "src/components/shared/credits/CreditsControl.autorechargeUi.tsx:23 A single key is fetched lazily on popover open, so there is no boot-time fan-out to batch."
+    },
+    {
+     "technique": "inherited-default-override",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/autorecharge.ts:63 The threshold default is a code constant (aligned by copy with another constant), not a live upstream source the org follows."
+    },
+    {
+     "technique": "applied-defaults-ledger",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/autorecharge.ts:80 One constant default object, not a shipped collection of user-editable default entries."
+    },
+    {
+     "technique": "config-backup-and-restore",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/org-settings.ts:9 The value is held in the server DB row, not an operator-owned file with no other copy."
+    },
+    {
+     "technique": "in-place-document-patch",
+     "verdict": "not-applicable",
+     "evidence": "src/lib/db/org-settings.ts:142 The blob is one key's 3-field structured value, not the whole settings space as one document. Note that normalize-then-stringify drops unknown members a newer build might add."
+    }
+   ]
+  }
+ ],
+ "declined": [
+  {
+   "subject": "settings",
+   "context": "GitHub App Installation & Webhooks",
+   "reason": "the seat returned unknown"
+  }
+ ],
+ "consults": [
+  {
+   "ts": "2026-11-10T23:31:18.803509+00:00",
+   "bundle": "software-engineering",
+   "subjects": [
+    "settings"
+   ],
+   "techniques": [
+    "applied-defaults-ledger",
+    "config-backup-and-restore",
+    "cross-source-precedence-chain",
+    "in-place-document-patch",
+    "inherited-default-override",
+    "key-registry",
+    "presence-decides-precedence",
+    "read-batching",
+    "save-experience",
+    "setting-kinds",
+    "settings-audit-and-history",
+    "typed-accessors"
+   ],
+   "deviations": 1,
+   "context": "Credits & Entitlements",
+   "via": "curator-multi:claude",
+   "model": "claude-opus-5-5"
+  }
+ ]
+}
